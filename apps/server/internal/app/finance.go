@@ -1,0 +1,588 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
+)
+
+var financeCollections = []string{"accounts", "transactions", "checkpoints", "budgets", "assets", "goals"}
+
+var financeFields = map[string]map[string]bool{
+	"accounts": {
+		"name": true, "type": true, "currency": true, "opening_balance": true,
+		"opening_balance_date": true, "notes": true, "archived": true,
+	},
+	"transactions": {
+		"account": true, "date": true, "amount": true, "type": true, "payee": true, "description": true,
+		"category": true, "budget": true, "tags": true, "attachments": true, "receipt": true,
+		"asset": true, "receivable": true, "notes": true, "transfer_id": true, "cleared": true, "reconciled": true,
+	},
+	"checkpoints": {
+		"account": true, "date": true, "balance": true, "note": true,
+	},
+	"budgets": {
+		"name": true, "category": true, "amount": true, "start_date": true,
+		"end_date": true, "notes": true, "archived": true,
+	},
+	"assets": {
+		"name": true, "type": true, "value": true, "quantity": true, "currency": true, "purchase_date": true,
+		"purchase_price": true, "purchase_transaction": true, "target_sale_price": true, "as_of": true,
+		"notes": true, "status": true, "archived": true,
+	},
+	"goals": {
+		"name": true, "target_amount": true, "current_amount": true, "target_date": true,
+		"account": true, "notes": true, "completed": true,
+	},
+}
+
+// registerFinanceAPI documents the finance endpoints. The handlers use
+// PocketBase's request event so the same auth token works for SDK and custom API calls.
+func registerFinanceAPI(api huma.API) {
+	for _, collection := range financeCollections {
+		name := collection
+		huma.Register(api, huma.Operation{
+			OperationID: "listFinance" + strings.Title(name),
+			Method:      http.MethodGet,
+			Path:        "/api/finance/" + name,
+			Tags:        []string{"Finance"},
+			Summary:     "List the current user's " + name,
+			Security:    []map[string][]string{{"pocketbaseAuth": {}}},
+		}, func(context.Context, *struct{}) (*struct{ Body []map[string]any }, error) {
+			return nil, nil
+		})
+	}
+}
+
+func registerFinanceHooks(pb *pocketbase.PocketBase) {
+	pb.OnRecordUpdateRequest("checkpoints").BindFunc(func(event *core.RecordRequestEvent) error {
+		if event.HasSuperuserAuth() || checkpointConfirmationPresent(event.Request) {
+			return event.Next()
+		}
+		return event.BadRequestError("checkpoints are immutable; pass confirm=... to change one", nil)
+	})
+	pb.OnRecordDeleteRequest("checkpoints").BindFunc(func(event *core.RecordRequestEvent) error {
+		if event.HasSuperuserAuth() || checkpointConfirmationPresent(event.Request) {
+			return event.Next()
+		}
+		return event.BadRequestError("checkpoints are immutable; pass confirm=... to delete one", nil)
+	})
+}
+
+func checkpointConfirmationPresent(request *http.Request) bool {
+	_, present := request.URL.Query()["confirm"]
+	return present
+}
+
+func registerFinanceRoutes(e *core.ServeEvent) {
+	// /api/finance is the documented path. The short paths keep the API easy to
+	// use for clients that already use /api/{resource} custom endpoints.
+	for _, prefix := range []string{"/api/finance", "/api"} {
+		registerFinanceResourceRoutes(e, prefix)
+	}
+}
+
+func registerFinanceResourceRoutes(e *core.ServeEvent, prefix string) {
+	for _, collection := range financeCollections {
+		name := collection
+		path := prefix + "/" + name
+		e.Router.GET(path, func(event *core.RequestEvent) error {
+			return listFinanceRecords(event, name)
+		})
+		e.Router.POST(path, func(event *core.RequestEvent) error {
+			return createFinanceRecord(event, name)
+		})
+		e.Router.GET(path+"/{id}", func(event *core.RequestEvent) error {
+			return getFinanceRecord(event, name)
+		})
+		e.Router.PATCH(path+"/{id}", func(event *core.RequestEvent) error {
+			return updateFinanceRecord(event, name)
+		})
+		e.Router.PUT(path+"/{id}", func(event *core.RequestEvent) error {
+			return updateFinanceRecord(event, name)
+		})
+		e.Router.DELETE(path+"/{id}", func(event *core.RequestEvent) error {
+			return deleteFinanceRecord(event, name)
+		})
+	}
+
+	e.Router.GET(prefix+"/accounts/{id}/summary", accountSummaryRoute)
+	e.Router.POST(prefix+"/accounts/{id}/reconcile", reconcileAccountRoute)
+}
+
+func listFinanceRecords(event *core.RequestEvent, collection string) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	filter := "owner = {:owner}"
+	params := dbx.Params{"owner": user.Id}
+	if account := event.Request.URL.Query().Get("account"); account != "" {
+		switch collection {
+		case "transactions", "checkpoints", "goals":
+			filter += " && account = {:account}"
+			params["account"] = account
+		}
+	}
+
+	records, err := event.App.FindRecordsByFilter(collection, filter, financeSort(collection), 0, 0, params)
+	if err != nil {
+		return err
+	}
+	result := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		response, err := financeRecordResponse(event.App, collection, record, user.Id)
+		if err != nil {
+			return err
+		}
+		result = append(result, response)
+	}
+	return event.JSON(http.StatusOK, result)
+}
+
+func getFinanceRecord(event *core.RequestEvent, collection string) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	record, err := ownedFinanceRecord(event, collection, user.Id)
+	if err != nil {
+		return err
+	}
+	response, err := financeRecordResponse(event.App, collection, record, user.Id)
+	if err != nil {
+		return err
+	}
+	return event.JSON(http.StatusOK, response)
+}
+
+func createFinanceRecord(event *core.RequestEvent, collection string) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	input, err := financeInput(event)
+	if err != nil {
+		return err
+	}
+	if err := validateFinanceLinks(event, collection, input, nil, user.Id); err != nil {
+		return event.BadRequestError(err.Error(), nil)
+	}
+	definition, err := event.App.FindCollectionByNameOrId(collection)
+	if err != nil {
+		return err
+	}
+	record := core.NewRecord(definition)
+	record.Set("owner", user.Id)
+	applyFinanceInput(record, collection, input)
+	if collection == "transactions" {
+		if err := validateTransactionWrite(event.App, record, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+	}
+	if err := event.App.Save(record); err != nil {
+		return err
+	}
+	response, err := financeRecordResponse(event.App, collection, record, user.Id)
+	if err != nil {
+		return err
+	}
+	return event.JSON(http.StatusCreated, response)
+}
+
+func updateFinanceRecord(event *core.RequestEvent, collection string) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	if collection == "checkpoints" && !checkpointConfirmationPresent(event.Request) {
+		return event.BadRequestError("checkpoints are immutable; pass confirm=... to change one", nil)
+	}
+	record, err := ownedFinanceRecord(event, collection, user.Id)
+	if err != nil {
+		return err
+	}
+	input, err := financeInput(event)
+	if err != nil {
+		return err
+	}
+	if err := validateFinanceLinks(event, collection, input, record, user.Id); err != nil {
+		return event.BadRequestError(err.Error(), nil)
+	}
+	applyFinanceInput(record, collection, input)
+	record.Set("owner", user.Id)
+	if collection == "transactions" {
+		if err := validateTransactionWrite(event.App, record, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+	}
+	if err := event.App.Save(record); err != nil {
+		return err
+	}
+	response, err := financeRecordResponse(event.App, collection, record, user.Id)
+	if err != nil {
+		return err
+	}
+	return event.JSON(http.StatusOK, response)
+}
+
+func deleteFinanceRecord(event *core.RequestEvent, collection string) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	if collection == "checkpoints" && !checkpointConfirmationPresent(event.Request) {
+		return event.BadRequestError("checkpoints are immutable; pass confirm=... to delete one", nil)
+	}
+	record, err := ownedFinanceRecord(event, collection, user.Id)
+	if err != nil {
+		return err
+	}
+	if err := event.App.Delete(record); err != nil {
+		return err
+	}
+	return event.NoContent(http.StatusNoContent)
+}
+
+func reconcileAccountRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	account, err := ownedFinanceRecord(event, "accounts", user.Id)
+	if err != nil {
+		return err
+	}
+	transactions, err := event.App.FindRecordsByFilter("transactions", "owner = {:owner} && account = {:account}", "date,id", 0, 0, dbx.Params{
+		"owner": user.Id, "account": account.Id,
+	})
+	if err != nil {
+		return err
+	}
+	checkpoints, err := event.App.FindRecordsByFilter("checkpoints", "owner = {:owner} && account = {:account}", "date", 0, 0, dbx.Params{
+		"owner": user.Id, "account": account.Id,
+	})
+	if err != nil {
+		return err
+	}
+	for _, window := range checkpointWindows(account, checkpoints, transactions) {
+		amount := window["unexplained"].(float64)
+		if moneyEqual(amount, 0) {
+			continue
+		}
+		checkpointID, _ := window["toCheckpoint"].(string)
+		checkpoint, err := event.App.FindRecordById("checkpoints", checkpointID)
+		if err != nil || checkpoint.GetString("owner") != user.Id || checkpoint.GetString("account") != account.Id {
+			return event.NotFoundError("checkpoint not found", nil)
+		}
+		definition, err := event.App.FindCollectionByNameOrId("transactions")
+		if err != nil {
+			return err
+		}
+		record := core.NewRecord(definition)
+		record.Set("owner", user.Id)
+		record.Set("account", account.Id)
+		record.Set("date", checkpoint.Get("date"))
+		record.Set("amount", amount)
+		record.Set("type", "miscellaneous_reconciliation")
+		record.Set("category", "Miscellaneous")
+		record.Set("payee", "Miscellaneous reconciliation")
+		record.Set("reconciled", true)
+		record.Set("cleared", true)
+		if err := event.App.Save(record); err != nil {
+			return err
+		}
+		response, err := financeRecordResponse(event.App, "transactions", record, user.Id)
+		if err != nil {
+			return err
+		}
+		return event.JSON(http.StatusCreated, response)
+	}
+	return event.BadRequestError("no unexplained checkpoint gap to reconcile", nil)
+}
+
+func accountSummaryRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	account, err := ownedFinanceRecord(event, "accounts", user.Id)
+	if err != nil {
+		return err
+	}
+	summary, err := accountSummary(event.App, account, user.Id)
+	if err != nil {
+		return err
+	}
+	return event.JSON(http.StatusOK, summary)
+}
+
+func ownedFinanceRecord(event *core.RequestEvent, collection, owner string) (*core.Record, error) {
+	record, err := event.App.FindRecordById(collection, event.Request.PathValue("id"))
+	if err != nil || record.GetString("owner") != owner {
+		return nil, event.NotFoundError(strings.TrimSuffix(collection, "s")+" not found", nil)
+	}
+	return record, nil
+}
+
+func financeInput(event *core.RequestEvent) (map[string]any, error) {
+	input := map[string]any{}
+	if err := event.BindBody(&input); err != nil {
+		return nil, event.BadRequestError("invalid request body", err)
+	}
+	return input, nil
+}
+
+func applyFinanceInput(record *core.Record, collection string, input map[string]any) {
+	for field, value := range input {
+		if field == "account_id" {
+			field = "account"
+		}
+		if financeFields[collection][field] {
+			record.Set(field, value)
+		}
+	}
+}
+
+func validateFinanceLinks(event *core.RequestEvent, collection string, input map[string]any, existing *core.Record, owner string) error {
+	accountID := ""
+	if value, ok := input["account"]; ok {
+		accountID = stringValue(value)
+	} else if value, ok := input["account_id"]; ok {
+		accountID = stringValue(value)
+	} else if existing != nil {
+		accountID = existing.GetString("account")
+	}
+
+	requiresAccount := collection == "transactions" || collection == "checkpoints"
+	if requiresAccount && accountID == "" {
+		return fmt.Errorf("%s requires an account", collection)
+	}
+	if accountID == "" {
+		return nil
+	}
+	account, err := event.App.FindRecordById("accounts", accountID)
+	if err != nil || account.GetString("owner") != owner {
+		return fmt.Errorf("account not found")
+	}
+	return nil
+}
+
+func validateTransactionWrite(app core.App, transaction *core.Record, owner string) error {
+	account, err := app.FindRecordById("accounts", transaction.GetString("account"))
+	if err != nil || account.GetString("owner") != owner {
+		return fmt.Errorf("account not found")
+	}
+	transactions, err := app.FindRecordsByFilter("transactions", "owner = {:owner} && account = {:account}", "date,id", 0, 0, dbx.Params{
+		"owner": owner, "account": account.Id,
+	})
+	if err != nil {
+		return err
+	}
+	if transaction.Id != "" {
+		filtered := transactions[:0]
+		for _, existing := range transactions {
+			if existing.Id != transaction.Id {
+				filtered = append(filtered, existing)
+			}
+		}
+		transactions = filtered
+	}
+	checkpoints, err := app.FindRecordsByFilter("checkpoints", "owner = {:owner} && account = {:account}", "date", 0, 0, dbx.Params{
+		"owner": owner, "account": account.Id,
+	})
+	if err != nil {
+		return err
+	}
+	transactionDate := transaction.GetDateTime("date").Time()
+	for _, window := range checkpointWindows(account, checkpoints, transactions) {
+		if !moneyEqual(window["unexplained"].(float64), 0) && transactionDate.After(window["toDate"].(time.Time)) {
+			return fmt.Errorf("unexplained checkpoint gaps remain; backfill older transactions or reconcile the miscellaneous amount first")
+		}
+	}
+	return nil
+}
+
+func stringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func financeSort(collection string) string {
+	switch collection {
+	case "accounts", "budgets", "goals":
+		return "name"
+	case "transactions", "checkpoints":
+		return "-date"
+	case "assets":
+		return "-as_of"
+	default:
+		return "-created"
+	}
+}
+
+func financeRecordResponse(app core.App, collection string, record *core.Record, owner string) (map[string]any, error) {
+	response := record.PublicExport()
+	if collection == "accounts" {
+		summary, err := accountSummary(app, record, owner)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range summary {
+			if key != "id" && key != "collectionId" && key != "collectionName" {
+				response[key] = value
+			}
+		}
+	}
+	return response, nil
+}
+
+func accountSummary(app core.App, account *core.Record, owner string) (map[string]any, error) {
+	transactions, err := app.FindRecordsByFilter("transactions", "owner = {:owner} && account = {:account}", "date,id", 0, 0, dbx.Params{
+		"owner": owner, "account": account.Id,
+	})
+	if err != nil {
+		return nil, err
+	}
+	checkpoints, err := app.FindRecordsByFilter("checkpoints", "owner = {:owner} && account = {:account}", "date", 0, 0, dbx.Params{
+		"owner": owner, "account": account.Id,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	opening := account.GetFloat("opening_balance")
+	balance := opening
+	clearedBalance := opening
+	reconciledBalance := opening
+	for _, transaction := range transactions {
+		amount := transaction.GetFloat("amount")
+		balance += amount
+		if transaction.GetBool("cleared") || transaction.GetBool("reconciled") {
+			clearedBalance += amount
+		}
+		if transaction.GetBool("reconciled") {
+			reconciledBalance += amount
+		}
+	}
+
+	windows := checkpointWindows(account, checkpoints, transactions)
+	miscellaneousAmount := 0.0
+	miscellaneousItems := make([]map[string]any, 0)
+	for _, window := range windows {
+		amount := window["unexplained"].(float64)
+		if moneyEqual(amount, 0) {
+			continue
+		}
+		miscellaneousAmount += amount
+		miscellaneousItems = append(miscellaneousItems, map[string]any{
+			"checkpoint": window["toCheckpoint"],
+			"date":       window["toDate"],
+			"amount":     amount,
+		})
+	}
+	result := map[string]any{
+		"balance":                  balance,
+		"miscellaneous":            map[string]any{"name": "Miscellaneous", "amount": miscellaneousAmount, "items": miscellaneousItems},
+		"clearedBalance":           clearedBalance,
+		"reconciledBalance":        reconciledBalance,
+		"transactionCount":         len(transactions),
+		"lastCheckpoint":           nil,
+		"reconciliationDifference": nil,
+		"checkpointWindows":        windows,
+	}
+	if len(checkpoints) == 0 {
+		return result, nil
+	}
+
+	latestCheckpoint := checkpoints[0]
+	for _, checkpoint := range checkpoints[1:] {
+		if checkpoint.GetDateTime("date").Time().After(latestCheckpoint.GetDateTime("date").Time()) {
+			latestCheckpoint = checkpoint
+		}
+	}
+	checkpointDate := latestCheckpoint.GetDateTime("date").Time()
+	checkpointCalculated := opening
+	for _, transaction := range transactions {
+		if !transaction.GetDateTime("date").Time().After(checkpointDate) {
+			checkpointCalculated += transaction.GetFloat("amount")
+		}
+	}
+	difference := latestCheckpoint.GetFloat("balance") - checkpointCalculated
+	checkpoint := latestCheckpoint.PublicExport()
+	checkpoint["calculatedBalance"] = checkpointCalculated
+	checkpoint["reconciliationDifference"] = difference
+	result["lastCheckpoint"] = checkpoint
+	result["reconciliationDifference"] = difference
+	return result, nil
+}
+
+func checkpointWindows(account *core.Record, checkpoints, transactions []*core.Record) []map[string]any {
+	sort.SliceStable(checkpoints, func(i, j int) bool {
+		return checkpoints[i].GetDateTime("date").Time().Before(checkpoints[j].GetDateTime("date").Time())
+	})
+	windows := make([]map[string]any, 0, len(checkpoints))
+	previousDate := account.GetDateTime("opening_balance_date").Time()
+	previousBalance := account.GetFloat("opening_balance")
+	var previousID any
+
+	for _, checkpoint := range checkpoints {
+		currentDate := checkpoint.GetDateTime("date").Time()
+		actualDelta := checkpoint.GetFloat("balance") - previousBalance
+		transactionDelta := 0.0
+		allTransactionsReconciled := true
+		for _, transaction := range transactions {
+			transactionDate := transaction.GetDateTime("date").Time()
+			if !transactionDate.After(previousDate) || transactionDate.After(currentDate) {
+				continue
+			}
+			transactionDelta += transaction.GetFloat("amount")
+			if !transaction.GetBool("reconciled") {
+				allTransactionsReconciled = false
+			}
+		}
+
+		unexplained := actualDelta - transactionDelta
+		state := "reconciled"
+		if !previousDate.IsZero() && !currentDate.After(previousDate) {
+			state = "invalid"
+		} else if !moneyEqual(actualDelta, transactionDelta) {
+			state = "invalid"
+		} else if !allTransactionsReconciled {
+			state = "incomplete"
+		}
+
+		window := map[string]any{
+			"fromCheckpoint":   previousID,
+			"toCheckpoint":     checkpoint.Id,
+			"actualDelta":      actualDelta,
+			"transactionDelta": transactionDelta,
+			"unexplained":      unexplained,
+			"state":            state,
+		}
+		if !previousDate.IsZero() {
+			window["fromDate"] = previousDate
+		}
+		window["toDate"] = currentDate
+		windows = append(windows, window)
+		previousDate = currentDate
+		previousBalance = checkpoint.GetFloat("balance")
+		previousID = checkpoint.Id
+	}
+	return windows
+}
+
+func moneyEqual(left, right float64) bool {
+	return math.Abs(left-right) < 0.000001
+}
