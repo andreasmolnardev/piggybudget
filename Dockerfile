@@ -18,7 +18,7 @@ RUN addgroup -S slopstack && adduser -S slopstack -G slopstack
 WORKDIR /app
 COPY --from=server-build /slopstack /app/slopstack
 COPY --from=web-build /src/apps/web/dist /app/public
-RUN chown -R slopstack:slopstack /app
+RUN mkdir -p /app/pb_data && chown -R slopstack:slopstack /app
 USER slopstack
 VOLUME ["/app/pb_data"]
 EXPOSE 8090
