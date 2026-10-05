@@ -28,6 +28,12 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		if err := EnsureCollections(e.App); err != nil {
 			return err
 		}
+		if err := EnsureAssetGroupCollections(e.App); err != nil {
+			return err
+		}
+		if err := EnsureTransactionAttachmentCollection(e.App); err != nil {
+			return err
+		}
 		if err := EnsureNotificationCollections(e.App); err != nil {
 			return err
 		}
@@ -39,6 +45,8 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 	protectUserAdminFlag(pb, config)
 	registerOwnershipHooks(pb)
 	registerFinanceHooks(pb)
+	RegisterAssetGroupHooks(pb)
+	RegisterTransactionAttachmentHooks(pb)
 	registerCalDAVChangeHooks(pb)
 	registerReminderScheduler(pb)
 	// Keep protocol fixtures available to the server's existing DAV tests. They
@@ -188,6 +196,8 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	registerCardDAVRoutes(e)
 	registerSearchRoutes(e)
 	registerFinanceRoutes(e)
+	RegisterAssetGroupRoutes(e)
+	RegisterTransactionAttachmentRoutes(e)
 }
 
 func registerAuthRoutes(e *core.ServeEvent, config Config) {
