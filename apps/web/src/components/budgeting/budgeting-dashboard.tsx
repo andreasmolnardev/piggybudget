@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -24,11 +24,22 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import type { RecordModel } from 'pocketbase';
 import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
-import type { Asset, Budget, BudgetData, Goal, Transaction, TransactionKind } from './data';
+import type {
+  Asset,
+  AssetGroup,
+  AssetPosition,
+  Budget,
+  BudgetData,
+  Goal,
+  Transaction,
+  TransactionKind,
+} from './data';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 export type BudgetView = SidebarTab;
 
@@ -96,15 +107,29 @@ function TransactionIcon({ kind }: { kind: TransactionKind }) {
 
 function TransactionRow({
   transaction,
+  onOpen,
   onEdit,
   onDelete,
 }: {
   transaction: Transaction;
+  onOpen?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
   return (
-    <div className="transaction-row">
+    <div
+      className="transaction-row transaction-entry"
+      role="group"
+      aria-label={`${transaction.merchant}, ${formatMoney(transaction.amount)}`}
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onOpen?.();
+        }
+      }}
+    >
       <TransactionIcon kind={transaction.kind} />
       <div className="transaction-main">
         <strong>{transaction.merchant}</strong>
@@ -119,13 +144,23 @@ function TransactionRow({
       </strong>
       {onEdit && onDelete ? (
         <span className="row-actions">
-          <button className="text-button" type="button" onClick={onEdit}>
+          <button
+            className="text-button"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit();
+            }}
+          >
             Edit
           </button>
           <button
             className="icon-button"
             type="button"
-            onClick={onDelete}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
             aria-label={`Delete ${transaction.merchant}`}
           >
             <Trash2 size={15} />
@@ -426,6 +461,7 @@ function TransactionsView({
   onAddAccount,
   onEditTransaction,
   onDeleteTransaction,
+  onOpenTransaction,
 }: {
   data: BudgetData;
   onAddTransaction: () => void;
@@ -433,21 +469,33 @@ function TransactionsView({
   onAddAccount: () => void;
   onEditTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
+  onOpenTransaction: (transaction: Transaction) => void;
 }) {
-  const [query, setQuery] = useState('');
   const [account, setAccount] = useState('All accounts');
   const [kind, setKind] = useState<'all' | TransactionKind>('all');
   const [category, setCategory] = useState('All categories');
   const [tagQuery, setTagQuery] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [addPopoverOpen, setAddPopoverOpen] = useState(false);
+  const activeFilterCount =
+    Number(account !== 'All accounts') +
+    Number(kind !== 'all') +
+    Number(category !== 'All categories') +
+    Number(Boolean(tagQuery.trim())) +
+    Number(Boolean(fromDate)) +
+    Number(Boolean(toDate));
+  const clearFilters = () => {
+    setAccount('All accounts');
+    setKind('all');
+    setCategory('All categories');
+    setTagQuery('');
+    setFromDate('');
+    setToDate('');
+  };
   const filtered = useMemo(
     () =>
       data.transactions.filter((transaction) => {
-        const matchesQuery =
-          `${transaction.merchant} ${transaction.category} ${transaction.note ?? ''} ${transaction.receivable ?? ''} ${(transaction.tags ?? []).join(' ')}`
-            .toLowerCase()
-            .includes(query.toLowerCase());
         const matchesAccount = account === 'All accounts' || transaction.account === account;
         const matchesKind = kind === 'all' || transaction.kind === kind;
         const matchesCategory = category === 'All categories' || transaction.category === category;
@@ -458,109 +506,143 @@ function TransactionsView({
           );
         const matchesDate =
           (!fromDate || transaction.date >= fromDate) && (!toDate || transaction.date <= toDate);
-        return (
-          matchesQuery &&
-          matchesAccount &&
-          matchesKind &&
-          matchesCategory &&
-          matchesTag &&
-          matchesDate
-        );
+        return matchesAccount && matchesKind && matchesCategory && matchesTag && matchesDate;
       }),
-    [account, category, data.transactions, fromDate, kind, query, tagQuery, toDate],
+    [account, category, data.transactions, fromDate, kind, tagQuery, toDate],
   );
   return (
     <>
-      <PageHeader
-        title="Transactions"
-        description="Review, search, and reconcile every movement."
-        action={
-          <div className="header-actions">
-            <button className="button" type="button" onClick={onAddAccount}>
-              <Landmark size={15} /> Add account
-            </button>
-            <button className="button" type="button" onClick={onAddCheckpoint}>
-              <CheckCircle2 size={15} /> Record checkpoint
-            </button>
-            <button className="button button-primary" type="button" onClick={onAddTransaction}>
-              <Plus size={16} /> Add transaction
-            </button>
-          </div>
-        }
-      />
+      <PageHeader title="Transactions" />
       <MoneyLentPanel transactions={data.transactions} />
-      <section className="panel transactions-panel">
+      <section className="transactions-section">
         <div className="transaction-toolbar">
-          <label className="search-field">
-            <Search size={16} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search transactions"
-              aria-label="Search transactions"
-            />
-          </label>
-          <label className="account-select">
-            <Landmark size={15} />
-            <select value={account} onChange={(event) => setAccount(event.target.value)}>
-              <option>All accounts</option>
-              {data.accounts.map((item) => (
-                <option key={item.id}>{item.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </label>
-          <div className="filter-group" role="group" aria-label="Transaction type">
-            {(['all', 'expense', 'income'] as const).map((option) => (
-              <button
-                key={option}
-                className={kind === option ? 'is-active' : ''}
-                type="button"
-                onClick={() => setKind(option)}
-              >
-                {option === 'all' ? 'All' : option === 'expense' ? 'Expenses' : 'Income'}
-              </button>
-            ))}
+          <div className="transaction-toolbar-actions">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="button transaction-filter-trigger" type="button">
+                  <SlidersHorizontal size={15} />
+                  Filters
+                  {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="transaction-filter-popover">
+                <div className="transaction-filter-heading">
+                  <strong>Filter transactions</strong>
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={clearFilters}
+                    disabled={activeFilterCount === 0}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <label className="transaction-filter-field">
+                  Account
+                  <select value={account} onChange={(event) => setAccount(event.target.value)}>
+                    <option>All accounts</option>
+                    {data.accounts.map((item) => (
+                      <option key={item.id}>{item.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="transaction-filter-field">
+                  <span>Type</span>
+                  <div className="filter-group" role="group" aria-label="Transaction type">
+                    {(['all', 'expense', 'income'] as const).map((option) => (
+                      <button
+                        key={option}
+                        className={kind === option ? 'is-active' : ''}
+                        type="button"
+                        onClick={() => setKind(option)}
+                      >
+                        {option === 'all' ? 'All' : option === 'expense' ? 'Expenses' : 'Income'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="transaction-filter-field">
+                  Category
+                  <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                    <option>All categories</option>
+                    {[...new Set(data.transactions.map((item) => item.category))]
+                      .sort()
+                      .map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                  </select>
+                </label>
+                <label className="transaction-filter-field">
+                  Tag
+                  <input
+                    value={tagQuery}
+                    onChange={(event) => setTagQuery(event.target.value)}
+                    placeholder="Filter by tag"
+                  />
+                </label>
+                <div className="transaction-date-filters">
+                  <label className="transaction-filter-field">
+                    From
+                    <input
+                      type="date"
+                      value={fromDate}
+                      onChange={(event) => setFromDate(event.target.value)}
+                      aria-label="From date"
+                    />
+                  </label>
+                  <label className="transaction-filter-field">
+                    To
+                    <input
+                      type="date"
+                      value={toDate}
+                      onChange={(event) => setToDate(event.target.value)}
+                      aria-label="To date"
+                    />
+                  </label>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className="button button-primary transaction-add-trigger"
+                  type="button"
+                  aria-label="Add finance entry"
+                >
+                  <Plus size={17} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="transaction-add-popover">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddPopoverOpen(false);
+                    onAddTransaction();
+                  }}
+                >
+                  Add transaction
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddPopoverOpen(false);
+                    onAddAccount();
+                  }}
+                >
+                  <Landmark size={15} /> Add account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddPopoverOpen(false);
+                    onAddCheckpoint();
+                  }}
+                >
+                  <CheckCircle2 size={15} /> Record checkpoint
+                </button>
+              </PopoverContent>
+            </Popover>
           </div>
-          <label className="account-select">
-            <Filter size={15} />
-            <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              aria-label="Filter by category"
-            >
-              <option>All categories</option>
-              {[...new Set(data.transactions.map((item) => item.category))].sort().map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          <label className="search-field">
-            <input
-              value={tagQuery}
-              onChange={(event) => setTagQuery(event.target.value)}
-              placeholder="Filter by tag"
-              aria-label="Filter by tag"
-            />
-          </label>
-          <label className="date-filter">
-            From{' '}
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-              aria-label="From date"
-            />
-          </label>
-          <label className="date-filter">
-            To{' '}
-            <input
-              type="date"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-              aria-label="To date"
-            />
-          </label>
         </div>
         <div className="table-header">
           <span>Transaction</span>
@@ -568,12 +650,13 @@ function TransactionsView({
           <span>Amount</span>
           <span />
         </div>
-        <div className="transaction-list transaction-table">
+        <div className="transaction-list transaction-table transaction-cards">
           {filtered.length ? (
             filtered.map((transaction) => (
               <TransactionRow
                 key={transaction.id}
                 transaction={transaction}
+                onOpen={() => onOpenTransaction(transaction)}
                 onEdit={() => onEditTransaction(transaction)}
                 onDelete={() => onDeleteTransaction(transaction)}
               />
@@ -582,7 +665,7 @@ function TransactionsView({
             <div className="empty-state">
               <Search size={20} />
               <strong>No transactions found</strong>
-              <span>Try a different search or account.</span>
+              <span>Try changing your filters.</span>
             </div>
           )}
         </div>
@@ -736,17 +819,23 @@ function BudgetsView({ data, onAddBudget }: { data: BudgetData; onAddBudget: () 
 
 function AssetsView({
   data,
+  onRefresh,
   onAddAsset,
   onEditAsset,
   onDeleteAsset,
 }: {
   data: BudgetData;
+  onRefresh: () => void;
   onAddAsset: () => void;
   onEditAsset: (asset: Asset) => void;
   onDeleteAsset: (asset: Asset) => void;
 }) {
-  const totalValue = data.assets.reduce((sum, asset) => sum + asset.value, 0);
-  const totalCost = data.assets.reduce((sum, asset) => sum + asset.cost, 0);
+  const totalValue =
+    data.assets.reduce((sum, asset) => sum + asset.value, 0) +
+    data.assetPositions.reduce((sum, position) => sum + position.value, 0);
+  const totalCost =
+    data.assets.reduce((sum, asset) => sum + asset.cost, 0) +
+    data.assetPositions.reduce((sum, position) => sum + position.purchasePrice, 0);
   const roi = totalCost ? ((totalValue - totalCost) / totalCost) * 100 : 0;
   return (
     <>
@@ -798,7 +887,7 @@ function AssetsView({
           </div>
         </section>
       </div>
-      <section className="panel asset-list-panel">
+      <section className="asset-list-panel">
         <SectionHeading
           title="Your assets"
           action={
@@ -807,7 +896,7 @@ function AssetsView({
             </button>
           }
         />
-        <div className="asset-list">
+        <div className="asset-card-grid">
           {data.assets.map((asset) => (
             <AssetRow
               key={asset.id}
@@ -818,6 +907,11 @@ function AssetsView({
           ))}
         </div>
       </section>
+      <AssetGroupsSection
+        groups={data.assetGroups}
+        positions={data.assetPositions}
+        onRefresh={onRefresh}
+      />
     </>
   );
 }
@@ -834,7 +928,7 @@ function AssetRow({
   const returnValue = asset.value - asset.cost;
   const returnPercentage = asset.cost ? (returnValue / asset.cost) * 100 : 0;
   return (
-    <div className="asset-row">
+    <article className="asset-row asset-card">
       <span className="asset-mark" style={{ background: asset.color }}>
         <TrendingUp size={16} />
       </span>
@@ -868,7 +962,259 @@ function AssetRow({
           <Trash2 size={15} />
         </button>
       </span>
-    </div>
+    </article>
+  );
+}
+
+function AssetGroupsSection({
+  groups,
+  positions,
+  onRefresh,
+}: {
+  groups: AssetGroup[];
+  positions: AssetPosition[];
+  onRefresh: () => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const createGroup = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const response = await apiFetch('/api/finance/asset-groups', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${pb.authStore.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: name.trim(), currency: 'USD' }),
+      });
+      if (!response.ok) throw new Error((await response.text()) || 'Could not create asset group.');
+      setName('');
+      setCreating(false);
+      onRefresh();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not create asset group.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="asset-groups-section">
+      <SectionHeading
+        title="Asset groups"
+        action={
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => setCreating((value) => !value)}
+          >
+            <Plus size={14} /> Add group
+          </button>
+        }
+      />
+      {creating && (
+        <form className="asset-group-create" onSubmit={createGroup}>
+          <input
+            required
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Group name, e.g. Index fund"
+            aria-label="Asset group name"
+          />
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Create group'}
+          </button>
+        </form>
+      )}
+      {groups.length ? (
+        <div className="asset-group-grid">
+          {groups
+            .filter((group) => !group.archived)
+            .map((group) => (
+              <AssetGroupCard
+                key={group.id}
+                group={group}
+                positions={positions.filter(
+                  (position) => position.group === group.id && !position.archived,
+                )}
+                onRefresh={onRefresh}
+              />
+            ))}
+        </div>
+      ) : (
+        <p className="asset-group-empty">
+          Group a fund or portfolio, then track each holding’s buy and planned sell value
+          separately.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function AssetGroupCard({
+  group,
+  positions,
+  onRefresh,
+}: {
+  group: AssetGroup;
+  positions: AssetPosition[];
+  onRefresh: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [value, setValue] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [targetSalePrice, setTargetSalePrice] = useState('');
+  const [editingPosition, setEditingPosition] = useState<string | null>(null);
+  const [salePrice, setSalePrice] = useState('');
+  const savePosition = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const response = await apiFetch('/api/finance/asset-positions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        group: group.id,
+        name: name.trim(),
+        value: Number(value),
+        purchase_price: Number(purchasePrice),
+        target_sale_price: Number(targetSalePrice),
+        currency: group.currency || 'USD',
+      }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not save holding.');
+      return;
+    }
+    setAdding(false);
+    setName('');
+    setValue('');
+    setPurchasePrice('');
+    setTargetSalePrice('');
+    onRefresh();
+  };
+  const updateSalePrice = async (position: AssetPosition) => {
+    const response = await apiFetch(`/api/finance/asset-positions/${position.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ target_sale_price: Number(salePrice) }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not update sale value.');
+      return;
+    }
+    setEditingPosition(null);
+    onRefresh();
+  };
+  return (
+    <article className="asset-group-card">
+      <header>
+        <div>
+          <h3>{group.name}</h3>
+          <span>{positions.length} holdings</span>
+        </div>
+        <button className="text-button" type="button" onClick={() => setAdding((open) => !open)}>
+          <Plus size={14} /> Add holding
+        </button>
+      </header>
+      {positions.map((position) => (
+        <div className="asset-position" key={position.id}>
+          <strong>{position.name}</strong>
+          <span>
+            Buy {formatMoney(position.purchasePrice)} · Sell {formatMoney(position.targetSalePrice)}
+          </span>
+          <b>{formatMoney(position.value)}</b>
+          {editingPosition === position.id ? (
+            <div className="asset-position-edit">
+              <input
+                aria-label={`Sell value for ${position.name}`}
+                type="number"
+                min="0"
+                step="0.01"
+                value={salePrice}
+                onChange={(event) => setSalePrice(event.target.value)}
+              />
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => void updateSalePrice(position)}
+              >
+                Save
+              </button>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setEditingPosition(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-button asset-position-edit-trigger"
+              type="button"
+              onClick={() => {
+                setEditingPosition(position.id);
+                setSalePrice(String(position.targetSalePrice));
+              }}
+            >
+              Update sell value
+            </button>
+          )}
+        </div>
+      ))}
+      {adding && (
+        <form className="asset-position-form" onSubmit={(event) => void savePosition(event)}>
+          <input
+            required
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Stock or holding"
+            aria-label="Holding name"
+          />
+          <input
+            required
+            type="number"
+            min="0"
+            step="0.01"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="Current value"
+            aria-label="Current value"
+          />
+          <input
+            required
+            type="number"
+            min="0"
+            step="0.01"
+            value={purchasePrice}
+            onChange={(event) => setPurchasePrice(event.target.value)}
+            placeholder="Buy value"
+            aria-label="Buy value"
+          />
+          <input
+            required
+            type="number"
+            min="0"
+            step="0.01"
+            value={targetSalePrice}
+            onChange={(event) => setTargetSalePrice(event.target.value)}
+            placeholder="Sell value"
+            aria-label="Sell value"
+          />
+          <button className="button button-primary" type="submit">
+            Save holding
+          </button>
+        </form>
+      )}
+    </article>
   );
 }
 
@@ -963,6 +1309,7 @@ export function BudgetingDashboard({
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   if (loading)
     return (
       <div className="loading-state">
@@ -1014,12 +1361,14 @@ export function BudgetingDashboard({
         onDeleteTransaction={(transaction) =>
           void deleteRecord('transactions', transaction.id, transaction.merchant)
         }
+        onOpenTransaction={setViewingTransaction}
       />
     ) : view === 'budgets' ? (
       <BudgetsView data={data} onAddBudget={() => setComposer('budget')} />
     ) : view === 'assets' ? (
       <AssetsView
         data={data}
+        onRefresh={onRefresh}
         onAddAsset={() => setComposer('asset')}
         onEditAsset={(asset) => {
           setEditingAsset(asset);
@@ -1052,7 +1401,234 @@ export function BudgetingDashboard({
           onSaved={saved}
         />
       )}
+      {viewingTransaction && (
+        <TransactionDetails
+          transaction={viewingTransaction}
+          remote={remote}
+          onClose={() => setViewingTransaction(null)}
+          onEdit={() => {
+            setEditingTransaction(viewingTransaction);
+            setViewingTransaction(null);
+            setComposer('transaction');
+          }}
+        />
+      )}
     </>
+  );
+}
+
+type TransactionAttachment = {
+  id: string;
+  file: string;
+  collectionId: string;
+  collectionName: string;
+  url: string;
+};
+
+function validateTransactionFiles(files: File[]) {
+  if (files.length > 5 || files.some((file) => file.size > 5 * 1024 * 1024)) {
+    throw new Error('Upload up to 5 images, each no larger than 5 MB.');
+  }
+  if (
+    files.some(
+      (file) => !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type),
+    )
+  ) {
+    throw new Error('Use JPEG, PNG, GIF, or WebP images.');
+  }
+}
+
+async function uploadTransactionFiles(transactionId: string, files: File[]) {
+  if (!files.length) return;
+  validateTransactionFiles(files);
+  const body = new FormData();
+  files.forEach((file) => body.append('files', file));
+  const response = await apiFetch(`/api/finance/transactions/${transactionId}/attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${pb.authStore.token}` },
+    body,
+  });
+  if (!response.ok)
+    throw new Error((await response.text()) || 'Could not upload transaction images.');
+}
+
+function TransactionDetails({
+  transaction,
+  remote,
+  onClose,
+  onEdit,
+}: {
+  transaction: Transaction;
+  remote: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const [attachments, setAttachments] = useState<TransactionAttachment[]>([]);
+  const [loading, setLoading] = useState(remote);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [closing, setClosing] = useState(false);
+  const closeAction = useRef<(() => void) | null>(null);
+
+  const loadAttachments = async () => {
+    if (!remote) return;
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiFetch(`/api/finance/transactions/${transaction.id}/attachments`, {
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+      });
+      if (!response.ok) throw new Error('Could not load transaction images.');
+      const records = (await response.json()) as Omit<TransactionAttachment, 'url'>[];
+      const token = records.length ? await pb.files.getToken() : '';
+      setAttachments(
+        records.map((record) => ({
+          ...record,
+          url: pb.files.getURL(record as RecordModel, record.file, { token }),
+        })),
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load transaction images.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAttachments();
+  }, [transaction.id, remote]);
+
+  const close = (action: () => void = onClose) => {
+    if (closing) return;
+    closeAction.current = action;
+    setClosing(true);
+  };
+  const finishClose = (event: React.AnimationEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || !closing) return;
+    closeAction.current?.();
+  };
+  const upload = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    setError('');
+    try {
+      await uploadTransactionFiles(transaction.id, files);
+      await loadAttachments();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not upload transaction images.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div
+      className={`composer-overlay transaction-details-overlay ${closing ? 'is-closing' : ''}`}
+      onAnimationEnd={finishClose}
+    >
+      <button
+        className="composer-backdrop"
+        type="button"
+        onClick={() => close()}
+        aria-label="Close transaction details"
+      />
+      <section
+        className="composer-card transaction-details-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="transaction-detail-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="transaction-detail-title">{transaction.merchant}</h2>
+            <span>{formatDate(transaction.date)}</span>
+          </div>
+          <button className="icon-button" type="button" onClick={() => close()} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <dl className="transaction-detail-list">
+          <div>
+            <dt>Amount</dt>
+            <dd>{formatMoney(transaction.amount)}</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd>{transaction.account}</dd>
+          </div>
+          <div>
+            <dt>Category</dt>
+            <dd>{transaction.category}</dd>
+          </div>
+          {transaction.note && (
+            <div>
+              <dt>Note</dt>
+              <dd>{transaction.note}</dd>
+            </div>
+          )}
+          {transaction.description && (
+            <div>
+              <dt>Description</dt>
+              <dd>{transaction.description}</dd>
+            </div>
+          )}
+        </dl>
+        {transaction.receipt?.startsWith('data:image/') && (
+          <div className="transaction-detail-receipt">
+            <strong>Receipt</strong>
+            <img src={transaction.receipt} alt={`Receipt for ${transaction.merchant}`} />
+          </div>
+        )}
+        <section className="transaction-attachments">
+          <div className="transaction-attachments-heading">
+            <strong>Pictures</strong>
+            {remote && (
+              <label className="button transaction-upload-button">
+                {uploading ? 'Uploading…' : 'Add pictures'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  multiple
+                  disabled={uploading}
+                  onChange={(event) => {
+                    void upload(Array.from(event.target.files ?? []));
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+            )}
+          </div>
+          {!remote ? (
+            <p>Save this transaction to attach pictures.</p>
+          ) : loading ? (
+            <p>Loading pictures…</p>
+          ) : attachments.length ? (
+            <div className="transaction-attachment-grid">
+              {attachments.map((attachment) => (
+                <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}>
+                  <img src={attachment.url} alt={`Attachment for ${transaction.merchant}`} />
+                </a>
+              ))}
+            </div>
+          ) : (
+            <p>No pictures attached.</p>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={() => close()}>
+            Close
+          </button>
+          <button className="button button-primary" type="button" onClick={() => close(onEdit)}>
+            Edit transaction
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1190,6 +1766,10 @@ function FinanceComposer({
   const [tags, setTags] = useState(transaction?.tags?.join(', ') ?? '');
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
   const [receiptScanMessage, setReceiptScanMessage] = useState('');
+  const [pictureFiles, setPictureFiles] = useState<File[]>([]);
+  const [savedTransactionId, setSavedTransactionId] = useState<string | null>(
+    transaction?.id ?? null,
+  );
   const [assetName, setAssetName] = useState(asset?.name ?? '');
   const [assetType, setAssetType] = useState(asset?.type ?? 'Other');
   const [purchasePrice, setPurchasePrice] = useState(
@@ -1198,6 +1778,17 @@ function FinanceComposer({
   const [targetSalePrice, setTargetSalePrice] = useState(String(asset?.targetSalePrice ?? ''));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [closing, setClosing] = useState(false);
+  const closeAction = useRef<(() => void) | null>(null);
+  const beginClose = (action: () => void = onClose) => {
+    if (closing) return;
+    closeAction.current = action;
+    setClosing(true);
+  };
+  const finishClose = (event: React.AnimationEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || !closing) return;
+    closeAction.current?.();
+  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -1260,7 +1851,12 @@ function FinanceComposer({
                 ? 'assets'
                 : 'transactions';
       const editedId =
-        kind === 'transaction' ? transaction?.id : kind === 'asset' ? asset?.id : undefined;
+        kind === 'transaction'
+          ? (transaction?.id ?? savedTransactionId ?? undefined)
+          : kind === 'asset'
+            ? asset?.id
+            : undefined;
+      if (kind === 'transaction' && pictureFiles.length) validateTransactionFiles(pictureFiles);
       const response = await apiFetch(`/api/finance/${resource}${editedId ? `/${editedId}` : ''}`, {
         method: editedId ? 'PUT' : 'POST',
         headers: {
@@ -1270,7 +1866,13 @@ function FinanceComposer({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error((await response.text()) || 'Could not save this record.');
-      onSaved();
+      if (kind === 'transaction' && pictureFiles.length) {
+        const savedRecord = (await response.json()) as { id: string };
+        const transactionId = editedId ?? savedRecord.id;
+        setSavedTransactionId(transactionId);
+        await uploadTransactionFiles(transactionId, pictureFiles);
+      }
+      beginClose(onSaved);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save this record.');
     } finally {
@@ -1291,11 +1893,11 @@ function FinanceComposer({
             ? Boolean(account)
             : Boolean(account));
   return (
-    <div className="composer-overlay">
+    <div className={`composer-overlay ${closing ? 'is-closing' : ''}`} onAnimationEnd={finishClose}>
       <button
         className="composer-backdrop"
         type="button"
-        onClick={onClose}
+        onClick={() => beginClose()}
         aria-label="Close composer"
       />
       <form className="composer-card" onSubmit={submit}>
@@ -1313,7 +1915,12 @@ function FinanceComposer({
                       : `${transaction ? 'Edit' : 'Add'} transaction`}
             </h2>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => beginClose()}
+            aria-label="Close"
+          >
             <X size={18} />
           </button>
         </div>
@@ -1597,6 +2204,20 @@ function FinanceComposer({
               />
             </label>
             {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
+            <label>
+              Transaction pictures
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                onChange={(event) => setPictureFiles(Array.from(event.target.files ?? []))}
+              />
+            </label>
+            {pictureFiles.length > 0 && (
+              <p>
+                {pictureFiles.length} picture{pictureFiles.length === 1 ? '' : 's'} ready to upload.
+              </p>
+            )}
             {receipt && (
               <div className="receipt-preview">
                 {receipt.startsWith('data:image/') ? (
@@ -1630,7 +2251,7 @@ function FinanceComposer({
         )}
         {error && <p className="form-error">{error}</p>}
         <div className="composer-actions">
-          <button className="button" type="button" onClick={onClose}>
+          <button className="button" type="button" onClick={() => beginClose()}>
             Cancel
           </button>
           <button className="button button-primary" type="submit" disabled={busy || !canSave}>

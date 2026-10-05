@@ -52,6 +52,32 @@ export type Asset = {
   notes?: string;
 };
 
+export type AssetGroup = {
+  id: string;
+  name: string;
+  description?: string;
+  currency?: string;
+  notes?: string;
+  archived: boolean;
+};
+
+export type AssetPosition = {
+  id: string;
+  group: string;
+  name: string;
+  type: string;
+  quantity: number;
+  value: number;
+  currency?: string;
+  purchaseDate?: string;
+  purchasePrice: number;
+  targetSalePrice: number;
+  asOf?: string;
+  notes?: string;
+  status?: string;
+  archived: boolean;
+};
+
 export type Goal = {
   id: string;
   name: string;
@@ -75,6 +101,8 @@ export type BudgetData = {
   accounts: Account[];
   budgets: Budget[];
   assets: Asset[];
+  assetGroups: AssetGroup[];
+  assetPositions: AssetPosition[];
   goals: Goal[];
   reconciliation: Reconciliation | null;
 };
@@ -184,6 +212,8 @@ export const sampleData: BudgetData = {
       color: '#8e82b9',
     },
   ],
+  assetGroups: [],
+  assetPositions: [],
   goals: [
     {
       id: 'g-1',
@@ -242,6 +272,17 @@ function dateValue(record: RecordModel) {
   return value.slice(0, 10) || new Date().toISOString().slice(0, 10);
 }
 
+function optionalDateValue(record: RecordModel, ...keys: string[]) {
+  const value = textValue(record, ...keys);
+  if (!value) return undefined;
+  const date = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date
+    ? date
+    : undefined;
+}
+
 async function getRecords(collection: string): Promise<RecordModel[]> {
   try {
     const response = await apiFetch(`/api/finance/${collection}`, {
@@ -262,13 +303,16 @@ function transactionKind(record: RecordModel): TransactionKind {
 }
 
 export async function loadBudgetData(): Promise<{ data: BudgetData; remote: boolean }> {
-  const [transactions, accounts, budgets, assets, goals] = await Promise.all([
-    getRecords('transactions'),
-    getRecords('accounts'),
-    getRecords('budgets'),
-    getRecords('assets'),
-    getRecords('goals'),
-  ]);
+  const [transactions, accounts, budgets, assets, assetGroups, assetPositions, goals] =
+    await Promise.all([
+      getRecords('transactions'),
+      getRecords('accounts'),
+      getRecords('budgets'),
+      getRecords('assets'),
+      getRecords('asset-groups'),
+      getRecords('asset-positions'),
+      getRecords('goals'),
+    ]);
 
   const remoteData: BudgetData = {
     transactions: transactions.map((record) => ({
@@ -316,6 +360,30 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       purchaseTransaction: textValue(record, 'purchase_transaction'),
       targetSalePrice: numberValue(record, 'target_sale_price'),
       notes: textValue(record, 'notes'),
+    })),
+    assetGroups: assetGroups.map((record) => ({
+      id: record.id,
+      name: textValue(record, 'name') || 'Unnamed asset group',
+      description: textValue(record, 'description') || undefined,
+      currency: textValue(record, 'currency') || undefined,
+      notes: textValue(record, 'notes') || undefined,
+      archived: Boolean(record.archived),
+    })),
+    assetPositions: assetPositions.map((record) => ({
+      id: record.id,
+      group: textValue(record, 'group'),
+      name: textValue(record, 'name') || 'Unnamed position',
+      type: textValue(record, 'type'),
+      quantity: numberValue(record, 'quantity'),
+      value: numberValue(record, 'value'),
+      currency: textValue(record, 'currency') || undefined,
+      purchaseDate: optionalDateValue(record, 'purchase_date'),
+      purchasePrice: numberValue(record, 'purchase_price'),
+      targetSalePrice: numberValue(record, 'target_sale_price'),
+      asOf: optionalDateValue(record, 'as_of'),
+      notes: textValue(record, 'notes') || undefined,
+      status: textValue(record, 'status') || undefined,
+      archived: Boolean(record.archived),
     })),
     goals: goals.map((record, index) => ({
       id: record.id,
@@ -374,6 +442,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       accounts: remoteData.accounts.length ? remoteData.accounts : sampleData.accounts,
       budgets: remoteData.budgets.length ? remoteData.budgets : sampleData.budgets,
       assets: remoteData.assets.length ? remoteData.assets : sampleData.assets,
+      assetGroups: remoteData.assetGroups,
+      assetPositions: remoteData.assetPositions,
       goals: remoteData.goals.length ? remoteData.goals : sampleData.goals,
       reconciliation: remoteData.reconciliation ?? sampleData.reconciliation,
     },
