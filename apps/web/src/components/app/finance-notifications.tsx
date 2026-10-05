@@ -48,8 +48,24 @@ export function FinanceNotifications({
       : null;
   const [state, setState] = useState<NotificationState>(() => readState(userId));
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   useEffect(() => setState(readState(userId)), [userId]);
+  useEffect(() => {
+    if (!closing) return;
+    const timeout = window.setTimeout(() => {
+      setOpen(false);
+      setClosing(false);
+    }, 140);
+    return () => window.clearTimeout(timeout);
+  }, [closing]);
+  const toggle = () => {
+    if (open) setClosing(true);
+    else {
+      setClosing(false);
+      setOpen(true);
+    }
+  };
   useEffect(() => {
     try {
       localStorage.setItem(storageKey(userId), JSON.stringify(state));
@@ -73,7 +89,7 @@ export function FinanceNotifications({
       <button
         className={`icon-button topbar-icon ${open ? 'is-active' : ''}`}
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={toggle}
         aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
         aria-expanded={open}
       >
@@ -81,7 +97,7 @@ export function FinanceNotifications({
         {unread > 0 && <span className="notification-dot" />}
       </button>
       {open && (
-        <div className="topbar-popover notification-popover">
+        <div className={`topbar-popover notification-popover ${closing ? 'is-closing' : ''}`}>
           <div className="popover-heading">
             <strong>Notifications</strong>
             {visibleIssue && unread > 0 && (

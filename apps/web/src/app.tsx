@@ -1,19 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import {
-  ChevronDown,
-  Command,
-  LogOut,
-  Moon,
-  RefreshCw,
-  Search,
-  Settings2,
-  Sun,
-  X,
-} from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { useTheme } from 'next-themes';
 import { AuthScreen } from './components/app/auth-screen';
-import { FinanceNotifications } from './components/app/finance-notifications';
 import { FinanceSearch } from './components/app/finance-search';
 import { Sidebar, type SidebarTab } from './components/sidebar';
 import { BudgetingDashboard } from './components/budgeting/budgeting-dashboard';
@@ -55,41 +43,11 @@ function Header({
   activeTab,
   remote,
   onRefresh,
-  onNavigate,
-  profile,
-  data,
-  userId,
 }: {
   activeTab: SidebarTab;
   remote: boolean;
   onRefresh: () => void;
-  onNavigate: (tab: SidebarTab) => void;
-  profile: UserProfile;
-  data: BudgetData;
-  userId: string;
 }) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const { resolvedTheme, setTheme } = useTheme();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
-  const signOut = () => {
-    pb.authStore.clear();
-    setProfileOpen(false);
-    void navigate({ to: '/auth/login' });
-  };
-
   return (
     <header className="topbar">
       <div className="topbar-context">
@@ -101,13 +59,6 @@ function Header({
         </span>
       </div>
       <div className="topbar-actions">
-        <button className="topbar-search" type="button" onClick={() => setSearchOpen(true)}>
-          <Search size={16} />
-          <span>Search anything</span>
-          <kbd>
-            <Command size={11} /> K
-          </kbd>
-        </button>
         <button
           className="icon-button topbar-icon"
           type="button"
@@ -116,46 +67,7 @@ function Header({
         >
           <RefreshCw size={17} />
         </button>
-        <FinanceNotifications key={userId} data={data} userId={userId} onNavigate={onNavigate} />
-        <div className="profile-wrap">
-          <button
-            className="profile-button"
-            type="button"
-            onClick={() => setProfileOpen((open) => !open)}
-            aria-label="Open profile menu"
-          >
-            <span>{profile.initials}</span>
-            <ChevronDown size={13} />
-          </button>
-          {profileOpen && (
-            <div className="topbar-popover profile-popover">
-              <div className="profile-popover-heading">
-                <span className="profile-large small">{profile.initials}</span>
-                <div>
-                  <strong>{profile.name}</strong>
-                  <small>{profile.email || 'No email on file'}</small>
-                </div>
-              </div>
-              <button type="button" onClick={() => onNavigate('settings')}>
-                <Settings2 size={15} /> Settings
-              </button>
-              <button
-                type="button"
-                onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-              >
-                <span>{resolvedTheme === 'dark' ? <Sun size={15} /> : <Moon size={15} />} </span>
-                {resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
-              </button>
-              <button type="button" className="danger-action" onClick={signOut}>
-                <LogOut size={15} /> Sign out
-              </button>
-            </div>
-          )}
-        </div>
       </div>
-      {searchOpen && (
-        <FinanceSearch data={data} onClose={() => setSearchOpen(false)} onNavigate={onNavigate} />
-      )}
     </header>
   );
 }
@@ -174,6 +86,8 @@ export function App() {
   const [remote, setRemote] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dataError, setDataError] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchClosing, setSearchClosing] = useState(false);
   const activeTab = tabForPath(pathname);
 
   useEffect(
@@ -240,6 +154,29 @@ export function App() {
     document.title = `${pageLabels[activeTab]} | Piggybudget`;
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!searchClosing) return;
+    const timeout = window.setTimeout(() => {
+      setSearchOpen(false);
+      setSearchClosing(false);
+    }, 160);
+    return () => window.clearTimeout(timeout);
+  }, [searchClosing]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchClosing(false);
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const closeSearch = () => setSearchClosing(true);
+
   const onNavigate = (tab: SidebarTab) => {
     void navigate({ to: routeForTab[tab] });
   };
@@ -266,17 +203,16 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activeTab={activeTab} profile={profile} onChange={onNavigate} />
+      <Sidebar
+        activeTab={activeTab}
+        profile={profile}
+        data={data}
+        userId={userId}
+        onChange={onNavigate}
+        onSearch={() => setSearchOpen(true)}
+      />
       <main className="main-content">
-        <Header
-          activeTab={activeTab}
-          remote={remote}
-          profile={profile}
-          data={data}
-          userId={userId}
-          onRefresh={refresh}
-          onNavigate={onNavigate}
-        />
+        <Header activeTab={activeTab} remote={remote} onRefresh={refresh} />
         <div className="content-wrap">
           {dataError && (
             <AppError>
@@ -308,6 +244,11 @@ export function App() {
           <span>Last checked just now</span>
         </footer>
       </main>
+      {searchOpen && (
+        <div className={searchClosing ? 'search-dismiss' : undefined}>
+          <FinanceSearch data={data} onClose={closeSearch} onNavigate={onNavigate} />
+        </div>
+      )}
     </div>
   );
 }
