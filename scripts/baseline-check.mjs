@@ -99,6 +99,14 @@ function routesFromSource() {
     const src = read(file);
     const rel = relative(repoRoot, file);
 
+    // prefix-parameterised routes: e.Router.GET(prefix+"/accounts/{id}/summary", ...)
+    // e.Router.PATCH(prefix+"/assets/{id}/group", ...) and friends.
+    // `prefix+"/"+path` is handled by the explicit loops below, not here.
+    for (const m of src.matchAll(/Router\.(GET|POST|PUT|PATCH|DELETE|Any)\((prefix\+"[^"]+")\s*[,)]/g)) {
+      // m[2] is `prefix+"/rest"`; strip the `prefix+"` prefix, keep the `/rest`.
+      routes.add(`${m[1].toUpperCase()} {prefix}${m[2].slice('prefix+"'.length, -1)}`);
+    }
+
     // literal routes. PocketBase's `Any` is normalised to `ANY` so it compares
     // against the method casing used in docs/baseline.json.
     for (const m of src.matchAll(/e\.Router\.(GET|POST|PUT|PATCH|DELETE|Any)\("([^"]+)"/g)) {
@@ -120,9 +128,9 @@ function routesFromSource() {
             routes.add(`${method} ${base}${suffix}`);
           }
         }
-        routes.add(`GET ${prefix}/accounts/{id}/summary`);
-        routes.add(`POST ${prefix}/accounts/{id}/reconcile`);
-      }
+        }
+      // /accounts/{id}/summary and /reconcile are picked up by the
+      // `prefix+"..."` scan above, so they are not repeated here.
     }
 
     // asset group dual-prefix CRUD loop
@@ -137,13 +145,22 @@ function routesFromSource() {
             routes.add(`${method} ${base}${suffix}`);
           }
         }
-        routes.add(`PATCH ${prefix}/assets/{id}/group`);
-        routes.add(`PUT ${prefix}/assets/{id}/group`);
-      }
+        }
+      // PATCH/PUT /assets/{id}/group are picked up by the `prefix+"..."` scan.
     }
   }
 
-  return [...routes].sort();
+  // expand the {prefix} placeholder over both registered prefixes
+  const expanded = [];
+  for (const entry of routes) {
+    if (entry.includes('{prefix}')) {
+      for (const prefix of PREFIXES) expanded.push(entry.replace('{prefix}', prefix));
+    } else {
+      expanded.push(entry);
+    }
+  }
+
+  return [...new Set(expanded)].sort();
 }
 
 // --- web module graph reachable from the production entrypoint -------------
@@ -173,7 +190,8 @@ function webReachability() {
     if (reachable.has(file)) continue;
     reachable.add(file);
     const src = read(file);
-    for (const m of src.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+    // both `import x from './y'` and side-effect `import './y'`
+    for (const m of src.matchAll(/(?:from\s+|^\s*import\s+)['"]([^'"]+)['"]/gm)) {
       const next = resolveSpecifier(m[1], file);
       if (next) queue.push(next);
     }

@@ -115,7 +115,7 @@ func registerFinanceResourceRoutes(e *core.ServeEvent, prefix string) {
 		})
 	}
 
-	// removed
+	e.Router.GET(prefix+"/accounts/{id}/summary", accountSummaryRoute)
 	e.Router.POST(prefix+"/accounts/{id}/reconcile", reconcileAccountRoute)
 }
 
