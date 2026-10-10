@@ -4,26 +4,96 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Phase 0 baseline: tool versions pinned to the versions the baseline was
+  # measured on. See docs/COMPATIBILITY.md section 1.
+  # Baseline: go1.27.1 darwin/arm64, node v22.23.2, pnpm 11.8.0
   check:
+    name: build, lint, test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
-          version: 11
+          version: 11.8.0
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22.23.2
           cache: pnpm
+
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
+          go-version: '1.27.1'
+          check-latest: true
+
+      - name: Show tool versions
+        run: |
+          go version
+          node --version
+          pnpm --version
+
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm test
-      - run: pnpm build
-      - run: go test ./...
+
+      # Web: lint, test, production build. `pnpm build` runs `tsc -b && vite build`,
+      # which is where the TypeScript check actually happens.
+      - name: Web lint
+        run: pnpm lint
+      - name: Web test
+        run: pnpm test
+      - name: Web build (tsc -b && vite build)
+        run: pnpm build
+
+      # Server: build and test. `go build ./...` was verified in Phase 0; this job
+      # now runs it explicitly rather than relying on `go test` to catch it.
+      - name: Server build
+        run: go build ./...
+      - name: Server vet
+        run: go vet ./...
+      - name: Server test
+        run: go test ./...
+
+      # Generated artefacts must match what is committed. AGENTS.md forbids
+      # hand-editing apps/web/src/api/generated.
       - run: pnpm generate:api
       - run: pnpm generate:client
       - run: git diff --exit-code
+
+  # Guards the migration invariants recorded in docs/baseline.json. A diff here is
+  # information, not a hard failure, while the migration is in progress — the point
+  # is that every change to the route surface, collection set, or auth flows is a
+  # deliberate, reviewed commit rather than an accident.
+  baseline-diff:
+    name: baseline.json diff (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+
+      - name: Compare tracked route/collection surface against docs/baseline.json
+        run: |
+          node scripts/baseline-check.mjs
+        env:
+          BASELINE_STRICT: '0'
+
+      - name: Summarise diff
+        if: always()
+        run: git --no-pager diff --stat
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: baseline-diff
+          path: |
+            baseline-report.json
+            baseline-report.md

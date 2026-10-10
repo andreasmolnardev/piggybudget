@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { AuthScreen } from './components/app/auth-screen';
+import './components/entry-row';
 import { FinanceSearch } from './components/app/finance-search';
 import { Sidebar, type SidebarTab } from './components/sidebar';
 import { BudgetingDashboard } from './components/budgeting/budgeting-dashboard';
