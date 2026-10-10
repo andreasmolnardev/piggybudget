@@ -1,0 +1,2368 @@
+{
+  "schema_version": 1,
+  "generated_by": "phase 0 baseline audit",
+  "generated_at": "2026-10-11",
+  "git_commit": "a158b32ace279d4462ccab1101b85fb6253e839e",
+  "notes": [
+    "Machine-readable baseline. A CI job may diff this file against a regenerated copy.",
+    "collection_ids are read from the local pb_data and are NOT reproducible from source.",
+    "test counts include tests for Taskboard-lineage code that a later phase will delete."
+  ],
+  "tool_versions": {
+    "go": "go1.27.1 darwin/arm64",
+    "go_module_directive": "1.26.0",
+    "node": "v22.23.2",
+    "pnpm": "11.8.0",
+    "pocketbase": "v0.39.6",
+    "huma": "v2.38.0",
+    "vitest": "4.1.10",
+    "react": "19.2.4",
+    "vite": "7.3.1",
+    "typescript": "5.9.3"
+  },
+  "module_identity": {
+    "go_module_path": "github.com/slopstack/slopstack",
+    "go_module_path_expected": "github.com/piggybudget/piggybudget",
+    "web_package_name": "@slopstack/web",
+    "web_package_name_expected": "@piggybudget/web",
+    "root_package_name": "slopstack",
+    "env_prefix": "SLOPSTACK_",
+    "env_prefix_expected": "PIGGYBUDGET_",
+    "env_vars": [
+      "SLOPSTACK_HTTP_ADDRESS",
+      "SLOPSTACK_PUBLIC_URL",
+      "SLOPSTACK_SECURE_COOKIES",
+      "SLOPSTACK_REGISTRATION_ENABLED",
+      "SLOPSTACK_REGISTRATION_MODE",
+      "SLOPSTACK_LOG_LEVEL",
+      "SLOPSTACK_STORAGE_PATH",
+      "SLOPSTACK_DEVELOPMENT",
+      "SLOPSTACK_BACKUP_ENABLED",
+      "SLOPSTACK_BACKUP_CRON",
+      "SLOPSTACK_BACKUP_MAX_KEEP",
+      "SLOPSTACK_BACKUP_S3_ENABLED",
+      "SLOPSTACK_BACKUP_S3_BUCKET",
+      "SLOPSTACK_BACKUP_S3_REGION",
+      "SLOPSTACK_BACKUP_S3_ENDPOINT",
+      "SLOPSTACK_BACKUP_S3_ACCESS_KEY",
+      "SLOPSTACK_BACKUP_S3_SECRET",
+      "SLOPSTACK_BACKUP_S3_FORCE_PATH_STYLE",
+      "SLOPSTACK_BACKUP_RESTORE_RESTARTED"
+    ],
+    "binary_dir": "apps/server/cmd/slopstack",
+    "cli_use_string": "piggybudget",
+    "localstorage_key_taskboard_leak": "taskboard-custom-theme",
+    "guest_user_email": "guest@taskboard.local"
+  },
+  "vcs": {
+    "remotes": [],
+    "remote_note": "NO GIT REMOTE CONFIGURED. Nothing pushes anywhere. Uncommitted work and any untracked file are lost on disk failure with no other copy.",
+    "commits_at_baseline": 10
+  },
+  "routes": [
+    {
+      "method": "ANY",
+      "path": "/.well-known/caldav",
+      "product_caller": false
+    },
+    {
+      "method": "ANY",
+      "path": "/.well-known/carddav",
+      "product_caller": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounts",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounts",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/accounts/{id}/reconcile",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/accounts/{id}/summary",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/asset-groups",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/asset-groups",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/asset-positions",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/asset-positions",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/assets",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/assets/{id}/group",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/assets/{id}/group",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/app-passwords",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/app-passwords",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/auth/app-passwords/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/guest",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/registration-policy",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/budgets",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/budgets",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendar/occurrences",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/calendar/occurrences/{masterId}/cancel",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/calendar/occurrences/{masterId}/override",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/calendars/import",
+      "product_caller": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/calendars/{id}/export.ics",
+      "product_caller": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/checkpoints",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/checkpoints",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/accounts",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/accounts",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/accounts/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/accounts/{id}/reconcile",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/accounts/{id}/summary",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/asset-groups",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/asset-groups",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/asset-groups/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/asset-positions",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/asset-positions",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/asset-positions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/assets",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/assets",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/assets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/assets/{id}/group",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/assets/{id}/group",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/budgets",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/budgets",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/budgets/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/checkpoints",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/checkpoints",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/checkpoints/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/goals",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/goals",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/transactions",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/transactions",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/finance/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/finance/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/finance/transactions/{transactionId}/attachments",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/transactions/{transactionId}/attachments",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/finance/transactions/{transactionId}/attachments/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/goals",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/goals",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/goals/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/read-all",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/{id}/dismiss",
+      "product_caller": false
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/notifications/{id}/read",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/{id}/snooze",
+      "product_caller": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/reminders",
+      "product_caller": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/search",
+      "product_caller": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/transactions",
+      "product_caller": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/transactions",
+      "product_caller": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/transactions/{id}",
+      "product_caller": true
+    },
+    {
+      "method": "ANY",
+      "path": "/caldav",
+      "product_caller": false
+    },
+    {
+      "method": "ANY",
+      "path": "/caldav/{path...}",
+      "product_caller": false
+    },
+    {
+      "method": "ANY",
+      "path": "/carddav",
+      "product_caller": false
+    },
+    {
+      "method": "ANY",
+      "path": "/carddav/{path...}",
+      "product_caller": false
+    },
+    {
+      "method": "GET",
+      "path": "/docs",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/openapi.json",
+      "product_caller": true
+    },
+    {
+      "method": "GET",
+      "path": "/openapi.yaml",
+      "product_caller": true
+    }
+  ],
+  "route_counts": {
+    "total_registered": 133,
+    "taskboard_lineage_without_product_caller": 18,
+    "finance": 107,
+    "caldav_carddav": 6
+  },
+  "collections": [
+    {
+      "name": "accounts",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2324088501",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "type",
+        "currency",
+        "opening_balance",
+        "opening_balance_date",
+        "notes",
+        "archived"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "type": "text",
+        "currency": "text",
+        "opening_balance": "number",
+        "opening_balance_date": "date",
+        "notes": "text",
+        "archived": "bool"
+      },
+      "indexes": [
+        "idx_accounts_owner"
+      ]
+    },
+    {
+      "name": "address_books",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2492096707",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "description",
+        "color"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "description": "text",
+        "color": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "app_passwords",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2899921234",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "user",
+        "name",
+        "secret_hash"
+      ],
+      "required_fields": [
+        "user",
+        "secret_hash"
+      ],
+      "field_types": {
+        "user": "text",
+        "name": "text",
+        "secret_hash": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "asset_groups",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_1339617899",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "description",
+        "currency",
+        "notes",
+        "archived"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "description": "text",
+        "currency": "text",
+        "notes": "text",
+        "archived": "bool"
+      },
+      "indexes": [
+        "idx_asset_groups_owner"
+      ]
+    },
+    {
+      "name": "asset_positions",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_1441390804",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "group",
+        "name",
+        "type",
+        "quantity",
+        "value",
+        "currency",
+        "purchase_date",
+        "purchase_price",
+        "target_sale_price",
+        "as_of",
+        "notes",
+        "status",
+        "archived"
+      ],
+      "required_fields": [
+        "owner",
+        "group",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "group": "text",
+        "name": "text",
+        "type": "text",
+        "quantity": "number",
+        "value": "number",
+        "currency": "text",
+        "purchase_date": "date",
+        "purchase_price": "number",
+        "target_sale_price": "number",
+        "as_of": "date",
+        "notes": "text",
+        "status": "text",
+        "archived": "bool"
+      },
+      "indexes": [
+        "idx_asset_positions_owner_group"
+      ]
+    },
+    {
+      "name": "assets",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_1321337024",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "type",
+        "value",
+        "quantity",
+        "currency",
+        "purchase_date",
+        "purchase_price",
+        "purchase_transaction",
+        "target_sale_price",
+        "as_of",
+        "notes",
+        "status",
+        "archived",
+        "asset_group"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "type": "text",
+        "value": "number",
+        "quantity": "number",
+        "currency": "text",
+        "purchase_date": "date",
+        "purchase_price": "number",
+        "purchase_transaction": "text",
+        "target_sale_price": "number",
+        "as_of": "date",
+        "notes": "text",
+        "status": "text",
+        "archived": "bool",
+        "asset_group": "text"
+      },
+      "indexes": [
+        "idx_assets_owner"
+      ]
+    },
+    {
+      "name": "audit_logs",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_681515208",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "actor",
+        "action",
+        "metadata"
+      ],
+      "required_fields": [
+        "action"
+      ],
+      "field_types": {
+        "actor": "text",
+        "action": "text",
+        "metadata": "json"
+      },
+      "indexes": []
+    },
+    {
+      "name": "budgets",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_1308224162",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "category",
+        "amount",
+        "start_date",
+        "end_date",
+        "notes",
+        "archived"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "category": "text",
+        "amount": "number",
+        "start_date": "date",
+        "end_date": "date",
+        "notes": "text",
+        "archived": "bool"
+      },
+      "indexes": [
+        "idx_budgets_owner_dates"
+      ]
+    },
+    {
+      "name": "caldav_changes",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2483696242",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "calendar",
+        "href",
+        "resource_kind",
+        "resource_id",
+        "etag",
+        "sequence",
+        "deleted",
+        "changed_at"
+      ],
+      "required_fields": [
+        "owner",
+        "calendar",
+        "href",
+        "resource_kind",
+        "sequence",
+        "changed_at"
+      ],
+      "field_types": {
+        "owner": "text",
+        "calendar": "text",
+        "href": "text",
+        "resource_kind": "text",
+        "resource_id": "text",
+        "etag": "text",
+        "sequence": "number",
+        "deleted": "bool",
+        "changed_at": "date"
+      },
+      "indexes": [
+        "idx_caldav_changes_owner_href",
+        "idx_caldav_changes_owner_sequence"
+      ]
+    },
+    {
+      "name": "calendars",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_3774112919",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "description",
+        "color",
+        "timezone",
+        "archived",
+        "is_default"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "description": "text",
+        "color": "text",
+        "timezone": "text",
+        "archived": "bool",
+        "is_default": "bool"
+      },
+      "indexes": []
+    },
+    {
+      "name": "checkpoints",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_3341382147",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "account",
+        "date",
+        "balance",
+        "note"
+      ],
+      "required_fields": [
+        "owner",
+        "account",
+        "date"
+      ],
+      "field_types": {
+        "owner": "text",
+        "account": "text",
+        "date": "date",
+        "balance": "number",
+        "note": "text"
+      },
+      "indexes": [
+        "idx_checkpoints_owner_account_date"
+      ]
+    },
+    {
+      "name": "contacts",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_1930317162",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "address_book",
+        "uid",
+        "formatted_name",
+        "given_name",
+        "family_name",
+        "organization",
+        "title",
+        "email",
+        "phone",
+        "address",
+        "notes",
+        "vcard",
+        "dav_href"
+      ],
+      "required_fields": [
+        "owner",
+        "address_book",
+        "uid",
+        "formatted_name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "address_book": "text",
+        "uid": "text",
+        "formatted_name": "text",
+        "given_name": "text",
+        "family_name": "text",
+        "organization": "text",
+        "title": "text",
+        "email": "text",
+        "phone": "text",
+        "address": "text",
+        "notes": "text",
+        "vcard": "text",
+        "dav_href": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "events",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_1687431684",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "title",
+        "description",
+        "uid",
+        "dtstamp",
+        "start_date",
+        "end_date",
+        "duration",
+        "all_day",
+        "calendar",
+        "timezone",
+        "status",
+        "location",
+        "categories",
+        "rrule",
+        "exdate",
+        "organizer",
+        "attendees",
+        "url",
+        "class",
+        "geo",
+        "alarm",
+        "start_local",
+        "end_local",
+        "time_mode",
+        "recurrence_parent",
+        "recurrence_id",
+        "recurrence_cancelled",
+        "dav_href"
+      ],
+      "required_fields": [
+        "owner",
+        "title",
+        "start_date"
+      ],
+      "field_types": {
+        "owner": "text",
+        "title": "text",
+        "description": "text",
+        "uid": "text",
+        "dtstamp": "date",
+        "start_date": "date",
+        "end_date": "date",
+        "duration": "text",
+        "all_day": "bool",
+        "calendar": "text",
+        "timezone": "text",
+        "status": "text",
+        "location": "text",
+        "categories": "text",
+        "rrule": "text",
+        "exdate": "text",
+        "organizer": "text",
+        "attendees": "text",
+        "url": "text",
+        "class": "text",
+        "geo": "text",
+        "alarm": "text",
+        "start_local": "text",
+        "end_local": "text",
+        "time_mode": "text",
+        "recurrence_parent": "text",
+        "recurrence_id": "text",
+        "recurrence_cancelled": "bool",
+        "dav_href": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "goals",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_207790276",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "target_amount",
+        "current_amount",
+        "target_date",
+        "account",
+        "notes",
+        "completed"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "target_amount": "number",
+        "current_amount": "number",
+        "target_date": "date",
+        "account": "text",
+        "notes": "text",
+        "completed": "bool"
+      },
+      "indexes": [
+        "idx_goals_owner"
+      ]
+    },
+    {
+      "name": "group_members",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_714390402",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "group",
+        "user"
+      ],
+      "required_fields": [
+        "group",
+        "user"
+      ],
+      "field_types": {
+        "group": "text",
+        "user": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "group_permissions",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2509884351",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "group",
+        "permission"
+      ],
+      "required_fields": [
+        "group",
+        "permission"
+      ],
+      "field_types": {
+        "group": "text",
+        "permission": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "groups",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_3346940990",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "name",
+        "description"
+      ],
+      "required_fields": [
+        "name"
+      ],
+      "field_types": {
+        "name": "text",
+        "description": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "lists",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_3277857102",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "name",
+        "description",
+        "color",
+        "archived",
+        "is_default"
+      ],
+      "required_fields": [
+        "owner",
+        "name"
+      ],
+      "field_types": {
+        "owner": "text",
+        "name": "text",
+        "description": "text",
+        "color": "text",
+        "archived": "bool",
+        "is_default": "bool"
+      },
+      "indexes": []
+    },
+    {
+      "name": "notifications",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2301922722",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "title",
+        "body",
+        "target_kind",
+        "target_id",
+        "reminder_key",
+        "read",
+        "read_at",
+        "snoozed_until",
+        "dismissed_at"
+      ],
+      "required_fields": [
+        "owner",
+        "title",
+        "reminder_key"
+      ],
+      "field_types": {
+        "owner": "text",
+        "title": "text",
+        "body": "text",
+        "target_kind": "text",
+        "target_id": "text",
+        "reminder_key": "text",
+        "read": "bool",
+        "read_at": "date",
+        "snoozed_until": "date",
+        "dismissed_at": "date"
+      },
+      "indexes": [
+        "idx_notifications_owner_read",
+        "idx_notifications_reminder_key"
+      ]
+    },
+    {
+      "name": "permissions",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_3709660955",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "name",
+        "category"
+      ],
+      "required_fields": [
+        "name"
+      ],
+      "field_types": {
+        "name": "text",
+        "category": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "reminders",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_163143500",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "key",
+        "target_kind",
+        "target_id",
+        "at",
+        "offset",
+        "due_at",
+        "channel",
+        "status",
+        "attempts",
+        "next_attempt_at",
+        "last_error",
+        "delivered_at"
+      ],
+      "required_fields": [
+        "owner",
+        "key",
+        "target_kind",
+        "target_id",
+        "at",
+        "due_at",
+        "channel",
+        "status"
+      ],
+      "field_types": {
+        "owner": "text",
+        "key": "text",
+        "target_kind": "text",
+        "target_id": "text",
+        "at": "date",
+        "offset": "number",
+        "due_at": "date",
+        "channel": "text",
+        "status": "text",
+        "attempts": "number",
+        "next_attempt_at": "date",
+        "last_error": "text",
+        "delivered_at": "date"
+      },
+      "indexes": [
+        "idx_reminders_due",
+        "idx_reminders_key",
+        "idx_reminders_owner"
+      ]
+    },
+    {
+      "name": "todos",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_113564862",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "title",
+        "completed",
+        "due_date",
+        "description",
+        "uid",
+        "dtstamp",
+        "start_date",
+        "list",
+        "timezone",
+        "duration",
+        "status",
+        "completed_at",
+        "percent_complete",
+        "priority",
+        "categories",
+        "rrule",
+        "exdate",
+        "organizer",
+        "attendees",
+        "url",
+        "class",
+        "geo",
+        "alarm",
+        "start_local",
+        "time_mode",
+        "due_local",
+        "dav_href",
+        "calendar"
+      ],
+      "required_fields": [
+        "owner",
+        "title"
+      ],
+      "field_types": {
+        "owner": "text",
+        "title": "text",
+        "completed": "bool",
+        "due_date": "date",
+        "description": "text",
+        "uid": "text",
+        "dtstamp": "date",
+        "start_date": "date",
+        "list": "text",
+        "timezone": "text",
+        "duration": "text",
+        "status": "text",
+        "completed_at": "date",
+        "percent_complete": "text",
+        "priority": "text",
+        "categories": "text",
+        "rrule": "text",
+        "exdate": "text",
+        "organizer": "text",
+        "attendees": "text",
+        "url": "text",
+        "class": "text",
+        "geo": "text",
+        "alarm": "text",
+        "start_local": "text",
+        "time_mode": "text",
+        "due_local": "text",
+        "dav_href": "text",
+        "calendar": "text"
+      },
+      "indexes": []
+    },
+    {
+      "name": "transaction_attachments",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2852624539",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "transaction",
+        "file"
+      ],
+      "required_fields": [
+        "owner",
+        "transaction",
+        "file"
+      ],
+      "field_types": {
+        "owner": "text",
+        "transaction": "relation",
+        "file": "file"
+      },
+      "indexes": [
+        "idx_transaction_attachments_owner_transaction"
+      ]
+    },
+    {
+      "name": "transactions",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_3174063690",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "@request.auth.id = owner",
+        "view": "@request.auth.id = owner",
+        "create": "@request.auth.id = owner",
+        "update": "@request.auth.id = owner",
+        "delete": "@request.auth.id = owner"
+      },
+      "owner_scoped": true,
+      "fields": [
+        "owner",
+        "account",
+        "date",
+        "amount",
+        "type",
+        "payee",
+        "description",
+        "category",
+        "budget",
+        "tags",
+        "attachments",
+        "receipt",
+        "asset",
+        "receivable",
+        "notes",
+        "transfer_id",
+        "cleared",
+        "reconciled"
+      ],
+      "required_fields": [
+        "owner",
+        "account",
+        "date"
+      ],
+      "field_types": {
+        "owner": "text",
+        "account": "text",
+        "date": "date",
+        "amount": "number",
+        "type": "text",
+        "payee": "text",
+        "description": "text",
+        "category": "text",
+        "budget": "text",
+        "tags": "json",
+        "attachments": "json",
+        "receipt": "text",
+        "asset": "text",
+        "receivable": "text",
+        "notes": "text",
+        "transfer_id": "text",
+        "cleared": "bool",
+        "reconciled": "bool"
+      },
+      "indexes": [
+        "idx_transactions_owner_account_date",
+        "idx_transactions_owner_transfer"
+      ]
+    },
+    {
+      "name": "user_permissions",
+      "type": "base",
+      "pocketbase_id_in_local_pb_data": "pbc_2593766271",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": null,
+        "view": null,
+        "create": null,
+        "update": null,
+        "delete": null
+      },
+      "owner_scoped": false,
+      "fields": [
+        "user",
+        "permission",
+        "denied"
+      ],
+      "required_fields": [
+        "user",
+        "permission"
+      ],
+      "field_types": {
+        "user": "text",
+        "permission": "text",
+        "denied": "bool"
+      },
+      "indexes": []
+    },
+    {
+      "name": "users",
+      "type": "auth",
+      "pocketbase_id_in_local_pb_data": "_pb_users_auth_",
+      "id_note": "generated by PocketBase at creation; not reproducible from source",
+      "rules": {
+        "list": "id = @request.auth.id",
+        "view": "id = @request.auth.id",
+        "create": "",
+        "update": "id = @request.auth.id",
+        "delete": "id = @request.auth.id"
+      },
+      "owner_scoped": false,
+      "fields": [
+        "name",
+        "avatar",
+        "created",
+        "updated",
+        "isAdmin",
+        "activation_code",
+        "registration_status",
+        "display_name",
+        "disabled"
+      ],
+      "required_fields": [],
+      "field_types": {
+        "name": "text",
+        "avatar": "file",
+        "created": "autodate",
+        "updated": "autodate",
+        "isAdmin": "bool",
+        "activation_code": "text",
+        "registration_status": "text",
+        "display_name": "text",
+        "disabled": "bool"
+      },
+      "indexes": [
+        "idx_email__pb_users_auth_",
+        "idx_tokenKey__pb_users_auth_"
+      ]
+    }
+  ],
+  "collection_counts": {
+    "non_system": 26,
+    "owner_scoped": 18,
+    "no_rules_superuser_only": 7
+  },
+  "auth_flows": [
+    {
+      "name": "password",
+      "transport": "POST /api/auth-with-password (PocketBase built-in)",
+      "used_by_web": true,
+      "source": "pocketbase"
+    },
+    {
+      "name": "app_password",
+      "transport": "POST /api/auth/app-passwords",
+      "used_by_web": false,
+      "note": "client-only caller is components/tabs/settings-tab.tsx which is unreachable; HTTP routes registered at app.go:191"
+    },
+    {
+      "name": "caldav_carddav_basic",
+      "transport": "HTTP Basic on /caldav and /carddav, verified via AuthenticateAppPassword",
+      "used_by_web": false
+    },
+    {
+      "name": "guest",
+      "transport": "POST /api/auth/guest",
+      "used_by_web": true,
+      "gate": "registered only when SLOPSTACK_DEVELOPMENT=true",
+      "note": "shared account guest@taskboard.local, returns full auth token"
+    },
+    {
+      "name": "registration",
+      "transport": "POST /api/collections/users/records",
+      "used_by_web": true,
+      "modes": [
+        "disabled",
+        "approval",
+        "otp"
+      ],
+      "default": "approval",
+      "note": "non-superuser create forces isAdmin=false, disabled=true; otp mode logs the activation code to stdout (app.go:164)"
+    },
+    {
+      "name": "js_sdk",
+      "transport": "pocketbase-js authStore via apps/web/src/api/pocketbase.ts",
+      "used_by_web": true
+    }
+  ],
+  "ownership_rules": {
+    "finance_rule": "@request.auth.id = owner",
+    "applies_to_all_five_crud_rules_on": [
+      "accounts",
+      "transactions",
+      "checkpoints",
+      "budgets",
+      "assets",
+      "goals",
+      "asset_groups",
+      "asset_positions",
+      "transaction_attachments",
+      "notifications",
+      "reminders",
+      "caldav_changes"
+    ],
+    "custom_route_auth_helper": "app.CurrentUser (internal/app/auth.go:19)",
+    "wrong_owner_status_on_custom_routes": 404,
+    "checkpoint_immutability": "checkpoints update/delete require a 'confirm' query parameter to be PRESENT (any value, including confirm=0); superuser bypass",
+    "reconcile_semantics": "POST /accounts/{id}/reconcile creates AT MOST ONE transaction per call; 400 'no unexplained checkpoint gap to reconcile' when there is nothing to do; not safe to blind-retry",
+    "is_admin_protection": "app.go:150-176 forces isAdmin=false on non-superuser create and restores the original value on update"
+  },
+  "attachments": {
+    "collection": "transaction_attachments",
+    "file_field": "file",
+    "protected": true,
+    "max_files_per_request": 5,
+    "max_bytes_per_file": 5242880,
+    "max_bytes_per_request": 26214400,
+    "allowed_content_types": [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp"
+    ],
+    "detection": "http.DetectContentType on bytes, not the declared header",
+    "rollback": "all-or-nothing; records created earlier in a failed request are deleted",
+    "list_item_shape": [
+      "id",
+      "transaction",
+      "file",
+      "collectionId",
+      "collectionName"
+    ],
+    "legacy_parallel_mechanisms": [
+      "transactions.attachments (json field)",
+      "transactions.receipt (text field)"
+    ]
+  },
+  "backup": {
+    "enabled_env": "SLOPSTACK_BACKUP_ENABLED",
+    "default_enabled": false,
+    "cron_default": "0 3 * * *",
+    "cron_validated": false,
+    "max_keep_default": 14,
+    "s3_supported": true,
+    "commands": [
+      "backup create",
+      "backup list",
+      "backup restore --confirm"
+    ],
+    "name_pattern": "^@?[a-z0-9_-]+\\.zip$",
+    "encrypted_archives": false,
+    "json_export": false,
+    "restore_restart_env_guard": "SLOPSTACK_BACKUP_RESTARTED",
+    "taskboard_has_but_piggybudget_lacks": [
+      "backup_encryption.go",
+      "backup_formats.go",
+      "backup_scheduler.go",
+      "Config.BackupJSONEnabled"
+    ]
+  },
+  "storage": {
+    "env": "SLOPSTACK_STORAGE_PATH",
+    "default": "pb_data",
+    "resolved_as": "pocketbase.Config.DefaultDataDir",
+    "note": "relative default; CWD-dependent",
+    "files_present": [
+      "data.db",
+      "auxiliary.db",
+      ".notify/"
+    ],
+    "local_user_record_counts": {
+      "users": 0,
+      "transactions": 0,
+      "accounts": 0,
+      "assets": 0,
+      "todos": 0,
+      "events": 0,
+      "lists": 0,
+      "calendars": 0,
+      "contacts": 0
+    }
+  },
+  "web": {
+    "router": "TanStack Router",
+    "route_paths": [
+      "/",
+      "/transactions",
+      "/budgets",
+      "/assets",
+      "/goals",
+      "/settings",
+      "/auth/login",
+      "/auth/register"
+    ],
+    "route_components": "none per-route; app.tsx maps pathname to a SidebarTab and a single BudgetingDashboard switches on it",
+    "query_library": "@tanstack/react-query",
+    "query_used": false,
+    "query_note": "QueryClientProvider mounted in main.tsx but no useQuery/useMutation anywhere in the repo",
+    "generated_openapi_client": {
+      "path": "apps/web/src/api/generated",
+      "files": 16,
+      "imported_by": "nothing"
+    },
+    "openapi_documented_paths": [
+      "/api/finance/accounts",
+      "/api/finance/assets",
+      "/api/finance/budgets",
+      "/api/finance/checkpoints",
+      "/api/finance/goals",
+      "/api/finance/transactions"
+    ],
+    "openapi_note": "only the six finance LIST operations are registered with Huma; every other route is undocumented",
+    "data_access": "hand-rolled fetch via apps/web/src/api/client.ts apiFetch, plus the pocketbase-js SDK"
+  },
+  "inherited_unused_taskboard": {
+    "verification_method": "server: wired into registerRoutes/hooks AND no reachable web caller. web: absent from the import graph rooted at apps/web/src/main.tsx, computed by walking relative and @/ imports; test files excluded from the graph.",
+    "server_files": [
+      {
+        "file": "internal/app/caldav.go",
+        "loc": 854,
+        "routes": [
+          "/.well-known/caldav",
+          "/caldav",
+          "/caldav/{path...}"
+        ],
+        "registered": "caldav.go:49-51",
+        "product_caller": null
+      },
+      {
+        "file": "internal/app/caldav_xml.go",
+        "loc": 139,
+        "routes": [],
+        "registered": null,
+        "product_caller": null,
+        "note": "9 unexported helpers used only by caldav.go and caldav_test.go"
+      },
+      {
+        "file": "internal/app/caldav_changes.go",
+        "loc": 152,
+        "routes": [],
+        "registered": null,
+        "product_caller": null,
+        "note": "creates the caldav_changes collection at app.go:40; only the CalDAV journal writes it"
+      },
+      {
+        "file": "internal/app/carddav.go",
+        "loc": 333,
+        "routes": [
+          "/.well-known/carddav",
+          "/carddav",
+          "/carddav/{path...}"
+        ],
+        "registered": "carddav.go:32-34",
+        "product_caller": null
+      },
+      {
+        "file": "internal/app/calendar_io.go",
+        "loc": 596,
+        "routes": [
+          "POST /api/calendars/import",
+          "GET /api/calendars/{id}/export.ics"
+        ],
+        "registered": "calendar_io.go:28-29",
+        "product_caller": "components/tabs/settings-tab.tsx:324,527 (UNREACHABLE)"
+      },
+      {
+        "file": "internal/app/occurrences.go",
+        "loc": 480,
+        "routes": [
+          "GET /api/calendar/occurrences",
+          "POST /api/calendar/occurrences/{masterId}/override",
+          "POST /api/calendar/occurrences/{masterId}/cancel"
+        ],
+        "registered": "occurrences.go:53-55",
+        "product_caller": "components/app/create-composer.tsx:238 and components/entry-row.tsx:53 (BOTH UNREACHABLE)"
+      },
+      {
+        "file": "internal/app/search.go",
+        "loc": 292,
+        "routes": [
+          "GET /api/search"
+        ],
+        "registered": "search.go:76",
+        "product_caller": "components/tabs/search-tab.tsx:51 (UNREACHABLE)",
+        "note": "searches only todos/events/lists/calendars/contacts; zero finance collections. Piggybudget's real search is client-side over BudgetData"
+      },
+      {
+        "file": "internal/calendar/recurrence.go",
+        "loc": 187,
+        "routes": [],
+        "registered": null,
+        "product_caller": null,
+        "note": "imported only by caldav.go:20 and occurrences.go:17; generic RRULE code, obsolete in Piggybudget"
+      }
+    ],
+    "server_files_partially_obsolete": [
+      {
+        "file": "internal/app/schema.go",
+        "loc": 99,
+        "obsolete_part": "the 12-collection Taskboard definition table (todos/events/lists/calendars/address_books/contacts/audit_logs/groups/permissions/group_permissions/user_permissions/group_members)",
+        "core_part": "addMissingFields/addFields collection-repair engine",
+        "note": "Piggybudget's copy is OLDER than Taskboard's: missing the dav_data field on todos/events"
+      },
+      {
+        "file": "internal/app/ownership.go",
+        "loc": 179,
+        "obsolete_part": "hooks bound to todos/events/lists/calendars/contacts, none of which the Piggybudget UI writes",
+        "core_part": "the owner-forcing + owner-scoped relation validation pattern"
+      },
+      {
+        "file": "internal/app/authorization.go",
+        "loc": 15,
+        "obsolete_part": "entire file",
+        "note": "stub: Authorize has no group/role lookup at all; the 5 permission collections it implies exist with NULL rules and are read by nothing"
+      },
+      {
+        "file": "internal/app/app.go",
+        "loc": 231,
+        "obsolete_part": "provisionDefaultContainers (app.go:95-136) bound at app.go:54-59",
+        "note": "app.go:52-53 states it is kept only to satisfy DAV tests; creates lists/calendars/address_books rows for every new user"
+      }
+    ],
+    "not_obsolete_but_no_product_caller": [
+      {
+        "file": "internal/reminders/",
+        "note": "bound at app.go:51, scheduler runs every boot; only web caller create-composer.tsx:261 is unreachable"
+      },
+      {
+        "file": "internal/app/notifications.go",
+        "note": "/api/notifications* live; the live UI finance-notifications.tsx is localStorage-only, the real client notifications-popover.tsx is unreachable"
+      }
+    ],
+    "web_files_unreachable_from_main_tsx": [
+      "components/tabs/calendar-tab.tsx",
+      "components/tabs/lists-tab.tsx",
+      "components/tabs/people-tab.tsx",
+      "components/tabs/search-tab.tsx",
+      "components/tabs/settings-tab.tsx",
+      "components/tabs/upcoming-tab.tsx",
+      "components/time-grid/index.ts",
+      "components/time-grid/layout.ts",
+      "components/time-grid/position.ts",
+      "components/time-grid/segments.ts",
+      "components/time-grid/dates.ts",
+      "components/time-grid/types.ts",
+      "components/time-grid/time-grid.tsx",
+      "components/container-manager/index.ts",
+      "components/container-manager/container-manager.tsx",
+      "components/calendar-month.tsx",
+      "components/full-month-calendar.tsx",
+      "components/entry-row.tsx",
+      "components/create-fields.tsx",
+      "components/app/create-composer.tsx",
+      "components/app/create-composer.helpers.ts",
+      "components/app/notifications-popover.tsx",
+      "data.ts",
+      "theme.ts",
+      "hooks/use-mobile.ts",
+      "api/generated/ (16 files)"
+    ],
+    "web_test_files_for_unreachable_code": [
+      "components/tabs/lists-tab.test.tsx",
+      "components/time-grid/layout.test.ts",
+      "components/time-grid/position.test.ts",
+      "components/time-grid/segments.test.ts",
+      "components/time-grid/time-grid.test.tsx",
+      "components/container-manager/container-manager.test.tsx",
+      "components/calendar-month.test.tsx",
+      "components/full-month-calendar.test.tsx",
+      "components/app/create-composer.helpers.test.ts",
+      "data.test.ts",
+      "theme.test.ts"
+    ],
+    "go_test_files_for_obsolete_code": [
+      "internal/app/caldav_test.go",
+      "internal/app/carddav_test.go",
+      "internal/app/calendar_io_test.go",
+      "internal/app/occurrences_test.go",
+      "internal/calendar/recurrence_test.go"
+    ],
+    "excluded_from_obsolete": [
+      "components/ui/* (56 shadcn primitives) - unreachable except tooltip, but a vendored component library, not inherited Taskboard application code; remediate on size grounds, not obsolescence"
+    ],
+    "deletion_cost": "removing this set drops 9 of 11 vitest files (34 -> ~5 tests) and the bulk of internal/app's Go tests. Expected, not a regression."
+  },
+  "taskboard_parity": {
+    "byte_identical_to_taskboard": [
+      "internal/app/auth.go",
+      "internal/app/authorization.go",
+      "internal/app/ownership.go",
+      "internal/app/openapi.go",
+      "internal/app/search.go",
+      "internal/app/notifications.go",
+      "internal/app/occurrences.go",
+      "internal/app/calendar_io.go",
+      "internal/app/caldav_changes.go",
+      "internal/app/app_passwords.go",
+      "internal/app/app_password_throttle.go",
+      "internal/app/guest_auth.go",
+      "internal/calendar/ (whole package)",
+      "internal/reminders/ (whole package)"
+    ],
+    "piggybudget_older_than_taskboard": [
+      {
+        "file": "internal/app/backup_command.go",
+        "piggybudget_loc": 155,
+        "taskboard_loc": 230,
+        "missing": [
+          "encrypted archives",
+          "JSON export",
+          "backup_scheduler.go pruning",
+          "cron validation",
+          ".zip.enc name pattern"
+        ]
+      },
+      {
+        "file": "internal/app/carddav.go",
+        "piggybudget_loc": 333,
+        "taskboard_loc": 876,
+        "missing": [
+          "PROPFIND depth handling",
+          "REPORT addressbook-multiget",
+          "SYNC-collection",
+          "addressbook-query filters",
+          "extracted vcard.go (Piggybudget inlines it at lines 250-296)"
+        ]
+      },
+      {
+        "file": "internal/app/caldav.go",
+        "piggybudget_loc": 854,
+        "taskboard_loc": 977,
+        "missing": [
+          "iCalendar filter parsing (calDAVComponentMatches/calDAVTextMatches)",
+          "preservedCalDAVData known-property round-trip"
+        ]
+      },
+      {
+        "file": "internal/app/schema.go",
+        "piggybudget_loc": 99,
+        "taskboard_loc": 102,
+        "missing": [
+          "dav_data field on todos and events"
+        ]
+      },
+      {
+        "file": "internal/app/config.go",
+        "piggybudget_loc": 102,
+        "taskboard_loc": 117,
+        "missing": [
+          "BackupJSONEnabled",
+          "cron.Validate on the configured cron expression"
+        ]
+      }
+    ],
+    "removed_in_piggybudget_vs_taskboard": [
+      "registerTodoRoutes (GET /api/todos)",
+      "vcard.go (inlined into carddav.go)",
+      "carddav_changes.go",
+      "backup_encryption.go",
+      "backup_formats.go",
+      "backup_scheduler.go"
+    ],
+    "caldav_carddav_removed": false,
+    "caldav_carddav_note": "VERIFIED FALSE. Both repos call registerCalDAVRoutes(e) and registerCardDAVRoutes(e) in registerRoutes (taskboard app.go:196-197, piggybudget app.go:195-196). The DAV routes are live today."
+  },
+  "tests": {
+    "go": {
+      "command": "go test -count=1 ./...",
+      "working_directory": "apps/server",
+      "result": "pass",
+      "packages": [
+        {
+          "package": "github.com/slopstack/slopstack/apps/server/internal/app",
+          "result": "ok",
+          "seconds": 27.138
+        },
+        {
+          "package": "github.com/slopstack/slopstack/apps/server/internal/calendar",
+          "result": "ok",
+          "seconds": 2.458
+        },
+        {
+          "package": "github.com/slopstack/slopstack/apps/server/internal/reminders",
+          "result": "ok",
+          "seconds": 2.235
+        }
+      ],
+      "packages_without_tests": [
+        "github.com/slopstack/slopstack/apps/server/cmd/slopstack",
+        "github.com/slopstack/slopstack/apps/server/pb_migrations"
+      ],
+      "source_files_with_tests": 19,
+      "source_files_without_tests": [
+        "apps/server/cmd/slopstack/main.go",
+        "apps/server/internal/app/app.go",
+        "apps/server/internal/app/app_password_throttle.go",
+        "apps/server/internal/app/auth.go",
+        "apps/server/internal/app/authorization.go",
+        "apps/server/internal/app/caldav_changes.go",
+        "apps/server/internal/app/caldav_xml.go",
+        "apps/server/internal/app/config.go",
+        "apps/server/internal/app/finance_schema.go",
+        "apps/server/internal/reminders/memory_store.go",
+        "apps/server/internal/reminders/reminder.go",
+        "apps/server/internal/reminders/scheduler.go",
+        "apps/server/pb_migrations/20260824000000_add_user_is_admin.go",
+        "apps/server/pb_migrations/20260908000000_add_registration_fields.go",
+        "apps/server/pb_migrations/20260908000001_add_app_passwords.go",
+        "apps/server/pb_migrations/20260908000002_add_taskboard_collections.go",
+        "apps/server/pb_migrations/20260908000003_add_icalendar_fields.go",
+        "apps/server/pb_migrations/20260908000004_add_carddav_collections.go",
+        "apps/server/pb_migrations/20260912000000_add_entry_containers.go",
+        "apps/server/pb_migrations/20260912000001_add_notifications.go",
+        "apps/server/pb_migrations/20260913000000_add_temporal_and_container_state.go",
+        "apps/server/pb_migrations/20260913000001_add_notification_actions.go",
+        "apps/server/pb_migrations/20260913000002_add_recurrence_overrides.go",
+        "apps/server/pb_migrations/20260913000003_add_caldav_hrefs.go",
+        "apps/server/pb_migrations/20260913000004_add_caldav_change_journal.go",
+        "apps/server/pb_migrations/20260914000000_add_carddav_resource_hrefs.go",
+        "apps/server/pb_migrations/20260915000000_add_todo_calendar.go",
+        "apps/server/pb_migrations/20260920000000_add_finance_collections.go",
+        "apps/server/pb_migrations/20260920000001_extend_finance_collections.go",
+        "apps/server/pb_migrations/20261005000000_add_transaction_attachments.go",
+        "apps/server/pb_migrations/20261005000001_add_asset_groups_and_positions.go"
+      ],
+      "source_files_without_tests_note": "internal/app/finance.go and asset_groups.go DO have tests (finance_test.go, asset_groups_test.go). config.go, app.go, auth.go, authorization.go, and all of internal/reminders/ have none. All 18 pb_migrations files are thin wrappers with no tests."
+    },
+    "web": {
+      "command": "pnpm -r test",
+      "working_directory": ".",
+      "result": "pass",
+      "runner": "vitest 4.1.10",
+      "test_files": 11,
+      "tests": 34,
+      "duration_seconds": 1.76,
+      "note": "all 11 files target Taskboard-era components. budgeting-dashboard.tsx (~1900 LOC) and budgeting/data.ts have ZERO frontend tests."
+    },
+    "lint": {
+      "command": "pnpm -r lint",
+      "result": "pass",
+      "tool": "eslint 9 (apps/web only)"
+    },
+    "typecheck": {
+      "command": "npx tsc -b --noEmit",
+      "working_directory": "apps/web",
+      "result": "pass"
+    },
+    "vet": {
+      "command": "go vet ./...",
+      "working_directory": "apps/server",
+      "result": "pass"
+    },
+    "build": {
+      "command": "go build ./...",
+      "working_directory": "apps/server",
+      "result": "pass"
+    }
+  },
+  "provenance": {
+    "collections_source": "read-only sqlite query against pb_data/data.db (_collections.fields and _collections.indexes JSON)",
+    "collection_ids": "PocketBase-generated at creation; a fresh EnsureCollections run produces different ids. Not a code constant.",
+    "routes_source": "manual enumeration of e.Router.* in apps/server/internal/app (excluding _test.go), expanded over the /api/finance and /api dual prefixes",
+    "test_results_source": "actually executed during the phase 0 audit on this commit",
+    "taskboard_parity_source": "diff -u and diff -rq against ../taskboard, read-only"
+  }
+}
