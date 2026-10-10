@@ -7,6 +7,8 @@ tmp_dir = "tmp"
   full_bin = "SLOPSTACK_DEVELOPMENT=true ./tmp/slopstack serve --http=${SLOPSTACK_HTTP_ADDRESS:-0.0.0.0:8090}"
   include_ext = ["go", "json", "yaml", "yml", "toml"]
   exclude_dir = ["tmp", "pb_data", "node_modules"]
+  poll = true
+  poll_interval = 500
 
 [log]
   time = true

@@ -1,0 +1,49 @@
+services:
+  server:
+    image: golang:1.26-alpine
+    working_dir: /workspace/apps/server
+    command: sh -c "go run github.com/air-verse/air@latest -c .air.toml"
+    environment:
+      SLOPSTACK_DEVELOPMENT: "true"
+      SLOPSTACK_HTTP_ADDRESS: 0.0.0.0:8090
+      SLOPSTACK_STORAGE_PATH: /workspace/apps/server/pb_data
+    ports:
+      - "8091:8090"
+    volumes:
+      - .:/workspace
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/api/health >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  web:
+    image: node:24-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && cd apps/web && ./node_modules/.bin/vite --host 0.0.0.0"
+    environment:
+      VITE_API_URL: http://localhost:8091
+    ports:
+      - "5174:5173"
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+      - web-node-modules:/workspace/apps/web/node_modules
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5173/auth/login >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  go-mod-cache:
+  go-build-cache:
+  node-modules:
+  web-node-modules:

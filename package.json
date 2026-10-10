@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@11.8.0",
   "scripts": {
-    "dev": "concurrently -k -n server,web -c green,cyan \"pnpm dev:server\" \"pnpm dev:web\"",
+    "dev": "sh scripts/dev.sh",
     "dev:server": "sh -c 'cd apps/server && go run github.com/air-verse/air@latest -c .air.toml'",
     "dev:web": "pnpm --filter @slopstack/web dev",
     "build": "pnpm -r build",

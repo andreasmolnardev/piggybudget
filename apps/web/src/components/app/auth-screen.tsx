@@ -17,6 +17,42 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
   const [ssoBusy, setSsoBusy] = useState(false);
   useEffect(() => {
     if (mode !== 'login') return;
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get('token');
+    if (!import.meta.env.DEV) return;
+
+    if (!token) {
+      const requested = sessionStorage.getItem('piggybudget-dev-login-requested');
+      if (requested) return;
+      sessionStorage.setItem('piggybudget-dev-login-requested', 'true');
+      void apiFetch('/api/auth/guest', { method: 'POST' })
+        .then(async (response) => {
+          if (!response.ok) throw new Error('Guest authentication failed');
+          const result = (await response.json()) as { token: string };
+          url.searchParams.set('token', result.token);
+          window.location.assign(url.toString());
+        })
+        .catch(() => {
+          sessionStorage.removeItem('piggybudget-dev-login-requested');
+          setError('Could not get a dev login link. Is the API running?');
+        });
+      return;
+    }
+
+    sessionStorage.removeItem('piggybudget-dev-login-requested');
+    url.searchParams.delete('token');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    pb.authStore.save(token);
+    void pb
+      .collection('users')
+      .authRefresh()
+      .catch(() => {
+        pb.authStore.clear();
+        setError('Could not sign in with the dev login link.');
+      });
+  }, [mode]);
+  useEffect(() => {
+    if (mode !== 'login') return;
     void pb
       .collection('users')
       .listAuthMethods()

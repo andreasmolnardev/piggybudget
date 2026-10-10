@@ -5,5 +5,9 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname } },
-  server: { proxy: { '/api': 'http://localhost:8090' } },
+  server: {
+    open: false,
+    watch: { usePolling: true, interval: 500 },
+    proxy: { '/api': 'http://localhost:8090' },
+  },
 });
