@@ -150,6 +150,7 @@ h3 {
   border-color: var(--primary);
 }
 .auth-password-input { position: relative; display: flex; align-items: center; }
+.auth-field-hint { color: var(--muted); font-size: 11px; }
 .auth-password-input input { padding-right: 42px; }
 .auth-password-toggle {
   position: absolute;

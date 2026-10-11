@@ -41,7 +41,11 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
 
     sessionStorage.removeItem('piggybudget-dev-login-requested');
     url.searchParams.delete('token');
-    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${url.pathname}${url.search}${url.hash}`,
+    );
     pb.authStore.save(token);
     void pb
       .collection('users')
@@ -176,6 +180,7 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
                   <input
                     type={passwordVisible ? 'text' : 'password'}
                     required
+                    minLength={mode === 'register' ? 8 : undefined}
                     autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
@@ -189,6 +194,9 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
                     {passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </span>
+                {mode === 'register' && (
+                  <small className="auth-field-hint">Use at least 8 characters.</small>
+                )}
               </label>
             ) : null}
           </>
