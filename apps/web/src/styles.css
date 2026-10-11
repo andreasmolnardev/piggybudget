@@ -149,6 +149,34 @@ h3 {
 .auth-card input:focus {
   border-color: var(--primary);
 }
+.auth-password-input { position: relative; display: flex; align-items: center; }
+.auth-password-input input { padding-right: 42px; }
+.auth-password-toggle {
+  position: absolute;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.auth-password-toggle:hover { background: var(--soft); color: var(--foreground); }
+.auth-text-action {
+  align-self: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.auth-text-action:hover { color: var(--primary-dark); }
 .auth-submit {
   justify-content: center;
   margin-top: 4px;

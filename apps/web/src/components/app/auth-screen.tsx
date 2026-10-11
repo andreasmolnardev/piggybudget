@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Check } from 'lucide-react';
+import { Check, Eye, EyeOff } from 'lucide-react';
 import { apiRequest } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 
@@ -15,6 +15,8 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
   );
   const [ssoProviders, setSsoProviders] = useState<{ name: string; displayName: string }[]>([]);
   const [ssoBusy, setSsoBusy] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
   useEffect(() => {
     if (mode !== 'login') return;
     const url = new URL(window.location.href);
@@ -107,6 +109,11 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
     setError('');
     setMessage('');
     try {
+      if (mode === 'login' && resetMode) {
+        await pb.collection('users').requestPasswordReset(email);
+        setMessage('If an account uses that email, a password reset link will arrive shortly.');
+        return;
+      }
       if (mode === 'register') {
         if (registrationMode === 'disabled') return;
         await pb.collection('users').create({ email, password, passwordConfirm: password });
@@ -135,8 +142,20 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
         <div className="sidebar-brand">
           <Check size={22} />
         </div>
-        <h1>{mode === 'register' ? 'Create your account' : 'Welcome back'}</h1>
-        {mode === 'login' && <p>Sign in to see your money clearly.</p>}
+        <h1>
+          {mode === 'register'
+            ? 'Create your account'
+            : resetMode
+              ? 'Reset your password'
+              : 'Welcome back'}
+        </h1>
+        {mode === 'login' && (
+          <p>
+            {resetMode
+              ? 'Enter your email and we’ll send a password reset link if an account matches.'
+              : 'Sign in to see your money clearly.'}
+          </p>
+        )}
         {message && <div className="auth-message">{message}</div>}
         {!disabled && (
           <>
@@ -150,16 +169,28 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
                 onChange={(event) => setEmail(event.target.value)}
               />
             </label>
-            <label>
-              Password
-              <input
-                type="password"
-                required
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
+            {mode === 'register' || !resetMode ? (
+              <label>
+                Password
+                <span className="auth-password-input">
+                  <input
+                    type={passwordVisible ? 'text' : 'password'}
+                    required
+                    autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                  <button
+                    className="auth-password-toggle"
+                    type="button"
+                    aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                    onClick={() => setPasswordVisible((visible) => !visible)}
+                  >
+                    {passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </span>
+              </label>
+            ) : null}
           </>
         )}
         {error && <div className="auth-error">{error}</div>}
@@ -168,13 +199,30 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
             {busy
               ? mode === 'register'
                 ? 'Creating account…'
-                : 'Signing in…'
+                : resetMode
+                  ? 'Sending link…'
+                  : 'Signing in…'
               : mode === 'register'
                 ? 'Create account'
-                : 'Sign in'}
+                : resetMode
+                  ? 'Send reset link'
+                  : 'Sign in'}
           </button>
         )}
-        {mode === 'login' && ssoProviders.length > 0 && (
+        {mode === 'login' && !resetMode && (
+          <button
+            className="auth-text-action"
+            type="button"
+            onClick={() => {
+              setResetMode(true);
+              setError('');
+              setMessage('');
+            }}
+          >
+            Forgot password?
+          </button>
+        )}
+        {mode === 'login' && !resetMode && ssoProviders.length > 0 && (
           <div className="sso-options">
             <div className="sso-divider">or</div>
             {ssoProviders.map((provider) => (
@@ -190,13 +238,27 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
             ))}
           </div>
         )}
-        <p className="auth-switch">
-          {mode === 'register' ? 'Already have an account?' : 'Need an account?'}{' '}
-          <Link to={mode === 'register' ? '/auth/login' : '/auth/register'}>
-            {mode === 'register' ? 'Sign in' : 'Sign up'}
-          </Link>
-        </p>
-        {mode === 'login' && import.meta.env.DEV && (
+        {resetMode ? (
+          <button
+            className="auth-text-action"
+            type="button"
+            onClick={() => {
+              setResetMode(false);
+              setError('');
+              setMessage('');
+            }}
+          >
+            Back to sign in
+          </button>
+        ) : (
+          <p className="auth-switch">
+            {mode === 'register' ? 'Already have an account?' : 'Need an account?'}{' '}
+            <Link to={mode === 'register' ? '/auth/login' : '/auth/register'}>
+              {mode === 'register' ? 'Sign in' : 'Sign up'}
+            </Link>
+          </p>
+        )}
+        {mode === 'login' && !resetMode && import.meta.env.DEV && (
           <button
             type="button"
             className="button auth-guest"
