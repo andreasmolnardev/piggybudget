@@ -1,26 +1,26 @@
-FROM node:24-alpine AS web-build
+FROM node:22.23.2-alpine3.24 AS web-build
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY apps/web apps/web
-RUN pnpm --filter @slopstack/web build
+RUN pnpm --filter @piggybudget/web build
 
-FROM golang:1.26-alpine AS server-build
+FROM golang:1.27.1-alpine3.24 AS server-build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY apps/server apps/server
-RUN CGO_ENABLED=0 go build -o /slopstack ./apps/server/cmd/slopstack
+RUN CGO_ENABLED=0 go build -o /piggybudget ./apps/server/cmd/piggybudget
 
-FROM alpine:3.22
-RUN addgroup -S slopstack && adduser -S slopstack -G slopstack
+FROM alpine:3.24.2
+RUN addgroup -S piggybudget && adduser -S piggybudget -G piggybudget
 WORKDIR /app
-COPY --from=server-build /slopstack /app/slopstack
+COPY --from=server-build /piggybudget /app/piggybudget
 COPY --from=web-build /src/apps/web/dist /app/public
-RUN mkdir -p /app/pb_data && chown -R slopstack:slopstack /app
-USER slopstack
+RUN mkdir -p /app/pb_data && chown -R piggybudget:piggybudget /app
+USER piggybudget
 VOLUME ["/app/pb_data"]
 EXPOSE 8090
-HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:8090/api/health || exit 1
-CMD ["/app/slopstack", "serve", "--http=0.0.0.0:8090"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 CMD wget -qO- http://127.0.0.1:8090/api/health || exit 1
+CMD ["/app/piggybudget", "serve", "--http=0.0.0.0:8090"]

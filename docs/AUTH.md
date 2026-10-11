@@ -5,7 +5,7 @@ PocketBase owns the auth lifecycle for the current platform foundation and the P
 ## Built-in flows
 
 - Login and logout.
-- Registration, controlled by `SLOPSTACK_REGISTRATION_ENABLED`.
+- Registration, controlled by `PIGGYBUDGET_REGISTRATION_ENABLED` (`SLOPSTACK_REGISTRATION_ENABLED` remains a deprecated alias).
 - Password reset.
 - Email verification.
 - Persistent auth tokens.

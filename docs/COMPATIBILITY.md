@@ -1,7 +1,23 @@
 # Piggybudget Compatibility Baseline
 
+## Synthetic legacy-schema regression
+
+`go test ./apps/server -run TestSyntheticLegacyFinanceSchemaUpgradePreservesRecords -count=1`
+uses `tests.NewTestApp()` to create a disposable database, seeds an existing user,
+account, and transaction using an older finance schema, and runs the registered
+app migrations plus the current bootstrap schema repairs twice. It asserts that
+collection IDs, record IDs, and representative values survive and that newer
+fields are added. This is synthetic legacy-schema coverage; it does not replace
+the Phase 7 requirement to test disposable copies of populated real-schema
+databases from older releases, including restore.
+
 Everything a later migration phase must preserve. All values verified on the commit
 recorded in `docs/baseline.json` (Phase 0, `docs/architecture` commit `0eb63ad`).
+
+Phase 1 renamed the Go module, workspace packages, server command, and preferred
+configuration prefix. `SLOPSTACK_*` remains a deprecated runtime alias. The
+historical command results and identity values below describe the Phase 0 baseline;
+see `docs/IDENTITY-MIGRATION.md` for the current names.
 
 ## 1. Tool versions
 
@@ -20,7 +36,7 @@ pnpm `11` / node `24` / go `stable` — see `.github/workflows/ci.yml`.
 | Command | Working dir | Result |
 |---|---|---|
 | `go build ./...` | `apps/server` | PASS |
-| `go test -count=1 ./...` | `apps/server` | PASS — `internal/app` 27.1s, `internal/calendar` 2.5s, `internal/reminders` 2.2s; `cmd/slopstack` and `pb_migrations` have no test files |
+| `go test -count=1 ./...` | `apps/server` | PASS — `internal/app` 27.1s, `internal/calendar` 2.5s, `internal/reminders` 2.2s; `cmd/piggybudget` and `pb_migrations` have no test files |
 | `pnpm -r lint` | repo root | PASS (`eslint src` in `apps/web`, no output) |
 | `pnpm -r test` | repo root | PASS — vitest 4.1.10, 11 files, 34 tests, 1.76s |
 | `npx tsc -b --noEmit` | `apps/web` | PASS (not part of `pnpm lint`; `pnpm build` runs `tsc -b && vite build`) |
@@ -48,7 +64,7 @@ built-in `/api/collections/...`, `/api/auth-with-password`, `/api/settings`,
 | Method | Path | Auth | File |
 |---|---|---|---|
 | GET | `/api/auth/registration-policy` | none | `app.go:204` |
-| POST | `/api/auth/guest` | none, **only when `SLOPSTACK_DEVELOPMENT=true`** | `app.go:210` |
+| POST | `/api/auth/guest` | none, **only when `PIGGYBUDGET_DEVELOPMENT=true`** (`SLOPSTACK_*` alias supported) | `app.go:210` |
 | GET | `/api/auth/app-passwords` | bearer | `app_passwords.go:78` |
 | POST | `/api/auth/app-passwords` | bearer | `app_passwords.go:85` |
 | DELETE | `/api/auth/app-passwords/{id}` | bearer | `app_passwords.go:117` |
@@ -129,7 +145,7 @@ Taskboard's, not newer:
 - `caldav.go`: 854 LOC vs Taskboard 977 LOC. Piggybudget lacks
   `preservedCalDAVData`, `calDAVComponentMatches`, `calDAVTextMatches` (iCalendar
   filter parsing), and the known-property round-trip preservation.
-- Piggybudget also lacks `carddav_changes.go`, `backup_encryption.go`,
+- Piggybudget also lacks `carddav_changes.go`, dedicated backup format helpers,
   `backup_formats.go`, `backup_scheduler.go`, and `Config.BackupJSONEnabled`.
 
 So: if Piggybudget ever wants working CalDAV/CardDAV, it must **pull forward from
@@ -300,12 +316,13 @@ escalating block duration. Piggybudget's UI has no product caller for these rout
 `applyBackupConfig` (`app.go:67-93`) runs on every bootstrap and writes into
 PocketBase's own settings:
 
-- `SLOPSTACK_BACKUP_ENABLED=false` (default) → clears `settings.Backups.Cron` and
+- `PIGGYBUDGET_BACKUP_ENABLED=false` (default) → clears `settings.Backups.Cron` and
   disables S3 entirely.
-- otherwise `Backups.Cron = SLOPSTACK_BACKUP_CRON` (default `0 3 * * *`),
-  `CronMaxKeep = SLOPSTACK_BACKUP_MAX_KEEP` (default `14`), and the S3 block
-  (`SLOPSTACK_BACKUP_S3_*`).
-- `SLOPSTACK_PUBLIC_URL` sets `settings.Meta.AppURL` (trailing slash trimmed).
+- otherwise `Backups.Cron = PIGGYBUDGET_BACKUP_CRON` (default `0 3 * * *`),
+  `CronMaxKeep = PIGGYBUDGET_BACKUP_MAX_KEEP` (default `14`), and the S3 block
+  (`PIGGYBUDGET_BACKUP_S3_*`).
+- `PIGGYBUDGET_PUBLIC_URL` sets `settings.Meta.AppURL` (trailing slash trimmed).
+- Corresponding `SLOPSTACK_*` names remain deprecated aliases.
 
 Piggybudget has **no** `backup_scheduler.go`; scheduling is entirely PocketBase's
 built-in cron.
@@ -320,7 +337,7 @@ built-in cron.
   `NAME  SIZE  MODIFIED` (RFC3339).
 - `restore <exact-name>` → **requires `--confirm`**. Name is validated against
   `^@?[a-z0-9_-]+\.zip$` and length ≤ 150 (`backup_command.go:18,137`).
-  Uses the `SLOPSTACK_BACKUP_RESTARTED=1` env guard (line 20) to prevent a restore
+  Uses the `PIGGYBUDGET_BACKUP_RESTORE_RESTARTED=1` env guard to prevent a restore
   loop.
 
 Taskboard's version additionally accepts `.zip.enc` and exposes JSON export;
@@ -389,10 +406,11 @@ These are hard constraints. Breaking any one is a data-loss or API-break event.
   reachable in a production build.
 
 ### R4 — `pb_data` location
-- `SLOPSTACK_STORAGE_PATH`, default `pb_data`, passed to
+- `PIGGYBUDGET_STORAGE_PATH`, default `pb_data`, passed to
   `pocketbase.Config.DefaultDataDir` (`main.go:21`). Docker mounts a volume here
   (`docker-compose.yml`, `docker-compose.dev.yaml`). Relative default means CWD
-  matters. Renaming the env var is a deployment break — treat it as a compat alias.
+  matters. `SLOPSTACK_STORAGE_PATH` remains a deprecated alias; keep both the
+  default location and the existing Docker volume name during deployment updates.
 - Local `pb_data/` currently holds `data.db`, `auxiliary.db`, `.notify/`. Do not
   delete.
 

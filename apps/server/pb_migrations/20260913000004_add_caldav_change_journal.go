@@ -3,7 +3,7 @@ package migrations
 import (
 	"github.com/pocketbase/pocketbase/core"
 
-	"github.com/slopstack/slopstack/apps/server/internal/app"
+	"github.com/piggybudget/piggybudget/apps/server/internal/app"
 )
 
 func init() {

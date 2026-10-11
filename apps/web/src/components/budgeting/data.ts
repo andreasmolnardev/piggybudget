@@ -1,6 +1,5 @@
 import type { RecordModel } from 'pocketbase';
-import { apiFetch } from '../../api/client';
-import { pb } from '../../api/pocketbase';
+import { apiRequest } from '../../api/client';
 
 export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment';
 
@@ -285,11 +284,7 @@ function optionalDateValue(record: RecordModel, ...keys: string[]) {
 
 async function getRecords(collection: string): Promise<RecordModel[]> {
   try {
-    const response = await apiFetch(`/api/finance/${collection}`, {
-      headers: { Authorization: `Bearer ${pb.authStore.token}` },
-    });
-    if (!response.ok) return [];
-    const records = await response.json();
+    const records = await apiRequest<unknown>(`/api/finance/${collection}`);
     return Array.isArray(records) ? (records as RecordModel[]) : [];
   } catch {
     return [];

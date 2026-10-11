@@ -1,11 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { AuthScreen } from './components/app/auth-screen';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FinanceSearch } from './components/app/finance-search';
 import { Sidebar, type SidebarTab } from './components/sidebar';
 import { BudgetingDashboard } from './components/budgeting/budgeting-dashboard';
-import { loadBudgetData, sampleData, type BudgetData } from './components/budgeting/data';
+import { sampleData } from './components/budgeting/data';
+import { budgetDataQueryKey, budgetDataQueryOptions } from './components/budgeting/query';
 import { pb } from './api/pocketbase';
 import { profileFromRecord, type UserProfile } from './profile';
 
@@ -78,36 +79,37 @@ function AppError({ children }: { children: ReactNode }) {
 
 export function App() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const [authenticated, setAuthenticated] = useState(pb.authStore.isValid);
   const [userId, setUserId] = useState(pb.authStore.record?.id ?? '');
   const [profile, setProfile] = useState<UserProfile>(() => profileFromRecord(pb.authStore.record));
-  const [data, setData] = useState<BudgetData>(sampleData);
-  const [remote, setRemote] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [dataError, setDataError] = useState('');
+  const [dataErrorDismissed, setDataErrorDismissed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchClosing, setSearchClosing] = useState(false);
+  const budgetQuery = useQuery(budgetDataQueryOptions(userId));
+  const data = budgetQuery.data?.data ?? sampleData;
+  const remote = budgetQuery.data?.remote ?? false;
+  const loading = budgetQuery.isLoading;
+  const dataError = budgetQuery.isError && !dataErrorDismissed
+    ? 'Could not reach your saved data. Showing the local sample instead.'
+    : '';
   const activeTab = tabForPath(pathname);
 
   useEffect(
     () =>
       pb.authStore.onChange((_token, record) => {
-        setAuthenticated(Boolean(record));
         setUserId(record?.id ?? '');
         setProfile(profileFromRecord(record));
+        if (!record) {
+          queryClient.removeQueries({ queryKey: ['budget-data'] });
+          void navigate({ to: '/auth/login', replace: true });
+        }
       }),
-    [],
+    [navigate, queryClient],
   );
 
   useEffect(() => {
-    const isAuthRoute = pathname.startsWith('/auth/');
-    if (!authenticated && !isAuthRoute) void navigate({ to: '/auth/login', replace: true });
-    if (authenticated && isAuthRoute) void navigate({ to: '/', replace: true });
-  }, [authenticated, navigate, pathname]);
-
-  useEffect(() => {
-    if (!authenticated || !userId) {
+    if (!userId) {
       setProfile(profileFromRecord(null));
       return;
     }
@@ -122,33 +124,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [authenticated, userId]);
-
-  useEffect(() => {
-    if (!authenticated || !userId) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setDataError('');
-    void loadBudgetData()
-      .then((result) => {
-        if (cancelled) return;
-        setData(result.data);
-        setRemote(result.remote);
-      })
-      .catch(() => {
-        if (!cancelled)
-          setDataError('Could not reach your saved data. Showing the local sample instead.');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authenticated, userId]);
+  }, [userId]);
 
   useEffect(() => {
     document.title = `${pageLabels[activeTab]} | Piggybudget`;
@@ -181,25 +157,16 @@ export function App() {
     void navigate({ to: routeForTab[tab] });
   };
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     if (!userId) return;
-    setLoading(true);
-    void loadBudgetData()
-      .then((result) => {
-        setData(result.data);
-        setRemote(result.remote);
-      })
-      .catch(() => setDataError('Refresh failed. Your last view is still here.'))
-      .finally(() => setLoading(false));
-  };
+    setDataErrorDismissed(false);
+    void queryClient.invalidateQueries({ queryKey: budgetDataQueryKey(userId) });
+  }, [queryClient, userId]);
 
   useEffect(() => {
     window.addEventListener('piggybudget:refresh', refresh);
     return () => window.removeEventListener('piggybudget:refresh', refresh);
-  }, [userId]);
-
-  if (!authenticated)
-    return <AuthScreen mode={pathname === '/auth/register' ? 'register' : 'login'} />;
+  }, [refresh]);
 
   return (
     <div className="app-shell">
@@ -220,7 +187,7 @@ export function App() {
               <button
                 className="icon-button"
                 type="button"
-                onClick={() => setDataError('')}
+                onClick={() => setDataErrorDismissed(true)}
                 aria-label="Dismiss error"
               >
                 <X size={15} />

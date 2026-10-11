@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Check } from 'lucide-react';
-import { apiFetch } from '../../api/client';
+import { apiRequest } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 
 export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
@@ -25,10 +25,8 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
       const requested = sessionStorage.getItem('piggybudget-dev-login-requested');
       if (requested) return;
       sessionStorage.setItem('piggybudget-dev-login-requested', 'true');
-      void apiFetch('/api/auth/guest', { method: 'POST' })
-        .then(async (response) => {
-          if (!response.ok) throw new Error('Guest authentication failed');
-          const result = (await response.json()) as { token: string };
+      void apiRequest<{ token: string }>('/api/auth/guest', { method: 'POST' })
+        .then((result) => {
           url.searchParams.set('token', result.token);
           window.location.assign(url.toString());
         })
@@ -67,9 +65,8 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
   }, [mode]);
   useEffect(() => {
     if (mode !== 'register') return;
-    void apiFetch('/api/auth/registration-policy')
-      .then((response) => response.json())
-      .then((policy: { mode: 'disabled' | 'approval' | 'otp' }) => setRegistrationMode(policy.mode))
+    void apiRequest<{ mode: 'disabled' | 'approval' | 'otp' }>('/api/auth/registration-policy')
+      .then((policy) => setRegistrationMode(policy.mode))
       .catch(() => setError('Could not load registration settings.'));
   }, [mode]);
   const handleSso = async (provider: string) => {
@@ -88,9 +85,7 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
     setError('');
     setMessage('');
     try {
-      const response = await apiFetch('/api/auth/guest', { method: 'POST' });
-      if (!response.ok) throw new Error('Guest authentication failed');
-      const result: {
+      const result = await apiRequest<{
         token: string;
         record: {
           id: string;
@@ -98,7 +93,7 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
           collectionName: string;
           [key: string]: unknown;
         };
-      } = await response.json();
+      }>('/api/auth/guest', { method: 'POST' });
       pb.authStore.save(result.token, result.record);
     } catch {
       setError('Could not authenticate as a guest.');

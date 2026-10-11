@@ -3,6 +3,7 @@
 ## Implemented phases
 
 - [x] Platform foundation: PocketBase runtime, auth, permissions, audit records, API generation, web shell, and backups.
+- [x] Independent Piggybudget identity: Go module, command, workspace packages, Docker image, and preferred `PIGGYBUDGET_*` configuration prefix with legacy aliases.
 - [x] Finance workspace: dashboard, transactions, budgets, assets, goals, settings, sample data, and PocketBase reads.
 - [x] Finance persistence/API: owner-scoped collections, additive migration, protected CRUD routes, account summaries, ownership checks, and finance integration tests.
 - [x] Reconciliation foundation: checkpoint windows, unexplained gap states, and immutable checkpoint mutations.

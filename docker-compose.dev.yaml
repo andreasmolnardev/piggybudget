@@ -1,12 +1,12 @@
 services:
   server:
-    image: golang:1.26-alpine
+    image: golang:1.27.1-alpine3.24
     working_dir: /workspace/apps/server
-    command: sh -c "go run github.com/air-verse/air@latest -c .air.toml"
+    command: sh -c "go run github.com/air-verse/air@v1.67.4 -c .air.toml"
     environment:
-      SLOPSTACK_DEVELOPMENT: "true"
-      SLOPSTACK_HTTP_ADDRESS: 0.0.0.0:8090
-      SLOPSTACK_STORAGE_PATH: /workspace/apps/server/pb_data
+      PIGGYBUDGET_DEVELOPMENT: "true"
+      PIGGYBUDGET_HTTP_ADDRESS: 0.0.0.0:8090
+      PIGGYBUDGET_STORAGE_PATH: /workspace/apps/server/pb_data
     ports:
       - "8091:8090"
     volumes:
@@ -21,7 +21,7 @@ services:
       retries: 30
 
   web:
-    image: node:24-alpine
+    image: node:22.23.2-alpine3.24
     working_dir: /workspace
     command: sh -c "corepack enable && pnpm install --frozen-lockfile && cd apps/web && ./node_modules/.bin/vite --host 0.0.0.0"
     environment:

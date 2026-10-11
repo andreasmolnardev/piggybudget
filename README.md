@@ -53,6 +53,6 @@ pnpm test
 go test ./...
 ```
 
-The current package, binary, and environment variable names still use `slopstack`. They are compatibility names and have not been renamed as part of the Piggybudget work.
+The Go module is `github.com/piggybudget/piggybudget`; the web package is `@piggybudget/web`. Runtime settings use the `PIGGYBUDGET_*` prefix. Existing deployments can keep using `SLOPSTACK_*` settings during migration; the new names take precedence when both are set. The default PocketBase data path remains `pb_data`.
 
 See [`PATCH.md`](./PATCH.md), [`ROADMAP.md`](./ROADMAP.md), and [`docs/`](./docs/) for the implementation status and engineering notes.

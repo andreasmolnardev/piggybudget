@@ -76,6 +76,15 @@ func TestBackupRestoreSkipsCommandAfterRestart(t *testing.T) {
 	}
 }
 
+func TestBackupRestoreAcceptsLegacyRestartGuard(t *testing.T) {
+	t.Setenv(backupRestoreRestartedEnv, "")
+	t.Setenv(legacyBackupRestoreRestartedEnv, "1")
+
+	if !backupRestoreAlreadyRestarted() {
+		t.Fatal("expected the legacy restore restart guard to remain supported")
+	}
+}
+
 func TestBackupRestoreRejectsUnsafeName(t *testing.T) {
 	restored := false
 	command := (&BackupCommand{

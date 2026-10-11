@@ -3,50 +3,97 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_dir=$(dirname "$script_dir")
-compose_file=${COMPOSE_FILE:-"$repo_dir/docker-compose.yml"}
-service=${BACKUP_COMPOSE_SERVICE:-slopstack}
-
-if ! command -v docker >/dev/null 2>&1; then
-	echo "docker is required" >&2
-	exit 1
-fi
-if [ ! -f "$compose_file" ]; then
-	echo "compose file not found: $compose_file" >&2
-	exit 1
-fi
-
-compose() {
-	docker compose -f "$compose_file" "$@"
-}
-
-archive=$(compose run --rm --no-deps "$service" backup create | awk 'NF { line = $0 } END { print line }')
-if ! printf '%s\n' "$archive" | grep -Eq '^@?[a-z0-9_-]+\.zip$'; then
-	echo "backup create did not return an archive name" >&2
-	exit 1
-fi
-
-# RestoreBackup replaces its data directory, so use a host temp directory rather
-# than the live compose volume. Root is used only for the temporary bind mount.
-drill_dir=$(mktemp -d "${TMPDIR:-/tmp}/taskboard-backup-restore.XXXXXX")
+fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/piggybudget-backup-fixture.XXXXXX")
 cleanup() {
-	rm -rf "$drill_dir"
+	rm -rf "$fixture_dir"
 }
-trap cleanup EXIT
+trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$drill_dir/backups"
-if compose run --rm --no-deps "$service" sh -c 'test -f "/app/pb_data/backups/$1"' sh "$archive"; then
-	compose run --rm --no-deps --user root -v "$drill_dir:/drill" "$service" \
-		sh -c 'cp "/app/pb_data/backups/$1" "/drill/backups/$1"' sh "$archive"
-else
-	echo "local archive not found; restore will use the configured remote backup store" >&2
+cd "$repo_dir"
+
+binary="$fixture_dir/piggybudget"
+source_dir="$fixture_dir/source-data"
+restore_dir="$fixture_dir/restore-data"
+legacy_dir="$fixture_dir/legacy-data"
+
+mkdir -p "$source_dir" "$restore_dir/backups"
+
+go build -o "$binary" ./apps/server/cmd/piggybudget
+if [ "$(go list -m)" != "github.com/piggybudget/piggybudget" ]; then
+	echo "Go module identity is not github.com/piggybudget/piggybudget" >&2
+	exit 1
 fi
-
-compose run --rm --no-deps --user root -v "$drill_dir:/app/pb_data" "$service" \
-	backup restore "$archive" --confirm
-
-if [ ! -s "$drill_dir/data.db" ]; then
-	echo "restore completed without a data.db in the isolated data directory" >&2
+if ! "$binary" --help | grep -Fq 'Piggybudget application server'; then
+	echo "built server does not report the Piggybudget CLI identity" >&2
 	exit 1
 fi
 
-printf 'backup restore smoke test passed: %s\n' "$archive"
+# Exercise the deprecated environment alias against a disposable data dir.
+env -u PIGGYBUDGET_STORAGE_PATH \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	SLOPSTACK_STORAGE_PATH="$legacy_dir" \
+	"$binary" backup list >/dev/null
+if [ ! -s "$legacy_dir/data.db" ]; then
+	echo "legacy storage alias did not create a database in the fixture directory" >&2
+	exit 1
+fi
+
+archive=$(env -u SLOPSTACK_STORAGE_PATH \
+	-u PIGGYBUDGET_BACKUP_RESTORE_RESTARTED \
+	-u SLOPSTACK_BACKUP_RESTORE_RESTARTED \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$source_dir" \
+	"$binary" backup create)
+if ! printf '%s\n' "$archive" | grep -Eq '^@?[a-z0-9_-]+\.zip$'; then
+	echo "backup create did not return a plain archive name" >&2
+	exit 1
+fi
+
+if ! env -u SLOPSTACK_STORAGE_PATH \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$source_dir" \
+	"$binary" backup list | grep -Fq "$archive"; then
+	echo "backup list did not return the newly created fixture archive" >&2
+	exit 1
+fi
+
+cp "$source_dir/backups/$archive" "$restore_dir/backups/$archive"
+env -u SLOPSTACK_STORAGE_PATH \
+	-u PIGGYBUDGET_BACKUP_RESTORE_RESTARTED \
+	-u SLOPSTACK_BACKUP_RESTORE_RESTARTED \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$restore_dir" \
+	"$binary" backup restore "$archive" --confirm
+
+if [ ! -s "$restore_dir/data.db" ]; then
+	echo "restore did not place a database in the disposable target directory" >&2
+	exit 1
+fi
+
+env -u SLOPSTACK_STORAGE_PATH \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$source_dir" \
+	"$binary" backup key-init >"$fixture_dir/key-init.out"
+recovery_key=$(awk 'NF { line = $0 } END { print line }' "$fixture_dir/key-init.out")
+env -u SLOPSTACK_STORAGE_PATH \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$source_dir" \
+	"$binary" backup create --encrypt >"$fixture_dir/encrypted-name.out"
+encrypted_archive=$(awk 'NF { line = $0 } END { print line }' "$fixture_dir/encrypted-name.out")
+if ! printf '%s\n' "$encrypted_archive" | grep -Eq '^@?[a-z0-9_-]+\.zip\.enc$'; then
+	echo "encrypted backup create did not return an encrypted archive name" >&2
+	exit 1
+fi
+cp "$source_dir/backups/$encrypted_archive" "$restore_dir/backups/$encrypted_archive"
+env -u SLOPSTACK_STORAGE_PATH \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$restore_dir" \
+	"$binary" backup key-import "$recovery_key"
+env -u SLOPSTACK_STORAGE_PATH \
+	-u PIGGYBUDGET_BACKUP_RESTORE_RESTARTED \
+	-u SLOPSTACK_BACKUP_RESTORE_RESTARTED \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$restore_dir" \
+	"$binary" backup restore "$encrypted_archive" --confirm
+
+printf 'identity and disposable plain/encrypted backup restore checks passed: %s %s\n' "$archive" "$encrypted_archive"

@@ -17,6 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
 )
 
 type httpIntegrationServer struct {
@@ -67,6 +68,28 @@ func newHTTPIntegrationServer(t *testing.T) *httpIntegrationServer {
 		pb.ResetBootstrapState()
 	})
 	return &httpIntegrationServer{app: pb, server: server, client: client}
+}
+
+func TestHealthEndpointOnDisposableApp(t *testing.T) {
+	testApp, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testApp.Cleanup()
+
+	router, err := apis.NewRouter(testApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := router.BuildMux()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("health status = %d, want %d", recorder.Code, http.StatusOK)
+	}
 }
 
 func integrationUser(t *testing.T, app core.App, email string) *core.Record {

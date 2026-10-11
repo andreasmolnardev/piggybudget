@@ -16,14 +16,26 @@ Profile data comes from the authenticated PocketBase user record (`display_name`
 
 ## Checks
 
+`pnpm check` runs lint, tests, and the production build. You can also run each
+step on its own:
+
 ```sh
-pnpm --filter @slopstack/web lint
-pnpm --filter @slopstack/web build
-pnpm --filter @slopstack/web test
+pnpm check
+pnpm test
+pnpm build
+pnpm --filter @piggybudget/web lint
+pnpm --filter @piggybudget/web build
+pnpm --filter @piggybudget/web test
 go test ./...
 ```
 
-The package and filter names still use `@slopstack/web`; they are current compatibility names.
+Use `pnpm generate` to export the API and regenerate the typed web client.
+
+The Go module is `github.com/piggybudget/piggybudget`, and the web package is `@piggybudget/web`.
+
+Piggybudget uses shared auth, configuration, authorization, HTTP, and backup
+packages from `github.com/andreasmolnardev/slopstack`, pinned to an immutable
+release in `go.mod`. Hosted CI resolves that module without a sibling checkout.
 
 ## Finance feature workflow
 

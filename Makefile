@@ -1,11 +1,11 @@
-.PHONY: dev build test lint docker migrate generate
+.PHONY: dev build test lint docker migrate generate compatibility
 
 dev:
 	pnpm dev
 
 build:
 	pnpm build
-	go build ./apps/server/cmd/slopstack
+	go build ./apps/server/cmd/piggybudget
 
 test:
 	pnpm test
@@ -20,7 +20,10 @@ generate:
 	pnpm generate:client
 
 docker:
-	docker build -t slopstack .
+	docker buildx build --load -t piggybudget:dev .
 
 migrate:
-	go run ./apps/server/cmd/slopstack migrate up
+	go run ./apps/server/cmd/piggybudget migrate up
+
+compatibility:
+	sh scripts/backup-restore-smoke-test.sh

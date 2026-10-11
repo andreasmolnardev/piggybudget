@@ -21,7 +21,7 @@
     "typescript": "5.9.3"
   },
   "module_identity": {
-    "go_module_path": "github.com/slopstack/slopstack",
+    "go_module_path": "github.com/piggybudget/piggybudget",
     "go_module_path_expected": "github.com/piggybudget/piggybudget",
     "web_package_name": "@slopstack/web",
     "web_package_name_expected": "@piggybudget/web",
@@ -49,7 +49,7 @@
       "SLOPSTACK_SECURE_COOKIES",
       "SLOPSTACK_STORAGE_PATH"
     ],
-    "binary_dir": "apps/server/cmd/slopstack",
+    "binary_dir": "apps/server/cmd/piggybudget",
     "cli_use_string": "piggybudget",
     "localstorage_key_taskboard_leak": "taskboard-custom-theme",
     "guest_user_email": "guest@taskboard.local",
@@ -2302,28 +2302,28 @@
       "result": "pass",
       "packages": [
         {
-          "package": "github.com/slopstack/slopstack/apps/server/internal/app",
+          "package": "github.com/piggybudget/piggybudget/apps/server/internal/app",
           "result": "ok",
           "seconds": 27.138
         },
         {
-          "package": "github.com/slopstack/slopstack/apps/server/internal/calendar",
+          "package": "github.com/piggybudget/piggybudget/apps/server/internal/calendar",
           "result": "ok",
           "seconds": 2.458
         },
         {
-          "package": "github.com/slopstack/slopstack/apps/server/internal/reminders",
+          "package": "github.com/piggybudget/piggybudget/apps/server/internal/reminders",
           "result": "ok",
           "seconds": 2.235
         }
       ],
       "packages_without_tests": [
-        "github.com/slopstack/slopstack/apps/server/cmd/slopstack",
-        "github.com/slopstack/slopstack/apps/server/pb_migrations"
+        "github.com/piggybudget/piggybudget/apps/server/cmd/piggybudget",
+        "github.com/piggybudget/piggybudget/apps/server/pb_migrations"
       ],
       "source_files_with_tests": 19,
       "source_files_without_tests": [
-        "apps/server/cmd/slopstack/main.go",
+        "apps/server/cmd/piggybudget/main.go",
         "apps/server/internal/app/app.go",
         "apps/server/internal/app/app_password_throttle.go",
         "apps/server/internal/app/auth.go",

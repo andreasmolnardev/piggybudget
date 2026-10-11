@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -15,9 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var backupNamePattern = regexp.MustCompile(`^@?[a-z0-9_-]+\.zip$`)
+var backupNamePattern = regexp.MustCompile(`^@?[a-z0-9_-]+\.zip(\.enc)?$`)
 
-const backupRestoreRestartedEnv = "SLOPSTACK_BACKUP_RESTORE_RESTARTED"
+const backupRestoreRestartedEnv = "PIGGYBUDGET_BACKUP_RESTORE_RESTARTED"
+const legacyBackupRestoreRestartedEnv = "SLOPSTACK_BACKUP_RESTORE_RESTARTED"
 
 type BackupFile struct {
 	Name     string
@@ -26,19 +28,30 @@ type BackupFile struct {
 }
 
 type BackupCommand struct {
-	Create  func(context.Context) (string, error)
-	List    func(context.Context) ([]BackupFile, error)
-	Restore func(context.Context, string) error
+	dataDir         string
+	Create          func(context.Context) (string, error)
+	CreateEncrypted func(context.Context) (string, error)
+	List            func(context.Context) ([]BackupFile, error)
+	Restore         func(context.Context, string) error
 }
 
 func NewBackupCommand(pb core.App) *BackupCommand {
 	return &BackupCommand{
+		dataDir: pb.DataDir(),
 		Create: func(ctx context.Context) (string, error) {
 			name := "manual_" + time.Now().UTC().Format("20060102_150405_000000000") + ".zip"
 			if err := pb.CreateBackup(ctx, name); err != nil {
 				return "", err
 			}
 			return name, nil
+		},
+		CreateEncrypted: func(ctx context.Context) (string, error) {
+			key, err := LoadBackupEncryptionKey(pb.DataDir())
+			if err != nil {
+				return "", err
+			}
+			prefix := "manual_" + time.Now().UTC().Format("20060102_150405_000000000")
+			return createEncryptedArchive(ctx, pb, key, prefix)
 		},
 		List: func(ctx context.Context) ([]BackupFile, error) {
 			fsys, err := pb.NewBackupsFilesystem()
@@ -62,28 +75,75 @@ func NewBackupCommand(pb core.App) *BackupCommand {
 			sort.Slice(files, func(i, j int) bool { return files[i].Modified.After(files[j].Modified) })
 			return files, nil
 		},
-		Restore: pb.RestoreBackup,
+		Restore: func(ctx context.Context, name string) error {
+			if !strings.HasSuffix(name, ".enc") {
+				return pb.RestoreBackup(ctx, name)
+			}
+			key, err := LoadBackupEncryptionKey(pb.DataDir())
+			if err != nil {
+				return err
+			}
+			return restoreEncryptedArchive(ctx, pb, key, name)
+		},
 	}
 }
 
 func (c *BackupCommand) Command() *cobra.Command {
 	backup := &cobra.Command{Use: "backup", Short: "Manage PocketBase backups"}
-	backup.AddCommand(c.createCommand(), c.listCommand(), c.restoreCommand())
+	backup.AddCommand(c.createCommand(), c.keyInitCommand(), c.keyImportCommand(), c.listCommand(), c.restoreCommand())
 	return backup
 }
 
 func (c *BackupCommand) createCommand() *cobra.Command {
-	return &cobra.Command{
+	var encrypted bool
+	command := &cobra.Command{
 		Use:   "create",
 		Short: "Create a manual backup",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			name, err := c.Create(cmd.Context())
+			create := c.Create
+			if encrypted {
+				create = c.CreateEncrypted
+			}
+			if create == nil {
+				return errors.New("encrypted backup creation is unavailable")
+			}
+			name, err := create(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("create backup: %w", err)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), name)
 			return nil
+		},
+	}
+	command.Flags().BoolVar(&encrypted, "encrypt", false, "encrypt the archive with the local backup key")
+	return command
+}
+
+func (c *BackupCommand) keyInitCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "key-init",
+		Short: "Create a backup encryption key and show it once",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			key, err := CreateBackupEncryptionKey(c.dataDir)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Store this recovery key somewhere safe; it cannot be shown again:")
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), key)
+			return err
+		},
+	}
+}
+
+func (c *BackupCommand) keyImportCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "key-import <recovery-key>",
+		Short: "Import a backup recovery key into this data directory",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			return ImportBackupEncryptionKey(c.dataDir, args[0])
 		},
 	}
 }
@@ -117,7 +177,7 @@ func (c *BackupCommand) restoreCommand() *cobra.Command {
 			if !confirmed {
 				return errors.New("restore requires --confirm")
 			}
-			if os.Getenv(backupRestoreRestartedEnv) == "1" {
+			if backupRestoreAlreadyRestarted() {
 				return nil
 			}
 			if err := os.Setenv(backupRestoreRestartedEnv, "1"); err != nil {
@@ -132,6 +192,13 @@ func (c *BackupCommand) restoreCommand() *cobra.Command {
 	}
 	command.Flags().BoolVar(&confirmed, "confirm", false, "confirm destructive restore")
 	return command
+}
+
+func backupRestoreAlreadyRestarted() bool {
+	if value, ok := os.LookupEnv(backupRestoreRestartedEnv); ok && value != "" {
+		return value == "1"
+	}
+	return os.Getenv(legacyBackupRestoreRestartedEnv) == "1"
 }
 
 func validateBackupName(name string) error {

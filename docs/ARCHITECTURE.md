@@ -1,7 +1,8 @@
 # Piggybudget Architecture
 
-Phase 0 baseline audit. Every claim below was verified against the code in this
-repository on the commit recorded in `docs/baseline.json`.
+Phase 0 baseline audit with Phase 1 identity updates. Historical measurements
+remain recorded in `docs/baseline.json`; current identity and compatibility notes
+are in `docs/IDENTITY-MIGRATION.md`.
 
 ## 1. Repository layout
 
@@ -9,11 +10,11 @@ repository on the commit recorded in `docs/baseline.json`.
 piggybudget/
 ├── apps/
 │   ├── server/                  Go server (PocketBase + cobra)
-│   │   ├── cmd/slopstack/       binary entrypoint (still named `slopstack`)
+│   │   ├── cmd/piggybudget/     Piggybudget server entrypoint
 │   │   ├── internal/app/        all HTTP routes, schema, auth, finance
 │   │   ├── internal/calendar/   iCalendar recurrence expansion (Taskboard)
 │   │   ├── internal/reminders/  reminder model, store, scheduler
-│   │   └── pb_migrations/       18 PocketBase JS/Go migration files
+│   │   └── pb_migrations/       19 PocketBase Go migration files
 │   └── web/                     Vite + React 19 + TypeScript SPA
 │       └── src/
 │           ├── api/             pocketbase SDK client, apiFetch, generated OpenAPI client
@@ -39,7 +40,7 @@ not authoritative for Piggybudget. See `docs/AGENT-NOTES.md`.
 ## 2. Lineage
 
 ```
-Slopstack (template, module github.com/slopstack/slopstack)
+Slopstack (template, module github.com/andreasmolnardev/slopstack)
    │
    └── Taskboard  (calendar/task app; same module path)
           │
@@ -61,47 +62,26 @@ replaced the product surface. Evidence:
   and the whole `internal/calendar` and `internal/reminders` packages
   (`diff` reports no differences).
 
-## 3. Module-identity problem
+## 3. Module identity
 
-The Go module is still `github.com/slopstack/slopstack` (`go.mod:1`). Every import
-path in the server is therefore `github.com/slopstack/slopstack/apps/server/...`,
-e.g. `apps/server/internal/app/app.go:14` in `caldav.go`:
+Piggybudget now uses its own module and package identities:
 
-```go
-calendarengine "github.com/slopstack/slopstack/apps/server/internal/calendar"
-```
-
-Other inherited identity artifacts:
-
-| Artifact | Current value | Location |
-|---|---|---|
-| Go module path | `github.com/slopstack/slopstack` | `go.mod:1` |
-| Go binary package dir | `apps/server/cmd/slopstack` | `cmd/slopstack/main.go` |
-| CLI script | `go run ./apps/server/cmd/slopstack` | `package.json` `generate:api` |
-| Web package name | `@slopstack/web` | `apps/web/package.json:2` |
-| Root package name | `slopstack` | `package.json:2` |
-| Env var prefix | `SLOPSTACK_*` (13 vars) | `apps/server/internal/app/config.go:42-59`, `.env.example` |
-| Docker image target | `slopstack` | `Makefile` `docker:` target |
-| Docker build | multi-stage image, no rename | `Dockerfile` |
-
-Already renamed to Piggybudget (partial): `pb.RootCmd.Use = "piggybudget"` and
-`pb.RootCmd.Short = "Piggybudget application server"` in
-`apps/server/cmd/slopstack/main.go:22-23`; Huma API title is
-`"Piggybudget API"` (`main.go:38`); sidebar brand string `Piggybudget`
-(`apps/web/src/app.tsx:54`).
-
-**Consequence for the migration:** renaming the module path is a breaking change
-touches every Go import, the build scripts, CI, and the Docker image. It cannot be
-done in the same commit as adopting upstream Slopstack packages, because upstream
-packages will import `github.com/slopstack/slopstack/...` while local code still
-claims that path. Sequence the rename after the first upstream adoption, or
-adopt upstream under the existing path and rename last.
+| Artifact | Current value |
+|---|---|
+| Go module path | `github.com/piggybudget/piggybudget` |
+| Server entrypoint | `apps/server/cmd/piggybudget` |
+| Web package | `@piggybudget/web` |
+| Root package | `piggybudget` |
+| Preferred env prefix | `PIGGYBUDGET_*` (`SLOPSTACK_*` remains a deprecated alias) |
+| Docker image/build target | `piggybudget` |
+| Persistent data | unchanged `pb_data` / `/app/pb_data` and `slopstack-data` volume |
 
 ## 4. apps/server
 
-Entry point `apps/server/cmd/slopstack/main.go`:
+Entry point `apps/server/cmd/piggybudget/main.go`:
 
-1. `app.LoadConfig()` reads `SLOPSTACK_*` env vars.
+1. `app.LoadConfig()` reads `PIGGYBUDGET_*` env vars and falls back to the
+   corresponding `SLOPSTACK_*` key for compatibility.
 2. `pocketbase.NewWithConfig` with `DefaultDataDir = config.StoragePath`
    (default `pb_data`), `DefaultDev = config.Development`.
 3. Builds a Huma v2 API (`humago` adapter) with security scheme `pocketbaseAuth`

@@ -28,11 +28,11 @@ Generic env-var config loading: `RegistrationMode` enum, `Config`, `BackupS3Conf
 
 Piggybudget version is a **strict subset** of Taskboard's (117 LOC). Taskboard adds
 `BackupJSONEnabled`, imports `pocketbase/tools/cron`, and formats the default cron
-expression with `cron.Validate`/`cron.Aliases`. Piggybudget's `SLOPSTACK_BACKUP_CRON`
+expression with `cron.Validate`/`cron.Aliases`. Piggybudget's `PIGGYBUDGET_BACKUP_CRON`
 default `0 3 * * *` is never validated — an invalid cron silently disables backups.
 
-Extract the Taskboard version (superset) with a **renamed env prefix** and a
-deprecated-alias shim so `SLOPSTACK_*` keeps working (see R4 in
+Extract the Taskboard version (superset) with a **renamed env prefix** and retain
+the deprecated `SLOPSTACK_*` aliases (see R4 in
 `docs/COMPATIBILITY.md`).
 
 Blocker: the package name is `app` and the file has no app-specific imports, so it
@@ -164,11 +164,11 @@ Not extractable as one file. Decompose:
 | `protectUserAdminFlag` (`app.go:150-176`) | CORE | privilege-escalation guard; must not be lost |
 | `registerRoutes` (`app.go:178-201`) | APP-OWNED | the route list is per-app |
 | `registerAuthRoutes` (`app.go:203-231`) | CORE | `/api/auth/registration-policy` is generic; guest route is app-specific and dev-gated |
-| Huma API construction | CORE, but lives in `cmd/slopstack/main.go` | `newOpenAPI` sets title `"Piggybudget API"` — parameterized already, except the hardcoded title string |
+| Huma API construction | CORE, but lives in `cmd/piggybudget/main.go` | `newOpenAPI` sets title `"Piggybudget API"` — parameterized already, except the hardcoded title string |
 
 The Huma/PocketBase bootstrap (build `pocketbase.NewWithConfig`, configure
 `RootCmd`, wire Huma, register commands) is the strongest CORE candidate and has no
-home in the Go module today — it is `package main` in `cmd/slopstack`.
+home in the Go module today — it is `package main` in `cmd/piggybudget`.
 
 ## 2. OPTIONAL-SHARED — candidate for extraction behind an opt-in
 
@@ -214,7 +214,7 @@ Generic and self-contained, but with two Piggybudget-specific problems:
    (`components/app/finance-notifications.tsx`) is localStorage-only. The real API
    client (`components/app/notifications-popover.tsx`) is unreachable.
 2. **Shared scheduler dependency.** It imports
-   `github.com/slopstack/slopstack/apps/server/internal/reminders` (§2.5), so the
+  `github.com/piggybudget/piggybudget/apps/server/internal/reminders` (§2.5), so the
    two must be extracted together or not at all.
 
 Decision needed: if Piggybudget wants server-side notifications, extract both. If
@@ -418,7 +418,7 @@ Ordered by leverage / risk, not by the classification table:
    rewriting, not copying — the current file is 100% Taskboard collection names.
 5. **`config.go` from Taskboard**, with a `PIGGYBUDGET_*` prefix plus
    `SLOPSTACK_*` deprecated aliases.
-6. **`openapi.go` + the `cmd/slopstack` bootstrap**, parameterised.
+6. **`openapi.go` + the `cmd/piggybudget` bootstrap**, parameterised.
 7. **`guest_auth.go`** with a configurable guest email (fixes the
    `guest@taskboard.local` leak).
 

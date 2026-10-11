@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/andreasmolnardev/slopstack/go/httpapi"
 )
 
 func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
@@ -19,6 +21,9 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		if err := e.Next(); err != nil {
 			return err
+		}
+		if err := cleanupTransientBackupArchives(e.App.DataDir()); err != nil {
+			return fmt.Errorf("clean up temporary restore archives: %w", err)
 		}
 		if err := e.App.RunAppMigrations(); err != nil {
 			return err
@@ -198,6 +203,11 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	registerFinanceRoutes(e)
 	RegisterAssetGroupRoutes(e)
 	RegisterTransactionAttachmentRoutes(e)
+	publicDir := os.Getenv("PIGGYBUDGET_PUBLIC_DIR")
+	if publicDir == "" {
+		publicDir = "public"
+	}
+	httpapi.RegisterStaticDirectory(e, publicDir)
 }
 
 func registerAuthRoutes(e *core.ServeEvent, config Config) {

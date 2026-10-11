@@ -6,16 +6,36 @@
 docker compose up --build
 ```
 
-PocketBase data persists in the `slopstack-data` volume. The volume and binary names are legacy runtime names; changing them is outside this documentation pass.
+The image and service are named `piggybudget`. Project identity and build defaults are validated from [`slopstack.yaml`](../slopstack.yaml). PocketBase data persists in the existing `slopstack-data` volume mounted at `/app/pb_data`; keep that volume name and mount when upgrading an existing deployment.
+
+The server build resolves the pinned Slopstack Go module from `go.mod`, so the
+image can be built from this repository alone.
+
+`pnpm deploy` validates the config and prints the multi-platform Buildx command by default. To publish, log in to the registry and opt in explicitly:
+
+```sh
+pnpm deploy --push
+```
+
+The command reads image repository, tag, platforms, and registry host from
+`slopstack.yaml`. The app's Go dependency is pinned to an immutable Slopstack
+module version in `go.mod`.
+
+`pnpm release --version 1.2.3` previews a release config update. Apply it with
+`pnpm release --version 1.2.3 --apply`; that only updates `release.version` and
+`image.tag` in `slopstack.yaml`. It does not create a Git tag, image, or release.
 
 ## Required production settings
 
-- Set `SLOPSTACK_PUBLIC_URL` to the public origin.
-- Set `SLOPSTACK_SECURE_COOKIES=true` behind HTTPS.
-- Set a durable `SLOPSTACK_STORAGE_PATH`.
+- Set `PIGGYBUDGET_PUBLIC_URL` to the public origin.
+- Set `PIGGYBUDGET_SECURE_COOKIES=true` behind HTTPS.
+- Set a durable `PIGGYBUDGET_STORAGE_PATH`.
 - Keep PocketBase data outside ephemeral container storage.
 
-The `SLOPSTACK_*` environment names remain the names read by the current binary.
+The `PIGGYBUDGET_*` names are preferred. Existing `SLOPSTACK_*` names remain supported as deprecated aliases; the Piggybudget value wins if both are set.
+
+Run `pnpm config:check` to validate the Slopstack config schema and verify that
+its app identity matches the Go module and web package.
 
 ## Backups
 
@@ -24,21 +44,21 @@ Scheduled backups use PocketBase's transaction-safe backup engine. Docker enable
 Set these values to change the schedule:
 
 ```sh
-SLOPSTACK_BACKUP_ENABLED=true
-SLOPSTACK_BACKUP_CRON="0 3 * * *"
-SLOPSTACK_BACKUP_MAX_KEEP=14
+PIGGYBUDGET_BACKUP_ENABLED=true
+PIGGYBUDGET_BACKUP_CRON="0 3 * * *"
+PIGGYBUDGET_BACKUP_MAX_KEEP=14
 ```
 
 Local archives share the same storage volume as the live database. This protects against bad writes, but not disk or volume loss. Production systems should use private S3-compatible storage:
 
 ```sh
-SLOPSTACK_BACKUP_S3_ENABLED=true
-SLOPSTACK_BACKUP_S3_BUCKET=piggybudget-backups
-SLOPSTACK_BACKUP_S3_REGION=us-east-1
-SLOPSTACK_BACKUP_S3_ENDPOINT=https://s3.example.com
-SLOPSTACK_BACKUP_S3_ACCESS_KEY=...
-SLOPSTACK_BACKUP_S3_SECRET=...
-SLOPSTACK_BACKUP_S3_FORCE_PATH_STYLE=false
+PIGGYBUDGET_BACKUP_S3_ENABLED=true
+PIGGYBUDGET_BACKUP_S3_BUCKET=piggybudget-backups
+PIGGYBUDGET_BACKUP_S3_REGION=us-east-1
+PIGGYBUDGET_BACKUP_S3_ENDPOINT=https://s3.example.com
+PIGGYBUDGET_BACKUP_S3_ACCESS_KEY=...
+PIGGYBUDGET_BACKUP_S3_SECRET=...
+PIGGYBUDGET_BACKUP_S3_FORCE_PATH_STYLE=false
 ```
 
 Use a private bucket, TLS, a dedicated least-privilege key, versioning, and server-side encryption. Keep credentials in the deployment secret store. Do not commit them.
@@ -46,25 +66,56 @@ Use a private bucket, TLS, a dedicated least-privilege key, versioning, and serv
 Use the current server CLI for manual backup work:
 
 ```sh
-slopstack backup create
-slopstack backup list
-slopstack backup restore <exact-name-from-list> --confirm
+piggybudget backup create
+piggybudget backup list
+piggybudget backup restore <exact-name-from-list> --confirm
 ```
 
 `backup create` prints the new archive name. `backup restore` rejects paths and other unsafe names, requires an exact archive name, and will not run without `--confirm`. Restore replaces the live PocketBase data and restarts the process. Stop traffic and other app instances first. There is no app HTTP restore endpoint.
 
+Manual encrypted archives use the shared Slopstack `SLBK1` envelope while
+leaving PocketBase's archive format intact. Initialize a key once, keep the
+printed recovery key out of logs and source control, then create encrypted
+archives explicitly:
+
+```sh
+piggybudget backup key-init
+piggybudget backup create --encrypt
+piggybudget backup list
+piggybudget backup key-import <recovery-key>
+piggybudget backup restore <exact-name.zip.enc> --confirm
+```
+
+The existing `backup create` command continues to create a regular PocketBase
+`.zip` archive. PocketBase's scheduled backups also remain regular `.zip`
+archives; encrypt those at the storage layer when required. Encrypted archives
+require the matching key in the target data directory before restore.
+
 Keep at least twice the data size free during backup and restore. Restore a copy into an isolated instance first when possible. Run a restore drill after setup and at least monthly. A backup is not proven until restore succeeds.
 
-### Safe restore drill
+### Disposable compatibility fixture
 
-Run the repository smoke test after the service is built and backup storage is configured:
+Run the repository smoke test from the project root:
 
 ```sh
 ./scripts/backup-restore-smoke-test.sh
 ```
 
-The script restores into a temporary data directory and never restores the live volume. It needs Docker access and enough temporary disk space. Do not put credentials in the script or command line; provide S3 credentials through the deployment secret store.
+The script builds the Piggybudget binary into a temporary directory, checks its
+Go module and CLI identities, verifies the legacy storage setting against a
+disposable directory, creates a PocketBase archive in a separate disposable
+directory, and restores a copy into another disposable directory. It does not
+use Docker Compose or the configured `pb_data` path and needs no deployment
+credentials. It removes only the temporary fixture directory when it exits.
+
+Run this check after identity, build, or backup changes. It does not inspect or
+alter a production database or an existing deployment volume.
 
 ## Frontend
 
-The frontend is a static Vite build. Keep `/api` proxied to the Go runtime or set `VITE_API_URL` to the deployed API origin.
+The frontend is a static Vite build copied into the image and served by the Go
+runtime. `PIGGYBUDGET_PUBLIC_DIR` selects the static directory and defaults to
+`public`; client-side routes fall back to `index.html`, while API and DAV paths
+remain backend-owned. During development, Vite serves the frontend and proxies
+`/api` to PocketBase. Set `VITE_API_URL` when the API uses a different public
+origin.

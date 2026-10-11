@@ -51,7 +51,7 @@ func TestEnsureFinanceCollectionsCreatesOwnedCollections(t *testing.T) {
 
 func TestRegisterExposesFinanceButNotTodo(t *testing.T) {
 	pb := pocketbase.New()
-	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Slopstack API", "0.1.0"))
+	api := humago.New(http.NewServeMux(), huma.DefaultConfig("Piggybudget API", "0.1.0"))
 	Register(pb, Config{HTTPAddress: ":8090"}, api)
 
 	document, err := json.Marshal(api.OpenAPI())

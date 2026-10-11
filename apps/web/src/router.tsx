@@ -1,24 +1,69 @@
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  redirect,
+  useNavigate,
+} from '@tanstack/react-router';
+import { useEffect } from 'react';
 import { App } from './app';
+import { AuthScreen } from './components/app/auth-screen';
+import { pb } from './api/pocketbase';
 
-const rootRoute = createRootRoute({ component: App });
+const rootRoute = createRootRoute({ component: Outlet });
 
-const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: '/' });
-const transactionsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/transactions' });
-const budgetsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/budgets' });
-const assetsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/assets' });
-const goalsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/goals' });
-const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/settings' });
-const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/login' });
-const registerRoute = createRoute({ getParentRoute: () => rootRoute, path: '/auth/register' });
+const authenticatedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: '_authenticated',
+  beforeLoad: () => {
+    if (!pb.authStore.isValid) throw redirect({ to: '/auth/login' });
+  },
+});
+
+const financeRoutes = [
+  createRoute({ getParentRoute: () => authenticatedRoute, path: '/', component: App }),
+  createRoute({ getParentRoute: () => authenticatedRoute, path: '/transactions', component: App }),
+  createRoute({ getParentRoute: () => authenticatedRoute, path: '/budgets', component: App }),
+  createRoute({ getParentRoute: () => authenticatedRoute, path: '/assets', component: App }),
+  createRoute({ getParentRoute: () => authenticatedRoute, path: '/goals', component: App }),
+  createRoute({ getParentRoute: () => authenticatedRoute, path: '/settings', component: App }),
+];
+
+function AuthRoute({ mode }: { mode: 'login' | 'register' }) {
+  const navigate = useNavigate();
+
+  useEffect(
+    () =>
+      pb.authStore.onChange((_token, record) => {
+        if (record) void navigate({ to: '/', replace: true });
+      }),
+    [navigate],
+  );
+
+  return <AuthScreen mode={mode} />;
+}
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/login',
+  beforeLoad: () => {
+    if (pb.authStore.isValid) throw redirect({ to: '/' });
+  },
+  component: () => <AuthRoute mode="login" />,
+});
+
+const registerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/register',
+  beforeLoad: () => {
+    if (pb.authStore.isValid) throw redirect({ to: '/' });
+  },
+  component: () => <AuthRoute mode="register" />,
+});
 
 const routeTree = rootRoute.addChildren([
-  dashboardRoute,
-  transactionsRoute,
-  budgetsRoute,
-  assetsRoute,
-  goalsRoute,
-  settingsRoute,
+  authenticatedRoute.addChildren(financeRoutes),
   loginRoute,
   registerRoute,
 ]);

@@ -10,9 +10,9 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/piggybudget/piggybudget/apps/server/internal/app"
+	_ "github.com/piggybudget/piggybudget/apps/server/pb_migrations"
 	"github.com/pocketbase/pocketbase"
-	"github.com/slopstack/slopstack/apps/server/internal/app"
-	_ "github.com/slopstack/slopstack/apps/server/pb_migrations"
 )
 
 func main() {

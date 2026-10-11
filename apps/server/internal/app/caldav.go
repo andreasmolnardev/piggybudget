@@ -15,9 +15,9 @@ import (
 	"time"
 
 	ical "github.com/emersion/go-ical"
+	calendarengine "github.com/piggybudget/piggybudget/apps/server/internal/calendar"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
-	calendarengine "github.com/slopstack/slopstack/apps/server/internal/calendar"
 )
 
 const (
