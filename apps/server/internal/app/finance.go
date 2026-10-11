@@ -18,7 +18,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-var financeCollections = []string{"accounts", "transactions", "checkpoints", "budgets", "assets", "goals"}
+var financeCollections = []string{"accounts", "transactions", "checkpoints", "budgets", "assets", "goals", "recurring_transactions"}
 
 var financeFields = map[string]map[string]bool{
 	"accounts": {
@@ -45,6 +45,11 @@ var financeFields = map[string]map[string]bool{
 	"goals": {
 		"name": true, "target_amount": true, "current_amount": true, "target_date": true,
 		"account": true, "notes": true, "completed": true, "archived": true, "status": true,
+	},
+	"recurring_transactions": {
+		"account": true, "amount": true, "type": true, "payee": true, "description": true,
+		"category": true, "budget": true, "tags": true, "receivable": true, "notes": true,
+		"frequency": true, "interval": true, "start_date": true, "end_date": true, "active": true,
 	},
 }
 
@@ -475,7 +480,7 @@ func listFinanceData(app core.App, collection, owner, accountFilter string) ([]m
 	params := dbx.Params{"owner": owner}
 	if accountFilter != "" {
 		switch collection {
-		case "transactions", "checkpoints", "goals":
+		case "transactions", "checkpoints", "goals", "recurring_transactions":
 			filter += " && account = {:account}"
 			params["account"] = accountFilter
 		}
@@ -534,6 +539,20 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 	record := core.NewRecord(definition)
 	record.Set("owner", user.Id)
 	applyFinanceInput(record, collection, input)
+	if collection == "recurring_transactions" {
+		if _, ok := input["interval"]; !ok {
+			record.Set("interval", 1)
+		}
+		if _, ok := input["active"]; !ok {
+			record.Set("active", true)
+		}
+		if _, ok := input["next_date"]; !ok {
+			record.Set("next_date", record.Get("start_date"))
+		}
+		if err := validateRecurringTransaction(record); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+	}
 	if collection == "transactions" {
 		if err := validateTransactionWrite(event.App, record, user.Id); err != nil {
 			return event.BadRequestError(err.Error(), nil)
@@ -574,6 +593,11 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 	}
 	applyFinanceInput(record, collection, input)
 	record.Set("owner", user.Id)
+	if collection == "recurring_transactions" {
+		if err := validateRecurringTransaction(record); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+	}
 	if collection == "transactions" {
 		if err := validateTransactionWrite(event.App, record, user.Id); err != nil {
 			return event.BadRequestError(err.Error(), nil)
@@ -759,7 +783,7 @@ func validateFinanceLinks(event *core.RequestEvent, collection string, input map
 		accountID = existing.GetString("account")
 	}
 
-	requiresAccount := collection == "transactions" || collection == "checkpoints"
+	requiresAccount := collection == "transactions" || collection == "checkpoints" || collection == "recurring_transactions"
 	if requiresAccount && accountID == "" {
 		return fmt.Errorf("%s requires an account", collection)
 	}
@@ -821,6 +845,8 @@ func financeSort(collection string) string {
 		return "name"
 	case "transactions", "checkpoints":
 		return "-date"
+	case "recurring_transactions":
+		return "next_date"
 	case "assets":
 		return "-as_of"
 	default:

@@ -40,6 +40,7 @@ import type {
   Goal,
   GoalContribution,
   FinanceRecordTarget,
+  RecurringTransaction,
   Transaction,
   TransactionKind,
 } from './data';
@@ -989,6 +990,7 @@ function TransactionsView({
   onDeleteTransaction,
   onOpenTransaction,
   onRenameReceivable,
+  onRefresh,
 }: {
   data: BudgetData;
   userId: string;
@@ -1000,6 +1002,7 @@ function TransactionsView({
   onDeleteTransaction: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
+  onRefresh: () => void;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(emptyTransactionFilters);
   const [sort, setSort] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>(
@@ -1012,7 +1015,30 @@ function TransactionsView({
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [importingCsv, setImportingCsv] = useState(false);
   const [csvMessage, setCsvMessage] = useState('');
+  const [recurringMessage, setRecurringMessage] = useState('');
   const pageSize = 25;
+  const changeRecurringRule = async (rule: RecurringTransaction, active?: boolean) => {
+    if (
+      active === undefined &&
+      !window.confirm(`Delete recurring transaction “${rule.merchant}”?`)
+    ) {
+      return;
+    }
+    const response = await apiFetch(`/api/finance/recurring_transactions/${rule.id}`, {
+      method: active === undefined ? 'DELETE' : 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      ...(active === undefined ? {} : { body: JSON.stringify({ active }) }),
+    });
+    if (!response.ok) {
+      setRecurringMessage((await response.text()) || 'Could not update recurring transaction.');
+      return;
+    }
+    setRecurringMessage('Recurring transaction updated.');
+    onRefresh();
+  };
   const savedViewsKey = `piggybudget:transaction-views:${userId}`;
   useEffect(() => {
     try {
@@ -1506,6 +1532,52 @@ function TransactionsView({
           notes. Account can be its name or ID. Transfer rows need both entries with the same
           transfer_id.
         </p>
+        <section
+          className="transaction-recurring-panel"
+          aria-labelledby="recurring-transactions-title"
+        >
+          <div className="transaction-filter-heading">
+            <strong id="recurring-transactions-title">Recurring transactions</strong>
+            <span>{data.recurringTransactions.length} rules</span>
+          </div>
+          {data.recurringTransactions.length ? (
+            <div className="transaction-list">
+              {data.recurringTransactions.map((rule) => (
+                <div className="saved-view-row" key={rule.id}>
+                  <span>
+                    <strong>{rule.merchant}</strong> · {rule.account} ·{' '}
+                    {rule.amount < 0 ? '−' : '+'}
+                    {formatMoney(Math.abs(rule.amount))} · Every{' '}
+                    {rule.interval > 1 ? `${rule.interval} ` : ''}
+                    {rule.frequency}
+                    <small> · Next {formatDate(rule.nextDate)}</small>
+                  </span>
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => void changeRecurringRule(rule, !rule.active)}
+                  >
+                    {rule.active ? 'Pause' : 'Resume'}
+                  </button>
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => void changeRecurringRule(rule)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="page-description">Set a transaction to repeat when you create it.</p>
+          )}
+          {recurringMessage && (
+            <p className="page-description" role="status">
+              {recurringMessage}
+            </p>
+          )}
+        </section>
         {csvMessage && (
           <p className="page-description csv-import-status" role="status">
             {csvMessage}
@@ -3580,6 +3652,7 @@ export function BudgetingDashboard({
         }
         onOpenTransaction={setViewingTransaction}
         onRenameReceivable={renameReceivable}
+        onRefresh={onRefresh}
       />
     ) : view === 'budgets' ? (
       <BudgetsView
@@ -5061,6 +5134,12 @@ function FinanceComposer({
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
     (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
+  const [repeat, setRepeat] = useState(false);
+  const [repeatFrequency, setRepeatFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>(
+    'monthly',
+  );
+  const [repeatInterval, setRepeatInterval] = useState('1');
+  const [repeatEndDate, setRepeatEndDate] = useState('');
   const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
   const [description, setDescription] = useState(transaction?.description ?? '');
   const [receivable, setReceivable] = useState(transaction?.receivable ?? '');
@@ -5114,6 +5193,20 @@ function FinanceComposer({
       (!destinationAccount || account === destinationAccount)
     ) {
       setError('Choose two different accounts for this transfer.');
+      return;
+    }
+    if (
+      repeat &&
+      (type === 'transfer' ||
+        !Number.isInteger(Number(repeatInterval)) ||
+        Number(repeatInterval) < 1 ||
+        Number(repeatInterval) > 365)
+    ) {
+      setError('Choose a repeat interval from 1 to 365.');
+      return;
+    }
+    if (repeat && pictureFiles.length) {
+      setError('Remove transaction pictures before saving a recurring rule.');
       return;
     }
     setBusy(true);
@@ -5176,6 +5269,16 @@ function FinanceComposer({
                     receipt,
                     notes: note,
                   };
+    const recurringBody =
+      repeat && kind === 'transaction'
+        ? {
+            ...body,
+            frequency: repeatFrequency,
+            interval: Number(repeatInterval),
+            start_date: date,
+            ...(repeatEndDate ? { end_date: repeatEndDate } : {}),
+          }
+        : body;
     try {
       const resource =
         kind === 'account'
@@ -5186,19 +5289,24 @@ function FinanceComposer({
               ? 'checkpoints'
               : kind === 'asset'
                 ? 'assets'
-                : type === 'transfer'
-                  ? 'transfers'
-                  : 'transactions';
+                : repeat && kind === 'transaction'
+                  ? 'recurring_transactions'
+                  : type === 'transfer'
+                    ? 'transfers'
+                    : 'transactions';
       const isTransfer = kind === 'transaction' && type === 'transfer';
-      const editedId = isTransfer
-        ? transaction?.transferId
-        : kind === 'transaction'
-          ? (transaction?.id ?? savedTransactionId ?? undefined)
-          : kind === 'asset'
-            ? asset?.id
-            : kind === 'budget'
-              ? budgetRecord?.id
-              : undefined;
+      const editedId =
+        repeat && kind === 'transaction'
+          ? undefined
+          : isTransfer
+            ? transaction?.transferId
+            : kind === 'transaction'
+              ? (transaction?.id ?? savedTransactionId ?? undefined)
+              : kind === 'asset'
+                ? asset?.id
+                : kind === 'budget'
+                  ? budgetRecord?.id
+                  : undefined;
       if (kind === 'transaction' && pictureFiles.length) validateTransactionFiles(pictureFiles);
       const response = await apiFetch(`/api/finance/${resource}${editedId ? `/${editedId}` : ''}`, {
         method: editedId ? 'PUT' : 'POST',
@@ -5206,7 +5314,7 @@ function FinanceComposer({
           Authorization: `Bearer ${pb.authStore.token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(recurringBody),
       });
       if (!response.ok) throw new Error((await response.text()) || 'Could not save this record.');
       if (kind === 'transaction' && pictureFiles.length) {
@@ -5474,6 +5582,57 @@ function FinanceComposer({
                 )}
               </select>
             </label>
+            {!transaction && type !== 'transfer' && (
+              <label className="transaction-repeat-toggle">
+                <input
+                  type="checkbox"
+                  checked={repeat}
+                  onChange={(event) => setRepeat(event.target.checked)}
+                />
+                Repeat this transaction
+              </label>
+            )}
+            {repeat && (
+              <>
+                <label>
+                  Repeat every
+                  <div className="transaction-date-filters">
+                    <input
+                      required
+                      type="number"
+                      min="1"
+                      max="365"
+                      step="1"
+                      value={repeatInterval}
+                      onChange={(event) => setRepeatInterval(event.target.value)}
+                    />
+                    <select
+                      value={repeatFrequency}
+                      onChange={(event) =>
+                        setRepeatFrequency(event.target.value as typeof repeatFrequency)
+                      }
+                    >
+                      <option value="daily">days</option>
+                      <option value="weekly">weeks</option>
+                      <option value="monthly">months</option>
+                      <option value="yearly">years</option>
+                    </select>
+                  </div>
+                </label>
+                <label>
+                  Stop after (optional)
+                  <input
+                    type="date"
+                    min={date}
+                    value={repeatEndDate}
+                    onChange={(event) => setRepeatEndDate(event.target.value)}
+                  />
+                </label>
+                <p className="page-description">
+                  The first transaction is created on {formatDate(date)}.
+                </p>
+              </>
+            )}
             {type === 'transfer' ? (
               <>
                 <label>
@@ -5562,84 +5721,92 @@ function FinanceComposer({
                     placeholder="work, reimbursable"
                   />
                 </label>
-                <label>
-                  Receipt upload
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      setReceiptScanMessage('');
-                      const reader = new FileReader();
-                      reader.onload = () => setReceipt(String(reader.result ?? ''));
-                      reader.readAsDataURL(file);
-                      void scanReceipt(file).then((text) => {
-                        if (!text) {
-                          setReceiptScanMessage(
-                            'Receipt saved. Automatic text scanning is not supported in this browser; enter the details above.',
-                          );
-                          return;
-                        }
-                        const lines = text
-                          .split(/\\n+/)
-                          .map((line) => line.trim())
-                          .filter(Boolean);
-                        const amountMatch = text.match(
-                          /(?:[$€£]\\s*)?([0-9]+[.,][0-9]{2})\\s*(?:[$€£])?/,
-                        );
-                        const dateMatch = text.match(
-                          /\\b(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})\\b/,
-                        );
-                        const merchant = lines.find((line) => !/[0-9]{2,}/.test(line));
-                        if (merchant) setPayee(merchant.slice(0, 120));
-                        if (amountMatch) setAmount(amountMatch[1].replace(',', '.'));
-                        if (dateMatch) {
-                          const [, year, month, day] = dateMatch;
-                          setDate(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
-                        }
-                        setReceiptScanMessage(
-                          amountMatch || merchant
-                            ? 'Text scanned. Check the details before saving.'
-                            : 'Receipt saved, but no transaction details were found. Enter them above.',
-                        );
-                      });
-                    }}
-                  />
-                </label>
-                {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
-                <label>
-                  Transaction pictures
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/gif,image/webp"
-                    multiple
-                    onChange={(event) => setPictureFiles(Array.from(event.target.files ?? []))}
-                  />
-                </label>
-                {pictureFiles.length > 0 && (
-                  <p>
-                    {pictureFiles.length} picture{pictureFiles.length === 1 ? '' : 's'} ready to
-                    upload.
-                  </p>
-                )}
-                {receipt && (
-                  <div className="receipt-preview">
-                    {receipt.startsWith('data:image/') ? (
-                      <img
-                        src={receipt}
-                        alt="Receipt preview"
-                        style={{ maxWidth: '100%', maxHeight: 220 }}
+                {!repeat && (
+                  <>
+                    <label>
+                      Receipt upload
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          setReceiptScanMessage('');
+                          const reader = new FileReader();
+                          reader.onload = () => setReceipt(String(reader.result ?? ''));
+                          reader.readAsDataURL(file);
+                          void scanReceipt(file).then((text) => {
+                            if (!text) {
+                              setReceiptScanMessage(
+                                'Receipt saved. Automatic text scanning is not supported in this browser; enter the details above.',
+                              );
+                              return;
+                            }
+                            const lines = text
+                              .split(/\\n+/)
+                              .map((line) => line.trim())
+                              .filter(Boolean);
+                            const amountMatch = text.match(
+                              /(?:[$€£]\\s*)?([0-9]+[.,][0-9]{2})\\s*(?:[$€£])?/,
+                            );
+                            const dateMatch = text.match(
+                              /\\b(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})\\b/,
+                            );
+                            const merchant = lines.find((line) => !/[0-9]{2,}/.test(line));
+                            if (merchant) setPayee(merchant.slice(0, 120));
+                            if (amountMatch) setAmount(amountMatch[1].replace(',', '.'));
+                            if (dateMatch) {
+                              const [, year, month, day] = dateMatch;
+                              setDate(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                            }
+                            setReceiptScanMessage(
+                              amountMatch || merchant
+                                ? 'Text scanned. Check the details before saving.'
+                                : 'Receipt saved, but no transaction details were found. Enter them above.',
+                            );
+                          });
+                        }}
                       />
-                    ) : (
-                      <a href={receipt} target="_blank" rel="noreferrer">
-                        View saved receipt
-                      </a>
+                    </label>
+                    {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
+                    <label>
+                      Transaction pictures
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                        multiple
+                        onChange={(event) => setPictureFiles(Array.from(event.target.files ?? []))}
+                      />
+                    </label>
+                    {pictureFiles.length > 0 && (
+                      <p>
+                        {pictureFiles.length} picture{pictureFiles.length === 1 ? '' : 's'} ready to
+                        upload.
+                      </p>
                     )}
-                    <button className="text-button" type="button" onClick={() => setReceipt('')}>
-                      Remove receipt
-                    </button>
-                  </div>
+                    {receipt && (
+                      <div className="receipt-preview">
+                        {receipt.startsWith('data:image/') ? (
+                          <img
+                            src={receipt}
+                            alt="Receipt preview"
+                            style={{ maxWidth: '100%', maxHeight: 220 }}
+                          />
+                        ) : (
+                          <a href={receipt} target="_blank" rel="noreferrer">
+                            View saved receipt
+                          </a>
+                        )}
+                        <button
+                          className="text-button"
+                          type="button"
+                          onClick={() => setReceipt('')}
+                        >
+                          Remove receipt
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}

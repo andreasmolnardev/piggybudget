@@ -26,6 +26,20 @@ export type Transaction = {
   receivable?: string;
 };
 
+export type RecurringTransaction = {
+  id: string;
+  merchant: string;
+  account: string;
+  accountId: string;
+  amount: number;
+  kind: 'expense' | 'income' | 'adjustment';
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval: number;
+  nextDate: string;
+  endDate?: string;
+  active: boolean;
+};
+
 export type Account = {
   id: string;
   name: string;
@@ -126,6 +140,7 @@ export type Reconciliation = {
 
 export type BudgetData = {
   transactions: Transaction[];
+  recurringTransactions: RecurringTransaction[];
   accounts: Account[];
   budgets: Budget[];
   assets: Asset[];
@@ -137,6 +152,7 @@ export type BudgetData = {
 };
 
 export const sampleData: BudgetData = {
+  recurringTransactions: [],
   accounts: [
     { id: 'checking', name: 'Everyday checking', type: 'Checking', balance: 8420.14 },
     { id: 'savings', name: 'Rainy day fund', type: 'Savings', balance: 12450.0 },
@@ -325,16 +341,25 @@ function transactionKind(record: RecordModel): TransactionKind {
 }
 
 export async function loadBudgetData(): Promise<{ data: BudgetData; remote: boolean }> {
-  const [transactions, accounts, budgets, assets, assetGroups, assetPositions, goals] =
-    await Promise.all([
-      getRecords('transactions'),
-      getRecords('accounts'),
-      getRecords('budgets'),
-      getRecords('assets'),
-      getRecords('asset-groups'),
-      getRecords('asset-positions'),
-      getRecords('goals'),
-    ]);
+  const [
+    transactions,
+    accounts,
+    budgets,
+    assets,
+    assetGroups,
+    assetPositions,
+    goals,
+    recurringTransactions,
+  ] = await Promise.all([
+    getRecords('transactions'),
+    getRecords('accounts'),
+    getRecords('budgets'),
+    getRecords('assets'),
+    getRecords('asset-groups'),
+    getRecords('asset-positions'),
+    getRecords('goals'),
+    getRecords('recurring_transactions'),
+  ]);
   const contributionRecords = await Promise.all(
     goals.map(async (goal) => {
       const records = await apiRequest<unknown>(`/api/finance/goals/${goal.id}/contributions`);
@@ -343,6 +368,19 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
   );
 
   const remoteData: BudgetData = {
+    recurringTransactions: recurringTransactions.map((record) => ({
+      id: record.id,
+      merchant: textValue(record, 'payee') || 'Recurring transaction',
+      account: textValue(record, 'account'),
+      accountId: textValue(record, 'account'),
+      amount: numberValue(record, 'amount'),
+      kind: (textValue(record, 'type') || 'expense') as RecurringTransaction['kind'],
+      frequency: textValue(record, 'frequency') as RecurringTransaction['frequency'],
+      interval: numberValue(record, 'interval') || 1,
+      nextDate: optionalDateValue(record, 'next_date') ?? '',
+      endDate: optionalDateValue(record, 'end_date') || undefined,
+      active: Boolean(record.active),
+    })),
     transactions: transactions.map((record) => ({
       id: record.id,
       merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
@@ -464,6 +502,10 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
   remoteData.transactions = remoteData.transactions.map((transaction) => ({
     ...transaction,
     account: accountNames.get(transaction.account) ?? transaction.account,
+  }));
+  remoteData.recurringTransactions = remoteData.recurringTransactions.map((rule) => ({
+    ...rule,
+    account: accountNames.get(rule.accountId) ?? rule.account,
   }));
   const spentByBudget = new Map<string, number>();
   for (const transaction of remoteData.transactions) {

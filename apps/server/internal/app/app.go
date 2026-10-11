@@ -70,6 +70,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 	RegisterTransactionAttachmentHooks(pb)
 	registerCalDAVChangeHooks(pb)
 	registerReminderScheduler(pb)
+	registerRecurringTransactionScheduler(pb)
 	// Keep protocol fixtures available to the server's existing DAV tests. They
 	// are not part of the Piggybudget product surface or web navigation.
 	pb.OnRecordAfterCreateSuccess("users").BindFunc(func(e *core.RecordEvent) error {

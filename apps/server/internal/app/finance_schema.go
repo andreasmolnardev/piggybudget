@@ -59,6 +59,8 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.TextField{Name: "receivable"},
 				&core.TextField{Name: "notes"},
 				&core.TextField{Name: "transfer_id"},
+				&core.TextField{Name: "recurring_rule"},
+				&core.DateField{Name: "recurring_date"},
 				&core.BoolField{Name: "cleared"},
 				&core.BoolField{Name: "reconciled"},
 			},
@@ -66,6 +68,29 @@ func EnsureFinanceCollections(app core.App) error {
 				{"idx_transactions_owner_account_date", "owner, account, date", false},
 				{"idx_transactions_owner_transfer", "owner, transfer_id", false},
 			},
+		},
+		{
+			name: "recurring_transactions",
+			fields: []core.Field{
+				&core.TextField{Name: "owner", Required: true},
+				&core.TextField{Name: "account", Required: true},
+				&core.NumberField{Name: "amount", Required: true},
+				&core.TextField{Name: "type", Required: true},
+				&core.TextField{Name: "payee"},
+				&core.TextField{Name: "description"},
+				&core.TextField{Name: "category"},
+				&core.TextField{Name: "budget"},
+				&core.JSONField{Name: "tags"},
+				&core.TextField{Name: "receivable"},
+				&core.TextField{Name: "notes"},
+				&core.TextField{Name: "frequency", Required: true},
+				&core.NumberField{Name: "interval", Required: true, OnlyInt: true},
+				&core.DateField{Name: "start_date", Required: true},
+				&core.DateField{Name: "next_date", Required: true},
+				&core.DateField{Name: "end_date"},
+				&core.BoolField{Name: "active"},
+			},
+			indexes: []financeIndex{{"idx_recurring_transactions_owner_next", "owner, active, next_date", false}},
 		},
 		{
 			name: "checkpoints",
@@ -163,6 +188,14 @@ func EnsureFinanceCollections(app core.App) error {
 			if collection.GetIndex(index.name) == "" {
 				collection.AddIndex(index.name, index.unique, index.columns, "")
 			}
+		}
+		if definition.name == "transactions" && collection.GetIndex("idx_transactions_recurring_occurrence") == "" {
+			collection.AddIndex(
+				"idx_transactions_recurring_occurrence",
+				true,
+				"owner, recurring_rule, recurring_date",
+				"recurring_rule != ''",
+			)
 		}
 		if err := app.Save(collection); err != nil {
 			return fmt.Errorf("save %s collection: %w", definition.name, err)
