@@ -59,6 +59,13 @@ type UserPreferences = {
   notifications: boolean;
 };
 
+type PendingDeletion = {
+  key: string;
+  name: string;
+  timer: number;
+  execute: () => Promise<void>;
+};
+
 const defaultPreferences: UserPreferences = {
   currency: 'USD',
   weekStart: 'monday',
@@ -4385,6 +4392,7 @@ export function BudgetingDashboard({
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [recordDetailsTarget, setRecordDetailsTarget] = useState<FinanceRecordTarget | null>(null);
+  const [pendingDeletions, setPendingDeletions] = useState<PendingDeletion[]>([]);
   useEffect(() => {
     if (!userId || !remote || data.accounts.length > 0) return;
     if (localStorage.getItem(onboardingStorageKey(userId)) !== 'complete') {
@@ -4423,21 +4431,42 @@ export function BudgetingDashboard({
     closeComposer();
     onRefresh();
   };
+  const scheduleDeletion = (name: string, execute: () => Promise<void>) => {
+    const pending: PendingDeletion = {
+      key: crypto.randomUUID(),
+      name,
+      timer: 0,
+      execute,
+    };
+    pending.timer = window.setTimeout(() => {
+      void pending.execute().catch(() => window.alert(`Could not delete ${pending.name}.`));
+      setPendingDeletions((current) => current.filter((item) => item.key !== pending.key));
+    }, 8000);
+    setPendingDeletions((current) => [...current, pending]);
+  };
+  const undoDeletion = (key: string) => {
+    const pending = pendingDeletions.find((item) => item.key === key);
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    setPendingDeletions((current) => current.filter((item) => item.key !== key));
+  };
   const deleteRecord = async (
     resource: 'transactions' | 'assets' | 'budgets',
     id: string,
     name: string,
   ) => {
-    if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
-    const response = await apiFetch(`/api/finance/${resource}/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${pb.authStore.token}` },
+    if (!window.confirm(`Delete ${name}? You can undo this for 8 seconds.`)) return;
+    scheduleDeletion(name, async () => {
+      const response = await apiFetch(`/api/finance/${resource}/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+      });
+      if (!response.ok) {
+        window.alert((await response.text()) || `Could not delete ${name}.`);
+        return;
+      }
+      onRefresh();
     });
-    if (!response.ok) {
-      window.alert((await response.text()) || `Could not delete ${name}.`);
-      return;
-    }
-    onRefresh();
   };
   const toggleTransactionCleared = async (transaction: Transaction) => {
     const response = await apiFetch(`/api/finance/transactions/${transaction.id}`, {
@@ -4459,21 +4488,27 @@ export function BudgetingDashboard({
       await deleteRecord('transactions', transaction.id, transaction.merchant);
       return;
     }
-    if (!window.confirm(`Delete all parts of ${transaction.merchant}? This cannot be undone.`)) {
+    if (
+      !window.confirm(
+        `Delete all parts of ${transaction.merchant}? You can undo this for 8 seconds.`,
+      )
+    ) {
       return;
     }
-    const response = await apiFetch(
-      `/api/finance/transactions/splits/${encodeURIComponent(transaction.splitGroup)}`,
-      {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${pb.authStore.token}` },
-      },
-    );
-    if (!response.ok) {
-      window.alert((await response.text()) || 'Could not delete the split transaction.');
-      return;
-    }
-    onRefresh();
+    scheduleDeletion(transaction.merchant, async () => {
+      const response = await apiFetch(
+        `/api/finance/transactions/splits/${encodeURIComponent(transaction.splitGroup!)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${pb.authStore.token}` },
+        },
+      );
+      if (!response.ok) {
+        window.alert((await response.text()) || 'Could not delete the split transaction.');
+        return;
+      }
+      onRefresh();
+    });
   };
   const archiveBudget = async (budget: Budget) => {
     const archived = !budget.archived;
@@ -4670,6 +4705,22 @@ export function BudgetingDashboard({
   return (
     <>
       {content}
+      {pendingDeletions.length > 0 && (
+        <div className="delete-undo-region" aria-live="polite">
+          {pendingDeletions.map((pending) => (
+            <div className="delete-undo-toast" role="status" key={pending.key}>
+              <span>{pending.name} will be deleted shortly.</span>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => undoDeletion(pending.key)}
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {composer && (
         <FinanceComposer
           kind={composer}
