@@ -17,7 +17,7 @@ import (
 )
 
 func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
-	registerFinanceAPI(api)
+	registerFinanceAPI(pb, api)
 	pb.RootCmd.PersistentFlags().StringVar(&config.HTTPAddress, "http", config.HTTPAddress, "HTTP address")
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		if err := e.Next(); err != nil {

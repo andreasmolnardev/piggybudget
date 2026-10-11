@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -256,6 +257,57 @@ func TestFinanceHTTPAPIRequiresAuthAndScopesRecords(t *testing.T) {
 	assertAuditEvent(t, server.app, owner.Id, "create", "checkpoints", checkpointID)
 	assertAuditEvent(t, server.app, owner.Id, "update", "checkpoints", checkpointID)
 	assertAuditEvent(t, server.app, owner.Id, "delete", "checkpoints", checkpointID)
+}
+
+func TestFinanceHumaListUsesOwnerScopedListLogic(t *testing.T) {
+	testApp, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testApp.Cleanup()
+	if err := EnsureCollections(testApp); err != nil {
+		t.Fatal(err)
+	}
+
+	owner := testUser(t, testApp, "finance-huma-owner@example.com")
+	other := testUser(t, testApp, "finance-huma-other@example.com")
+	account := financeTestRecord(t, testApp, "accounts", map[string]any{"owner": owner.Id, "name": "Checking"})
+	otherAccount := financeTestRecord(t, testApp, "accounts", map[string]any{"owner": other.Id, "name": "Private"})
+	financeTestRecord(t, testApp, "transactions", map[string]any{
+		"owner": owner.Id, "account": account.Id, "date": "2026-09-01 00:00:00.000Z", "amount": 12,
+	})
+	financeTestRecord(t, testApp, "transactions", map[string]any{
+		"owner": other.Id, "account": otherAccount.Id, "date": "2026-09-02 00:00:00.000Z", "amount": 99,
+	})
+
+	token, err := owner.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	api := humago.New(mux, huma.DefaultConfig("Piggybudget API", "0.1.0"))
+	registerFinanceAPI(testApp, api)
+
+	unauthorized := httptest.NewRecorder()
+	mux.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/finance/transactions", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated Huma list = %d, want %d", unauthorized.Code, http.StatusUnauthorized)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/finance/transactions?account="+account.Id, nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("Huma list = %d, body = %s", response.Code, response.Body.String())
+	}
+	var records []map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0]["account"] != account.Id || records[0]["amount"] != float64(12) {
+		t.Fatalf("Huma transaction list = %#v", records)
+	}
 }
 
 func TestNativeFinanceRecordWritesAreAudited(t *testing.T) {

@@ -47,9 +47,20 @@ var financeFields = map[string]map[string]bool{
 	},
 }
 
-// registerFinanceAPI documents the finance endpoints. The handlers use
-// PocketBase's request event so the same auth token works for SDK and custom API calls.
-func registerFinanceAPI(api huma.API) {
+type financeListInput struct {
+	Account string `query:"account"`
+}
+
+type financeListOutput struct {
+	Body []map[string]any
+}
+
+type financeUserContextKey struct{}
+
+// registerFinanceAPI serves the documented list operations through Huma. The
+// custom PocketBase routes below call the same list function so both surfaces
+// keep the same filtering, ownership, and response behavior.
+func registerFinanceAPI(app core.App, api huma.API) {
 	for _, collection := range financeCollections {
 		name := collection
 		huma.Register(api, huma.Operation{
@@ -59,9 +70,35 @@ func registerFinanceAPI(api huma.API) {
 			Tags:        []string{"Finance"},
 			Summary:     "List the current user's " + name,
 			Security:    []map[string][]string{{"pocketbaseAuth": {}}},
-		}, func(context.Context, *struct{}) (*struct{ Body []map[string]any }, error) {
-			return nil, nil
+			Errors:      []int{http.StatusUnauthorized},
+			Middlewares: huma.Middlewares{financeListAuthMiddleware(app, api)},
+		}, func(ctx context.Context, input *financeListInput) (*financeListOutput, error) {
+			user, ok := ctx.Value(financeUserContextKey{}).(*core.Record)
+			if !ok || user == nil {
+				return nil, huma.Error401Unauthorized("authentication required")
+			}
+			records, err := listFinanceData(app, name, user.Id, input.Account)
+			if err != nil {
+				return nil, err
+			}
+			return &financeListOutput{Body: records}, nil
 		})
+	}
+}
+
+func financeListAuthMiddleware(app core.App, api huma.API) func(huma.Context, func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		scheme, token, ok := strings.Cut(strings.TrimSpace(ctx.Header("Authorization")), " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
+			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		user, err := app.FindAuthRecordByToken(strings.TrimSpace(token), core.TokenTypeAuth)
+		if err != nil {
+			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		next(huma.WithValue(ctx, financeUserContextKey{}, user))
 	}
 }
 
@@ -126,29 +163,37 @@ func listFinanceRecords(event *core.RequestEvent, collection string) error {
 	if err != nil {
 		return err
 	}
-	filter := "owner = {:owner}"
-	params := dbx.Params{"owner": user.Id}
-	if account := event.Request.URL.Query().Get("account"); account != "" {
-		switch collection {
-		case "transactions", "checkpoints", "goals":
-			filter += " && account = {:account}"
-			params["account"] = account
-		}
-	}
-
-	records, err := event.App.FindRecordsByFilter(collection, filter, financeSort(collection), 0, 0, params)
+	result, err := listFinanceData(event.App, collection, user.Id, event.Request.URL.Query().Get("account"))
 	if err != nil {
 		return err
 	}
+	return event.JSON(http.StatusOK, result)
+}
+
+func listFinanceData(app core.App, collection, owner, accountFilter string) ([]map[string]any, error) {
+	filter := "owner = {:owner}"
+	params := dbx.Params{"owner": owner}
+	if accountFilter != "" {
+		switch collection {
+		case "transactions", "checkpoints", "goals":
+			filter += " && account = {:account}"
+			params["account"] = accountFilter
+		}
+	}
+
+	records, err := app.FindRecordsByFilter(collection, filter, financeSort(collection), 0, 0, params)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]map[string]any, 0, len(records))
 	for _, record := range records {
-		response, err := financeRecordResponse(event.App, collection, record, user.Id)
+		response, err := financeRecordResponse(app, collection, record, owner)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		result = append(result, response)
 	}
-	return event.JSON(http.StatusOK, result)
+	return result, nil
 }
 
 func getFinanceRecord(event *core.RequestEvent, collection string) error {
