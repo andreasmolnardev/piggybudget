@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -162,7 +163,7 @@ func cardDAVPut(event *core.RequestEvent, user *core.Record) error {
 		contact.Set("address_book", book.Id)
 		contact.Set("dav_href", href)
 	}
-	if contact.GetString("owner") != user.Id || contact.GetString("address_book") != book.Id {
+	if !ownership.IsOwner(contact, "owner", user.Id) || contact.GetString("address_book") != book.Id {
 		return event.NotFoundError("contact not found", nil)
 	}
 	contact.Set("vcard", vcard)
@@ -204,7 +205,7 @@ func cardDAVDelete(event *core.RequestEvent, user *core.Record) error {
 
 func ownedAddressBook(app core.App, owner, id string) (*core.Record, error) {
 	book, err := app.FindRecordById("address_books", id)
-	if err != nil || book.GetString("owner") != owner {
+	if err != nil || !ownership.IsOwner(book, "owner", owner) {
 		return nil, fmt.Errorf("address book not found")
 	}
 	return book, nil
@@ -230,7 +231,7 @@ func findCardDAVContact(app core.App, owner, bookID, href string) (*core.Record,
 	// as their resource name. Keep those resources readable and writable.
 	legacyID := strings.TrimSuffix(href, ".vcf")
 	contact, err := app.FindRecordById("contacts", legacyID)
-	if err != nil || contact.GetString("owner") != owner || contact.GetString("address_book") != bookID || contact.GetString("dav_href") != "" {
+	if err != nil || !ownership.IsOwner(contact, "owner", owner) || contact.GetString("address_book") != bookID || contact.GetString("dav_href") != "" {
 		return nil, fmt.Errorf("contact not found")
 	}
 	return contact, nil

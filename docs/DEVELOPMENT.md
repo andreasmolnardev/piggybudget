@@ -33,11 +33,11 @@ Use `pnpm generate` to export the API and regenerate the typed web client.
 
 The Go module is `github.com/piggybudget/piggybudget`, and the web package is `@piggybudget/web`.
 
-Piggybudget uses shared auth, configuration, authorization, HTTP, and backup
-packages from `github.com/andreasmolnardev/slopstack`. The backup CLI options
-needed for Piggybudget compatibility are pending runtime v0.2.0; until that
-release, `go.mod` uses a temporary sibling checkout replacement for local
-validation. Remove the replacement and pin v0.2.0 before hosted CI.
+Piggybudget pins the released Slopstack runtime v0.3.0 without a sibling-path
+`replace`. Shared packages provide auth and permission helpers, audit recording,
+ownership hooks, Huma and OpenAPI HTTP wiring, backup adapters, and encryption.
+Piggybudget retains its finance schemas, routes, operations, and UI. Update the
+runtime explicitly with `go get github.com/andreasmolnardev/slopstack@<version>`.
 
 ## Finance feature workflow
 

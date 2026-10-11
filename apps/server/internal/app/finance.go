@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andreasmolnardev/slopstack/go/audit"
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
@@ -192,6 +194,7 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err := event.App.Save(record); err != nil {
 		return err
 	}
+	logDomainMutation(event, user.Id, "create", collection, record.Id, nil)
 	response, err := financeRecordResponse(event.App, collection, record, user.Id)
 	if err != nil {
 		return err
@@ -228,6 +231,7 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err := event.App.Save(record); err != nil {
 		return err
 	}
+	logDomainMutation(event, user.Id, "update", collection, record.Id, nil)
 	response, err := financeRecordResponse(event.App, collection, record, user.Id)
 	if err != nil {
 		return err
@@ -250,6 +254,7 @@ func deleteFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err := event.App.Delete(record); err != nil {
 		return err
 	}
+	logDomainMutation(event, user.Id, "delete", collection, record.Id, nil)
 	return event.NoContent(http.StatusNoContent)
 }
 
@@ -281,7 +286,7 @@ func reconcileAccountRoute(event *core.RequestEvent) error {
 		}
 		checkpointID, _ := window["toCheckpoint"].(string)
 		checkpoint, err := event.App.FindRecordById("checkpoints", checkpointID)
-		if err != nil || checkpoint.GetString("owner") != user.Id || checkpoint.GetString("account") != account.Id {
+		if err != nil || !ownership.IsOwner(checkpoint, "owner", user.Id) || checkpoint.GetString("account") != account.Id {
 			return event.NotFoundError("checkpoint not found", nil)
 		}
 		definition, err := event.App.FindCollectionByNameOrId("transactions")
@@ -301,6 +306,9 @@ func reconcileAccountRoute(event *core.RequestEvent) error {
 		if err := event.App.Save(record); err != nil {
 			return err
 		}
+		logDomainMutation(event, user.Id, "create", "transactions", record.Id, map[string]any{
+			"account_id": account.Id, "checkpoint_id": checkpoint.Id, "source": "reconcile",
+		})
 		response, err := financeRecordResponse(event.App, "transactions", record, user.Id)
 		if err != nil {
 			return err
@@ -308,6 +316,15 @@ func reconcileAccountRoute(event *core.RequestEvent) error {
 		return event.JSON(http.StatusCreated, response)
 	}
 	return event.BadRequestError("no unexplained checkpoint gap to reconcile", nil)
+}
+
+func logDomainMutation(event *core.RequestEvent, actorID, action, resource, resourceID string, metadata map[string]any) {
+	logger := audit.PocketBaseRecorder{App: event.App}
+	if err := logger.Log(event.Request.Context(), audit.Event{
+		ActorID: actorID, Action: action, Resource: resource, ResourceID: resourceID, Metadata: metadata,
+	}); err != nil {
+		event.App.Logger().Error("write audit event", "action", action, "collection", resource, "resource_id", resourceID, "error", err)
+	}
 }
 
 func accountSummaryRoute(event *core.RequestEvent) error {
@@ -328,7 +345,7 @@ func accountSummaryRoute(event *core.RequestEvent) error {
 
 func ownedFinanceRecord(event *core.RequestEvent, collection, owner string) (*core.Record, error) {
 	record, err := event.App.FindRecordById(collection, event.Request.PathValue("id"))
-	if err != nil || record.GetString("owner") != owner {
+	if err != nil || !ownership.IsOwner(record, "owner", owner) {
 		return nil, event.NotFoundError(strings.TrimSuffix(collection, "s")+" not found", nil)
 	}
 	return record, nil

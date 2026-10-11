@@ -8,7 +8,7 @@ docker compose up --build
 
 The image and service are named `piggybudget`. Project identity and build defaults are validated from [`slopstack.yaml`](../slopstack.yaml). PocketBase data persists in the existing `slopstack-data` volume mounted at `/app/pb_data`; keep that volume name and mount when upgrading an existing deployment.
 
-The server build resolves the pinned Slopstack Go module v0.2.0 from `go.mod`,
+The server build resolves the pinned Slopstack Go module v0.3.0 from `go.mod`,
 so the image builds from this repository alone.
 
 `pnpm deploy` validates the config and prints the multi-platform Buildx command by default. To publish, log in to the registry and opt in explicitly:

@@ -135,11 +135,13 @@ func TestAssetGroupRoutesCreatePositionsAndEnforceOwnerScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	groupID := group["id"].(string)
+	assertAuditEvent(t, pb, owner.Id, "create", "asset_groups", groupID)
 
 	status, _, body = integrationRequest(t, integration, http.MethodPatch, "/api/finance/assets/"+asset.Id+"/group", `{"asset_group":"`+groupID+`"}`, ownerHeaders)
 	if status != http.StatusOK {
 		t.Fatalf("asset group assignment = %d, %s", status, body)
 	}
+	assertAuditEvent(t, pb, owner.Id, "update", "assets", asset.Id)
 	if status, _, body = integrationRequest(t, integration, http.MethodPost, "/api/finance/asset-positions", `{"group":"`+groupID+`","name":"Holding","quantity":2,"value":450,"purchase_price":300,"target_sale_price":600}`, ownerHeaders); status != http.StatusCreated {
 		t.Fatalf("position create = %d, %s", status, body)
 	} else {
@@ -150,6 +152,7 @@ func TestAssetGroupRoutesCreatePositionsAndEnforceOwnerScope(t *testing.T) {
 		if position["purchase_price"] != float64(300) || position["target_sale_price"] != float64(600) {
 			t.Fatalf("position purchase/target values = %#v/%#v", position["purchase_price"], position["target_sale_price"])
 		}
+		assertAuditEvent(t, pb, owner.Id, "create", "asset_positions", position["id"].(string))
 	}
 
 	status, _, _ = integrationRequest(t, integration, http.MethodGet, "/api/finance/asset-groups/"+groupID, "", otherHeaders)

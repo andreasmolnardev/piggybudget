@@ -31,7 +31,10 @@ func main() {
 	}
 
 	api := newOpenAPI(config)
-	app.Register(pb, config, api)
+	if err := app.Register(pb, config, api); err != nil {
+		slog.Error("register application hooks", "error", err)
+		os.Exit(2)
+	}
 	registerExportCommand(pb, api)
 	pb.RootCmd.AddCommand(app.NewBackupCommand(pb))
 

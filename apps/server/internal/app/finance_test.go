@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
@@ -250,6 +251,58 @@ func TestFinanceHTTPAPIRequiresAuthAndScopesRecords(t *testing.T) {
 	if status != http.StatusNotFound {
 		t.Fatalf("cross-user account read = %d, want %d", status, http.StatusNotFound)
 	}
+	assertAuditEvent(t, server.app, owner.Id, "create", "accounts", accountID)
+	assertAuditEvent(t, server.app, owner.Id, "create", "transactions", "")
+	assertAuditEvent(t, server.app, owner.Id, "create", "checkpoints", checkpointID)
+	assertAuditEvent(t, server.app, owner.Id, "update", "checkpoints", checkpointID)
+	assertAuditEvent(t, server.app, owner.Id, "delete", "checkpoints", checkpointID)
+}
+
+func TestNativeFinanceRecordWritesAreAudited(t *testing.T) {
+	server := newHTTPIntegrationServer(t)
+	owner := integrationUser(t, server.app, "native-finance-audit@example.com")
+	token := authToken(t, server, owner.GetString("email"))
+
+	status, _, body := integrationRequest(t, server, http.MethodPost, "/api/collections/accounts/records", `{"owner":"`+owner.Id+`","name":"Native account"}`, withContentType(bearerHeaders(token)))
+	if status != http.StatusOK && status != http.StatusCreated {
+		t.Fatalf("native account create = %d, body = %s", status, body)
+	}
+	var account map[string]any
+	if err := json.Unmarshal([]byte(body), &account); err != nil {
+		t.Fatal(err)
+	}
+	accountID, ok := account["id"].(string)
+	if !ok || accountID == "" {
+		t.Fatalf("native account response has no id: %s", body)
+	}
+	assertAuditEvent(t, server.app, owner.Id, "create", "accounts", accountID)
+}
+
+func assertAuditEvent(t *testing.T, app core.App, actorID, action, resource, resourceID string) {
+	t.Helper()
+	records, err := app.FindRecordsByFilter("audit_logs", "actor = {:actor} && action = {:action}", "", 0, 0, dbx.Params{
+		"actor": actorID, "action": action,
+	})
+	if err != nil {
+		t.Fatalf("find %s %s audit event: %v", action, resource, err)
+	}
+	for _, record := range records {
+		metadataBytes, err := json.Marshal(record.Get("metadata"))
+		if err != nil {
+			t.Fatalf("encode audit metadata: %v", err)
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+			t.Fatalf("decode audit metadata: %v", err)
+		}
+		if metadata["resource"] != resource {
+			continue
+		}
+		if resourceID == "" || metadata["resource_id"] == resourceID {
+			return
+		}
+	}
+	t.Fatalf("missing audit event actor=%s action=%s resource=%s id=%s", actorID, action, resource, resourceID)
 }
 
 func testUser(t *testing.T, app core.App, email string) *core.Record {

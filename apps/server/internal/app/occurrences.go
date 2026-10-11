@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	ical "github.com/emersion/go-ical"
 	calendarengine "github.com/piggybudget/piggybudget/apps/server/internal/calendar"
 	"github.com/pocketbase/dbx"
@@ -124,7 +125,7 @@ func recurrenceCancelRoute(event *core.RequestEvent) error {
 
 func prepareRecurrenceOverride(app core.App, owner, masterID, rawID string) (*core.Record, *core.Record, error) {
 	master, err := app.FindRecordById("events", masterID)
-	if err != nil || master.GetString("owner") != owner || master.GetString("recurrence_parent") != "" {
+	if err != nil || !ownership.IsOwner(master, "owner", owner) || master.GetString("recurrence_parent") != "" {
 		return nil, nil, fmt.Errorf("recurring event not found")
 	}
 	id, err := parseRecurrenceID(rawID)

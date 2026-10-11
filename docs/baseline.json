@@ -6,7 +6,7 @@
   "notes": [
     "Machine-readable baseline. A CI job may diff this file against a regenerated copy.",
     "collection_ids are read from the local pb_data and are NOT reproducible from source.",
-    "test counts include tests for Taskboard-lineage code that a later phase will delete."
+    "Test counts reflect the post-cleanup finance web suite; the historical Taskboard lineage inventory is retained for traceability."
   ],
   "tool_versions": {
     "go": "go1.27.1 darwin/arm64",
@@ -2041,7 +2041,8 @@
         "popover.tsx"
       ],
       "note": "computed by walking relative and @/ imports from main.tsx, including side-effect imports; test files excluded from the graph"
-    }
+    },
+    "unreachable_production_files": 59
   },
   "inherited_unused_taskboard": {
     "verification_method": "server: wired into registerRoutes/hooks AND no reachable web caller. web: absent from the import graph rooted at apps/web/src/main.tsx, computed by walking relative and @/ imports; test files excluded from the graph.",
@@ -2162,46 +2163,9 @@
       }
     ],
     "web_files_unreachable_from_main_tsx": [
-      "components/tabs/calendar-tab.tsx",
-      "components/tabs/lists-tab.tsx",
-      "components/tabs/people-tab.tsx",
-      "components/tabs/search-tab.tsx",
-      "components/tabs/settings-tab.tsx",
-      "components/tabs/upcoming-tab.tsx",
-      "components/time-grid/index.ts",
-      "components/time-grid/layout.ts",
-      "components/time-grid/position.ts",
-      "components/time-grid/segments.ts",
-      "components/time-grid/dates.ts",
-      "components/time-grid/types.ts",
-      "components/time-grid/time-grid.tsx",
-      "components/container-manager/index.ts",
-      "components/container-manager/container-manager.tsx",
-      "components/calendar-month.tsx",
-      "components/full-month-calendar.tsx",
-      "components/entry-row.tsx",
-      "components/create-fields.tsx",
-      "components/app/create-composer.tsx",
-      "components/app/create-composer.helpers.ts",
-      "components/app/notifications-popover.tsx",
-      "data.ts",
-      "theme.ts",
-      "hooks/use-mobile.ts",
-      "api/generated/ (16 files)"
+      "hooks/use-mobile.ts"
     ],
-    "web_test_files_for_unreachable_code": [
-      "components/tabs/lists-tab.test.tsx",
-      "components/time-grid/layout.test.ts",
-      "components/time-grid/position.test.ts",
-      "components/time-grid/segments.test.ts",
-      "components/time-grid/time-grid.test.tsx",
-      "components/container-manager/container-manager.test.tsx",
-      "components/calendar-month.test.tsx",
-      "components/full-month-calendar.test.tsx",
-      "components/app/create-composer.helpers.test.ts",
-      "data.test.ts",
-      "theme.test.ts"
-    ],
+    "web_test_files_for_unreachable_code": [],
     "go_test_files_for_obsolete_code": [
       "internal/app/caldav_test.go",
       "internal/app/carddav_test.go",
@@ -2210,9 +2174,15 @@
       "internal/calendar/recurrence_test.go"
     ],
     "excluded_from_obsolete": [
-      "components/ui/* (56 shadcn primitives) - unreachable except tooltip, but a vendored component library, not inherited Taskboard application code; remediate on size grounds, not obsolescence"
+      "components/ui/* (vendored shadcn primitives kept for local customization); hooks/use-mobile.ts is retained as a dependency of components/ui/sidebar.tsx"
     ],
-    "deletion_cost": "removing this set drops 9 of 11 vitest files (34 -> ~5 tests) and the bulk of internal/app's Go tests. Expected, not a regression."
+    "deletion_cost": "Phase 5 cleanup removed the verified orphaned Taskboard web modules and their associated tests, leaving two finance API/query test files. Registered server endpoints were retained because they remain externally reachable.",
+    "cleanup_2026_10_11": {
+      "removed_web_modules": "All listed unreachable Taskboard application modules and the unused generated API client output; preserved hooks/use-mobile.ts because the retained shadcn sidebar depends on it.",
+      "removed_backend": "None; authorization.go was retained as a shared capability wrapper for future app routes and Phase 3 permission support.",
+      "retained_backend": "Registered CalDAV/CardDAV, app-password, calendar import/export, occurrence, notification/reminder, and search routes remain live HTTP surfaces; absent web callers alone do not establish that external clients cannot reach them.",
+      "data": "No user data or historical PocketBase migrations were removed."
+    }
   },
   "taskboard_parity": {
     "byte_identical_to_taskboard": [
@@ -2354,17 +2324,17 @@
         "apps/server/pb_migrations/20261005000000_add_transaction_attachments.go",
         "apps/server/pb_migrations/20261005000001_add_asset_groups_and_positions.go"
       ],
-      "source_files_without_tests_note": "internal/app/finance.go and asset_groups.go DO have tests (finance_test.go, asset_groups_test.go). config.go, app.go, auth.go, authorization.go, and all of internal/reminders/ have none. All 18 pb_migrations files are thin wrappers with no tests."
+      "source_files_without_tests_note": "Finance collections/routes, auth, configuration, backup behavior, and the shared authorization wrapper have tests or documented route wiring. All 18 historical pb_migrations files are thin wrappers with no tests."
     },
     "web": {
       "command": "pnpm -r test",
       "working_directory": ".",
       "result": "pass",
       "runner": "vitest 4.1.10",
-      "test_files": 11,
-      "tests": 34,
+      "test_files": 2,
+      "tests": 5,
       "duration_seconds": 1.76,
-      "note": "all 11 files target Taskboard-era components. budgeting-dashboard.tsx (~1900 LOC) and budgeting/data.ts have ZERO frontend tests."
+      "note": "The remaining API client and finance budget query tests cover authenticated request behavior and user-scoped finance loading."
     },
     "lint": {
       "command": "pnpm -r lint",

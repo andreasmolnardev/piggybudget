@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -114,7 +115,7 @@ func RegisterAssetGroupHooks(pb *pocketbase.PocketBase) {
 			if event.HasSuperuserAuth() {
 				return event.Next()
 			}
-			if event.Auth == nil || event.Record.Original().GetString("owner") != event.Auth.Id {
+			if event.Auth == nil || !ownership.IsOwner(event.Record.Original(), "owner", event.Auth.Id) {
 				return event.ForbiddenError("record is not owned by the current user", nil)
 			}
 			event.Record.Set("owner", event.Auth.Id)
@@ -201,6 +202,7 @@ func registerAssetGroupResourceRoutes(event *core.ServeEvent, prefix, path, coll
 		if err := request.App.Save(record); err != nil {
 			return err
 		}
+		logDomainMutation(request, user.Id, "create", collection, record.Id, nil)
 		return request.JSON(http.StatusCreated, record.PublicExport())
 	})
 	event.Router.GET(prefix+"/"+path+"/{id}", func(request *core.RequestEvent) error {
@@ -235,6 +237,7 @@ func registerAssetGroupResourceRoutes(event *core.ServeEvent, prefix, path, coll
 		if err := request.App.Save(record); err != nil {
 			return err
 		}
+		logDomainMutation(request, user.Id, "update", collection, record.Id, nil)
 		return request.JSON(http.StatusOK, record.PublicExport())
 	}
 	event.Router.PATCH(prefix+"/"+path+"/{id}", update)
@@ -266,6 +269,7 @@ func registerAssetGroupResourceRoutes(event *core.ServeEvent, prefix, path, coll
 		if err := request.App.Delete(record); err != nil {
 			return err
 		}
+		logDomainMutation(request, user.Id, "delete", collection, record.Id, nil)
 		return request.NoContent(http.StatusNoContent)
 	})
 }
@@ -298,6 +302,11 @@ func assignAssetGroupRoute(event *core.RequestEvent) error {
 	if err := event.App.Save(asset); err != nil {
 		return err
 	}
+	metadata := map[string]any{}
+	if groupID != "" {
+		metadata["group_id"] = groupID
+	}
+	logDomainMutation(event, user.Id, "update", "assets", asset.Id, metadata)
 	return event.JSON(http.StatusOK, asset.PublicExport())
 }
 
@@ -335,7 +344,7 @@ func validateAssetGroupInput(app core.App, collection string, input map[string]a
 
 func validateAssetGroupOwner(app core.App, groupID, owner string) error {
 	group, err := app.FindRecordById("asset_groups", groupID)
-	if err != nil || group.GetString("owner") != owner {
+	if err != nil || !ownership.IsOwner(group, "owner", owner) {
 		return fmt.Errorf("asset group not found")
 	}
 	return nil
@@ -343,7 +352,7 @@ func validateAssetGroupOwner(app core.App, groupID, owner string) error {
 
 func ownedAssetGroupRecord(event *core.RequestEvent, collection, owner string) (*core.Record, error) {
 	record, err := event.App.FindRecordById(collection, event.Request.PathValue("id"))
-	if err != nil || record.GetString("owner") != owner {
+	if err != nil || !ownership.IsOwner(record, "owner", owner) {
 		name := strings.ReplaceAll(strings.TrimPrefix(collection, "asset_"), "_", " ")
 		return nil, event.NotFoundError(name+" not found", nil)
 	}

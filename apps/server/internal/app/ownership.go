@@ -3,136 +3,66 @@ package app
 import (
 	"fmt"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// registerOwnershipHooks keeps browser-supplied owner and container values from
-// crossing user or collection boundaries. PocketBase rules still protect reads;
-// these hooks protect writes made through the SDK and custom routes.
-func registerOwnershipHooks(pb *pocketbase.PocketBase) {
-	for _, collection := range []string{"todos", "events"} {
-		name := collection
-		pb.OnRecordCreateRequest(name).BindFunc(func(e *core.RecordRequestEvent) error {
-			if e.HasSuperuserAuth() {
-				return e.Next()
-			}
-			if e.Auth == nil {
-				return e.UnauthorizedError("authentication required", nil)
-			}
-			e.Record.Set("owner", e.Auth.Id)
-			if err := validateEntryContainer(e.App, name, e.Record.GetString(containerField(name)), e.Auth.Id); err != nil {
-				return e.BadRequestError(err.Error(), nil)
-			}
-			return e.Next()
-		})
-		pb.OnRecordUpdateRequest(name).BindFunc(func(e *core.RecordRequestEvent) error {
-			if e.HasSuperuserAuth() {
-				return e.Next()
-			}
-			if e.Auth == nil || e.Record.Original().GetString("owner") != e.Auth.Id {
-				return e.ForbiddenError("record is not owned by the current user", nil)
-			}
-			e.Record.Set("owner", e.Auth.Id)
-			if err := validateEntryContainer(e.App, name, e.Record.GetString(containerField(name)), e.Auth.Id); err != nil {
-				return e.BadRequestError(err.Error(), nil)
-			}
-			return e.Next()
-		})
-		pb.OnRecordDeleteRequest(name).BindFunc(func(e *core.RecordRequestEvent) error {
-			if e.HasSuperuserAuth() {
-				return e.Next()
-			}
-			if e.Auth == nil || e.Record.GetString("owner") != e.Auth.Id {
-				return e.ForbiddenError("record is not owned by the current user", nil)
-			}
-			if name == "events" && e.Record.GetString("recurrence_parent") == "" {
-				overrides, err := e.App.FindRecordsByFilter("events", "owner = {:owner} && recurrence_parent = {:parent}", "id", 0, 0, dbx.Params{"owner": e.Record.GetString("owner"), "parent": e.Record.Id})
-				if err != nil {
-					return err
-				}
-				for _, override := range overrides {
-					if err := e.App.Delete(override); err != nil {
-						return err
-					}
-				}
-			}
-			return e.Next()
-		})
+// registerOwnershipHooks delegates owner assignment and checks to Slopstack,
+// while keeping Piggybudget's container, contact, and cascade rules local.
+func registerOwnershipHooks(pb *pocketbase.PocketBase) error {
+	validateEntry := func(event *core.RecordRequestEvent) error {
+		collection := event.Collection.Name
+		if err := validateEntryContainer(event.App, collection, event.Record.GetString(containerField(collection)), event.Auth.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		return nil
 	}
-
-	registerContactOwnershipHooks(pb)
-
-	for _, collection := range []string{"lists", "calendars"} {
-		name := collection
-		pb.OnRecordCreateRequest(name).BindFunc(func(e *core.RecordRequestEvent) error {
-			if e.HasSuperuserAuth() {
-				return e.Next()
-			}
-			if e.Auth == nil {
-				return e.UnauthorizedError("authentication required", nil)
-			}
-			e.Record.Set("owner", e.Auth.Id)
-			return e.Next()
+	validateDeleteContainer := func(event *core.RecordRequestEvent) error {
+		collection := event.Collection.Name
+		field := containerField(nameForEntryCollection(collection))
+		entries, err := event.App.FindRecordsByFilter(nameForEntryCollection(collection), field+" = {:container}", "", 1, 0, dbx.Params{"container": event.Record.Id})
+		if err != nil {
+			return err
+		}
+		if len(entries) > 0 {
+			return event.BadRequestError("non-empty containers must be archived", nil)
+		}
+		return nil
+	}
+	validateEventDelete := func(event *core.RecordRequestEvent) error {
+		if event.Record.GetString("recurrence_parent") != "" {
+			return nil
+		}
+		overrides, err := event.App.FindRecordsByFilter("events", "owner = {:owner} && recurrence_parent = {:parent}", "id", 0, 0, dbx.Params{
+			"owner": event.Record.GetString("owner"), "parent": event.Record.Id,
 		})
-		pb.OnRecordUpdateRequest(name).BindFunc(func(e *core.RecordRequestEvent) error {
-			if e.HasSuperuserAuth() {
-				return e.Next()
-			}
-			if e.Auth == nil || e.Record.Original().GetString("owner") != e.Auth.Id {
-				return e.ForbiddenError("record is not owned by the current user", nil)
-			}
-			e.Record.Set("owner", e.Auth.Id)
-			return e.Next()
-		})
-		pb.OnRecordDeleteRequest(name).BindFunc(func(e *core.RecordRequestEvent) error {
-			if e.HasSuperuserAuth() {
-				return e.Next()
-			}
-			if e.Auth == nil || e.Record.GetString("owner") != e.Auth.Id {
-				return e.ForbiddenError("record is not owned by the current user", nil)
-			}
-			field := containerField(nameForEntryCollection(name))
-			entries, err := e.App.FindRecordsByFilter(nameForEntryCollection(name), field+" = {:container}", "", 1, 0, dbx.Params{"container": e.Record.Id})
-			if err != nil {
+		if err != nil {
+			return err
+		}
+		for _, override := range overrides {
+			if err := event.App.Delete(override); err != nil {
 				return err
 			}
-			if len(entries) > 0 {
-				return e.BadRequestError("non-empty containers must be archived", nil)
-			}
-			return e.Next()
-		})
+		}
+		return nil
 	}
-}
+	validateContact := func(event *core.RecordRequestEvent) error {
+		if err := validateAddressBook(event.App, event.Record.GetString("address_book"), event.Auth.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		return nil
+	}
 
-func registerContactOwnershipHooks(pb *pocketbase.PocketBase) {
-	pb.OnRecordCreateRequest("contacts").BindFunc(func(e *core.RecordRequestEvent) error {
-		if e.HasSuperuserAuth() {
-			return e.Next()
-		}
-		if e.Auth == nil {
-			return e.UnauthorizedError("authentication required", nil)
-		}
-		e.Record.Set("owner", e.Auth.Id)
-		if err := validateAddressBook(e.App, e.Record.GetString("address_book"), e.Auth.Id); err != nil {
-			return e.BadRequestError(err.Error(), nil)
-		}
-		return e.Next()
-	})
-	pb.OnRecordUpdateRequest("contacts").BindFunc(func(e *core.RecordRequestEvent) error {
-		if e.HasSuperuserAuth() {
-			return e.Next()
-		}
-		if e.Auth == nil || e.Record.Original().GetString("owner") != e.Auth.Id {
-			return e.ForbiddenError("record is not owned by the current user", nil)
-		}
-		e.Record.Set("owner", e.Auth.Id)
-		if err := validateAddressBook(e.App, e.Record.GetString("address_book"), e.Auth.Id); err != nil {
-			return e.BadRequestError(err.Error(), nil)
-		}
-		return e.Next()
-	})
+	policies := []ownership.Policy{
+		{Collection: "todos", OwnerField: "owner", AllowSuperusers: true, ValidateCreate: validateEntry, ValidateUpdate: validateEntry},
+		{Collection: "events", OwnerField: "owner", AllowSuperusers: true, ValidateCreate: validateEntry, ValidateUpdate: validateEntry, ValidateDelete: validateEventDelete},
+		{Collection: "lists", OwnerField: "owner", AllowSuperusers: true, ValidateDelete: validateDeleteContainer},
+		{Collection: "calendars", OwnerField: "owner", AllowSuperusers: true, ValidateDelete: validateDeleteContainer},
+		{Collection: "contacts", OwnerField: "owner", AllowSuperusers: true, ValidateCreate: validateContact, ValidateUpdate: validateContact},
+	}
+	return ownership.RegisterRequestHooks(pb, policies...)
 }
 
 func validateAddressBook(app core.App, addressBookID, owner string) error {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -75,7 +76,7 @@ func RegisterTransactionAttachmentHooks(pb *pocketbase.PocketBase) {
 		if event.HasSuperuserAuth() {
 			return event.Next()
 		}
-		if event.Auth == nil || event.Record.Original().GetString("owner") != event.Auth.Id {
+		if event.Auth == nil || !ownership.IsOwner(event.Record.Original(), "owner", event.Auth.Id) {
 			return event.ForbiddenError("attachment is not owned by the current user", nil)
 		}
 		event.Record.Set("owner", event.Auth.Id)
@@ -85,7 +86,7 @@ func RegisterTransactionAttachmentHooks(pb *pocketbase.PocketBase) {
 
 func validateTransactionAttachmentOwner(event *core.RecordRequestEvent, transactionID, owner string) error {
 	transaction, err := event.App.FindRecordById("transactions", transactionID)
-	if err != nil || transaction.GetString("owner") != owner {
+	if err != nil || !ownership.IsOwner(transaction, "owner", owner) {
 		return event.BadRequestError("transaction is not owned by the current user", nil)
 	}
 	return event.Next()
@@ -163,6 +164,11 @@ func uploadTransactionAttachments(event *core.RequestEvent) error {
 		}
 		created = append(created, record)
 	}
+	for _, record := range created {
+		logDomainMutation(event, user.Id, "create", transactionAttachmentCollection, record.Id, map[string]any{
+			"transaction_id": transaction.Id,
+		})
+	}
 	response := make([]map[string]any, 0, len(created))
 	for _, record := range created {
 		response = append(response, transactionAttachmentResponse(record))
@@ -221,18 +227,21 @@ func deleteTransactionAttachment(event *core.RequestEvent) error {
 		return err
 	}
 	record, err := event.App.FindRecordById(transactionAttachmentCollection, event.Request.PathValue("id"))
-	if err != nil || record.GetString("owner") != user.Id || record.GetString("transaction") != transaction.Id {
+	if err != nil || !ownership.IsOwner(record, "owner", user.Id) || record.GetString("transaction") != transaction.Id {
 		return event.NotFoundError("transaction attachment not found", nil)
 	}
 	if err := event.App.Delete(record); err != nil {
 		return err
 	}
+	logDomainMutation(event, user.Id, "delete", transactionAttachmentCollection, record.Id, map[string]any{
+		"transaction_id": transaction.Id,
+	})
 	return event.NoContent(http.StatusNoContent)
 }
 
 func ownedTransaction(event *core.RequestEvent, owner string) (*core.Record, error) {
 	record, err := event.App.FindRecordById("transactions", event.Request.PathValue("transactionId"))
-	if err != nil || record.GetString("owner") != owner {
+	if err != nil || !ownership.IsOwner(record, "owner", owner) {
 		return nil, event.NotFoundError("transaction not found", nil)
 	}
 	return record, nil

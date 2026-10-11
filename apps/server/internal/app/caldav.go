@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andreasmolnardev/slopstack/go/ownership"
 	ical "github.com/emersion/go-ical"
 	calendarengine "github.com/piggybudget/piggybudget/apps/server/internal/calendar"
 	"github.com/pocketbase/dbx"
@@ -404,7 +405,7 @@ func calDAVPut(event *core.RequestEvent, user *core.Record) error {
 				return calDAVPutFailure{conflict: true, message: "component type does not match resource"}
 			}
 			existing, err = txApp.FindRecordById(collection, path.recordID)
-			if err != nil || existing.GetString("owner") != user.Id || resourceCalendarID(existing, collection) != path.calendarID {
+			if err != nil || !ownership.IsOwner(existing, "owner", user.Id) || resourceCalendarID(existing, collection) != path.calendarID {
 				return calDAVPutFailure{status: http.StatusNotFound, message: "calendar resource not found"}
 			}
 			if existing.GetString("uid") != uid {
@@ -743,7 +744,7 @@ func ownedCalendars(app core.App, userID string) ([]*core.Record, error) {
 
 func ownedCalendar(app core.App, userID, calendarID string) (*core.Record, error) {
 	calendar, err := app.FindRecordById("calendars", calendarID)
-	if err != nil || calendar.GetString("owner") != userID {
+	if err != nil || !ownership.IsOwner(calendar, "owner", userID) {
 		return nil, fmt.Errorf("calendar not found")
 	}
 	return calendar, nil
@@ -792,7 +793,7 @@ func findCalDAVResource(app core.App, userID string, path calDAVPath) (calDAVRes
 		return calDAVResource{}, fmt.Errorf("resource not found")
 	}
 	record, err := app.FindRecordById(path.itemKind, path.recordID)
-	if err != nil || record.GetString("owner") != userID || resourceCalendarID(record, path.itemKind) != path.calendarID {
+	if err != nil || !ownership.IsOwner(record, "owner", userID) || resourceCalendarID(record, path.itemKind) != path.calendarID {
 		return calDAVResource{}, fmt.Errorf("resource not found")
 	}
 	return makeCalDAVResource(record, path.itemKind, userID, path.calendarID)

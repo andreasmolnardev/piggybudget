@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/andreasmolnardev/slopstack/go/audit"
 	"github.com/andreasmolnardev/slopstack/go/backup"
 	"github.com/andreasmolnardev/slopstack/go/httpapi"
 	"github.com/danielgtaylor/huma/v2"
@@ -15,7 +16,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
+func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 	registerFinanceAPI(api)
 	pb.RootCmd.PersistentFlags().StringVar(&config.HTTPAddress, "http", config.HTTPAddress, "HTTP address")
 	pb.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
@@ -48,8 +49,18 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		return applyBackupConfig(e.App, config)
 	})
 	protectUserAdminFlag(pb, config)
-	registerOwnershipHooks(pb)
+	if err := registerOwnershipHooks(pb); err != nil {
+		return fmt.Errorf("register ownership request hooks: %w", err)
+	}
 	registerFinanceHooks(pb)
+	if err := audit.RegisterRequestHooks(pb, audit.PocketBaseRecorder{App: pb}, audit.RequestHookConfig{
+		Collections: []string{
+			"accounts", "transactions", "checkpoints", "budgets", "assets", "goals",
+			"asset_groups", "asset_positions", transactionAttachmentCollection,
+		},
+	}); err != nil {
+		return fmt.Errorf("register audit request hooks: %w", err)
+	}
 	RegisterAssetGroupHooks(pb)
 	RegisterTransactionAttachmentHooks(pb)
 	registerCalDAVChangeHooks(pb)
@@ -67,6 +78,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		registerRoutes(e, config, api)
 		return e.Next()
 	})
+	return nil
 }
 
 func applyBackupConfig(app core.App, config Config) error {
@@ -180,17 +192,7 @@ func protectUserAdminFlag(pb *pocketbase.PocketBase, config Config) {
 }
 
 func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
-	e.Router.GET("/openapi.json", func(event *core.RequestEvent) error { return event.JSON(http.StatusOK, api.OpenAPI()) })
-	e.Router.GET("/openapi.yaml", func(event *core.RequestEvent) error {
-		data, err := api.OpenAPI().YAML()
-		if err != nil {
-			return err
-		}
-		return event.Blob(http.StatusOK, "application/yaml", data)
-	})
-	e.Router.GET("/docs", func(event *core.RequestEvent) error {
-		return event.HTML(http.StatusOK, "<!doctype html><html><body><redoc spec-url=\"/openapi.json\"></redoc><script src=\"https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js\"></script></body></html>")
-	})
+	httpapi.RegisterOpenAPIDocs(e, api)
 	registerAuthRoutes(e, config)
 	registerAppPasswordRoutes(e)
 	registerCalendarIORoutes(e)

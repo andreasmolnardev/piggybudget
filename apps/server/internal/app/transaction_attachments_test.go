@@ -134,6 +134,8 @@ func TestTransactionAttachmentHTTPRoutesScopeUploadsToTransactionOwner(t *testin
 	if !strings.HasPrefix(storedFile, "receipt_") || !strings.HasSuffix(storedFile, ".png") {
 		t.Fatalf("uploaded attachments = %#v", attachments)
 	}
+	attachmentID := attachments[0]["id"].(string)
+	assertAuditEvent(t, pb, owner.Id, "create", transactionAttachmentCollection, attachmentID)
 
 	path := "/api/finance/transactions/" + transaction.Id + "/attachments"
 	status, _, listing := integrationRequest(t, integration, http.MethodGet, path, "", bearerHeaders(ownerToken))
@@ -144,8 +146,13 @@ func TestTransactionAttachmentHTTPRoutesScopeUploadsToTransactionOwner(t *testin
 	if status != http.StatusNotFound {
 		t.Fatalf("other user's transaction attachment list = %d, want 404", status)
 	}
-	status, _, _ = integrationRequest(t, integration, http.MethodDelete, path+"/"+attachments[0]["id"].(string), "", bearerHeaders(otherToken))
+	status, _, _ = integrationRequest(t, integration, http.MethodDelete, path+"/"+attachmentID, "", bearerHeaders(otherToken))
 	if status != http.StatusNotFound {
 		t.Fatalf("other user's attachment delete = %d, want 404", status)
 	}
+	status, _, _ = integrationRequest(t, integration, http.MethodDelete, path+"/"+attachmentID, "", bearerHeaders(ownerToken))
+	if status != http.StatusNoContent {
+		t.Fatalf("owner attachment delete = %d, want 204", status)
+	}
+	assertAuditEvent(t, pb, owner.Id, "delete", transactionAttachmentCollection, attachmentID)
 }

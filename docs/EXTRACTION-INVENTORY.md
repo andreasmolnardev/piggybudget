@@ -324,7 +324,7 @@ test does not make a module used.
 | `internal/calendar/recurrence.go` | 187 | no routes | imported by `caldav.go:20` and `occurrences.go:17` only | **Obsolete in Piggybudget**; generic code — extract from Taskboard if any app needs it |
 | `internal/app/schema.go` (12-collection table) | — | creates `todos`/`events`/`lists`/`calendars`/`address_books`/`contacts`/`audit_logs`/5 permission collections | none; `app.go:54-59` provisions rows for every new user | **Obsolete table**, generic engine is CORE (§1.5) |
 | `internal/app/ownership.go` (hooks) | — | binds `todos`/`events`/`lists`/`calendars`/`contacts` | none of those collections is written by the Piggybudget UI | **Obsolete hooks**, generic mechanism is CORE (§1.4) |
-| `internal/app/authorization.go` | 15 | no routes | no caller anywhere | **Obsolete stub** (§1.3) |
+| `internal/app/authorization.go` | 15 | no routes | no current product caller | **Retain shared wrapper** for future app-owned routes and permission support (§1.3) |
 
 `internal/reminders/` is **not** obsolete — the scheduler is bound at `app.go:51`
 and runs on every boot — but it has no Piggybudget web consumer either (§2.5).
@@ -336,6 +336,14 @@ and runs on every boot — but it has no Piggybudget web consumer either (§2.5)
 250-296 instead of extracting `vcard.go`.
 
 ### 4.2 Web files (unreachable from `main.tsx`)
+
+This list records the original audit inventory. Phase 5 cleanup on 2026-10-11
+rechecked the production import graph and removed the orphaned application
+modules and their tests, plus the unused generated API client output. The
+`hooks/use-mobile.ts` file remains because the retained vendored
+`components/ui/sidebar.tsx` imports it; it is a shadcn support hook, not an
+orphaned product module. The generated client can be recreated with
+`pnpm generate:client` and has no production imports.
 
 ```
 components/tabs/calendar-tab.tsx
@@ -374,9 +382,10 @@ data.test.ts
 theme.test.ts
 ```
 
-`components/ui/*` (56 shadcn primitives) is also unreachable except `tooltip`, but
-that is a vendored component library, **not** inherited Taskboard application code.
-Different remediation — keep, prune on size grounds, not obsolescence grounds.
+`components/ui/*` is a vendored shadcn component library, **not** inherited
+Taskboard application code. Keep the primitives available for local product
+customization. `hooks/use-mobile.ts` is retained as a dependency of its sidebar
+primitive.
 
 ### 4.3 How to re-verify
 
@@ -396,12 +405,29 @@ diff -u ../taskboard/apps/server/internal/app/<file>.go \
 
 ### 4.4 Deletion cost
 
-Removing the OBSOLETE set also removes: `caldav_test.go` (248 LOC),
-`carddav_test.go`, `calendar_io_test.go` (391 LOC), `occurrences_test.go` (245 LOC),
-`internal/calendar/recurrence_test.go`, and 9 of the 11 vitest files. The Go
-`internal/app` suite and the web test count will drop sharply. That is expected and
-must be reflected in the `docs/baseline.json` CI diff, or CI will read it as a
-regression.
+The verified Phase 5 web cleanup removes the unreachable UI and these tests:
+`lists-tab.test.tsx`, the time-grid tests, `container-manager.test.tsx`,
+`calendar-month.test.tsx`, `full-month-calendar.test.tsx`,
+`create-composer.helpers.test.ts`, `data.test.ts`, and `theme.test.ts`.
+The generated OpenAPI client files were also removed because the production app
+does not import them; code generation recreates them. No finance dashboard,
+finance search, local finance notifications, auth, sidebar, or shadcn primitive
+was removed.
+
+The old proposed server deletion set included registered production endpoints.
+The live route audit on 2026-10-11 confirmed that CalDAV/CardDAV, app-password,
+calendar import/export, occurrences, notifications/reminders, and search routes
+are wired into `registerRoutes`. Their absence from the current web UI does not
+make those HTTP surfaces unreachable to external clients, so they remain intact
+pending an explicit product/API retirement decision. No live backend route or
+shared server capability was removed. `authorization.go` remains available for
+app-owned routes and Phase 3 permission support. Historical PocketBase migrations
+and user data were left intact.
+
+The server tests listed in the historical inventory remain because their live
+HTTP features remain supported. The web test suite now consists of the two
+finance-facing API and budget-query test files; `docs/baseline.json` records this
+intentional reduction.
 
 ## 5. Extraction order recommendation
 

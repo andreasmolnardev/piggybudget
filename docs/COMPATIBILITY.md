@@ -48,20 +48,19 @@ current and legacy restore-restart guards through shared command options.
 Project identity, config prefix, data path, and existing Compose volume are
 documented in `IDENTITY-MIGRATION.md`.
 
-The checked-in `replace` temporarily points at the sibling Slopstack checkout
-because these command options are part of the pending v0.2.0 runtime release.
-After v0.2.0 is published, remove the `replace`, update the module requirement
-to v0.2.0, and run `go mod tidy` before hosted CI.
+Piggybudget pins the published Slopstack v0.3.0 runtime without a sibling-path
+`replace`. This version includes the backup compatibility options, audit and
+ownership helpers, and shared Huma/OpenAPI routing. The app keeps its own schema,
+finance behavior, and routes.
 
 ## Deployment and release status
 
-The local `pnpm deploy --dry-run` workflow builds for configured platforms and
-`pnpm deploy --push` publishes to the configured registry. The current
-`slopstack.yaml` image repository is still the placeholder
-`ghcr.io/your-org/piggybudget`, so publication is not ready. The tag-triggered
-GitHub Actions release workflow currently builds with `push: false`; it does
-not publish an image. `pnpm release --apply` prepares version/tag config only
-and does not create a Git tag or hosted release.
+The `slopstack.yaml` image repository is `ghcr.io/piggybudget/piggybudget`.
+`pnpm deploy --dry-run` prints the configured multi-platform build, while
+`pnpm deploy --push` publishes after explicit opt-in. The tag-triggered GitHub
+Actions release workflow validates the configured version and publishes the
+multi-platform image for a matching `v*` tag. `pnpm release --apply` updates
+version and image-tag metadata only; it does not create a tag or hosted release.
 
 ## 2. Baseline command results
 

@@ -128,3 +128,18 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           outputs: type=oci,dest=/tmp/piggybudget-image.tar
+      - name: Build runnable image
+        run: docker buildx build --platform linux/amd64 --load -t piggybudget:ci .
+      - name: Run image and check health
+        run: |
+          set -euo pipefail
+          container="$(docker run -d -p 127.0.0.1:18090:8090 piggybudget:ci)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18090/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$container"
+          exit 1
