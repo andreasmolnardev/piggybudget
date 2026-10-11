@@ -889,6 +889,7 @@ function TransactionsView({
   onEditTransaction,
   onDeleteTransaction,
   onOpenTransaction,
+  onRenameReceivable,
 }: {
   data: BudgetData;
   userId: string;
@@ -898,6 +899,7 @@ function TransactionsView({
   onEditTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
+  onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(emptyTransactionFilters);
   const [sort, setSort] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>('date-desc');
@@ -1004,7 +1006,11 @@ function TransactionsView({
   return (
     <>
       <PageHeader title="Transactions" />
-      <MoneyLentPanel transactions={data.transactions} />
+      <MoneyLentPanel
+        transactions={data.transactions}
+        onOpenTransaction={onOpenTransaction}
+        onRenamePerson={onRenameReceivable}
+      />
       <section className="transactions-section">
         <div className="transaction-toolbar">
           <div className="transaction-toolbar-actions">
@@ -1341,7 +1347,15 @@ function TransactionsView({
   );
 }
 
-function MoneyLentPanel({ transactions }: { transactions: Transaction[] }) {
+function MoneyLentPanel({
+  transactions,
+  onOpenTransaction,
+  onRenamePerson,
+}: {
+  transactions: Transaction[];
+  onOpenTransaction: (transaction: Transaction) => void;
+  onRenamePerson: (person: string, nextName: string) => Promise<boolean>;
+}) {
   const people = useMemo(() => {
     const balances = new Map<string, number>();
     for (const transaction of transactions) {
@@ -1352,8 +1366,18 @@ function MoneyLentPanel({ transactions }: { transactions: Transaction[] }) {
     }
     return [...balances.entries()]
       .filter(([, balance]) => balance > 0.005)
-      .map(([person, balance]) => ({ person, balance }));
+      .map(([person, balance]) => ({
+        person,
+        balance,
+        transactions: transactions.filter((transaction) => transaction.receivable?.trim() === person),
+      }));
   }, [transactions]);
+  const [editingPerson, setEditingPerson] = useState<string | null>(null);
+  const [personName, setPersonName] = useState('');
+  const [historyPerson, setHistoryPerson] = useState<string | null>(null);
+  const [repaymentPerson, setRepaymentPerson] = useState<string | null>(null);
+  const [repaymentAmount, setRepaymentAmount] = useState('');
+  const [busy, setBusy] = useState(false);
   const reminderStorageKey = `piggybudget-receivable-reminders:${pb.authStore.record?.id ?? 'guest'}`;
   const [reminders, setReminders] = useState<Record<string, string>>(() => {
     try {
@@ -1367,6 +1391,49 @@ function MoneyLentPanel({ transactions }: { transactions: Transaction[] }) {
     setReminders(next);
     localStorage.setItem(reminderStorageKey, JSON.stringify(next));
   };
+  const recordRepayment = async (person: string, balance: number, related: Transaction[]) => {
+    const account = related.find((transaction) => transaction.accountId)?.accountId;
+    const amount = Number(repaymentAmount);
+    if (!account || !Number.isFinite(amount) || amount <= 0 || amount > balance + 0.005) {
+      window.alert(
+        !account
+          ? 'This person needs a linked account before recording a repayment.'
+          : 'Repayment must be greater than zero and no more than the amount still owed.',
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await apiFetch('/api/finance/transactions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${pb.authStore.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          account,
+          date: dateKey(new Date()),
+          amount,
+          type: 'income',
+          payee: `Repayment from ${person}`,
+          description: `Repayment from ${person}`,
+          category: 'Income',
+          receivable: person,
+        }),
+      });
+      if (!response.ok) {
+        window.alert((await response.text()) || 'Could not record the repayment.');
+        return;
+      }
+      setRepaymentPerson(null);
+      setRepaymentAmount('');
+      window.dispatchEvent(new Event('piggybudget:refresh'));
+    } catch {
+      window.alert('Could not record the repayment. Check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
   if (!people.length) return null;
   return (
     <section className="panel" aria-label="Money lent">
@@ -1375,7 +1442,7 @@ function MoneyLentPanel({ transactions }: { transactions: Transaction[] }) {
         Add a person to a transaction to track money lent. Repayments should use the same name.
       </p>
       <div className="asset-list">
-        {people.map(({ person, balance }) => (
+        {people.map(({ person, balance, transactions: related }) => (
           <div className="asset-row" key={person}>
             <span className="asset-mark">
               <HandCoins size={16} />
@@ -1385,6 +1452,102 @@ function MoneyLentPanel({ transactions }: { transactions: Transaction[] }) {
               <span>Still owed</span>
             </div>
             <strong>{formatMoney(balance)}</strong>
+            <div className="money-lent-actions">
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setHistoryPerson(historyPerson === person ? null : person)}
+              >
+                {historyPerson === person ? 'Hide transactions' : `${related.length} transactions`}
+              </button>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => {
+                  setEditingPerson(person);
+                  setPersonName(person);
+                }}
+              >
+                Rename
+              </button>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => {
+                  setRepaymentPerson(repaymentPerson === person ? null : person);
+                  setRepaymentAmount('');
+                }}
+              >
+                Record repayment
+              </button>
+            </div>
+            {editingPerson === person && (
+              <form
+                className="money-lent-inline-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void onRenamePerson(person, personName.trim()).then((saved) => {
+                    if (saved) setEditingPerson(null);
+                  });
+                }}
+              >
+                <input
+                  required
+                  aria-label={`New name for ${person}`}
+                  value={personName}
+                  onChange={(event) => setPersonName(event.target.value)}
+                />
+                <button className="text-button" type="submit">Save name</button>
+                <button className="text-button" type="button" onClick={() => setEditingPerson(null)}>
+                  Cancel
+                </button>
+              </form>
+            )}
+            {repaymentPerson === person && (
+              <form
+                className="money-lent-inline-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void recordRepayment(person, balance, related);
+                }}
+              >
+                <label>
+                  Amount received
+                  <input
+                    required
+                    type="number"
+                    min="0.01"
+                    max={balance}
+                    step="0.01"
+                    value={repaymentAmount}
+                    onChange={(event) => setRepaymentAmount(event.target.value)}
+                  />
+                </label>
+                <button className="text-button" type="submit" disabled={busy}>
+                  {busy ? 'Saving…' : 'Save repayment'}
+                </button>
+                <button className="text-button" type="button" onClick={() => setRepaymentPerson(null)}>
+                  Cancel
+                </button>
+              </form>
+            )}
+            {historyPerson === person && (
+              <div className="money-lent-history">
+                {related.map((transaction) => (
+                  <button
+                    className="chart-transaction-link"
+                    type="button"
+                    key={transaction.id}
+                    onClick={() => onOpenTransaction(transaction)}
+                  >
+                    <span>{transaction.merchant} · {formatDate(transaction.date)}</span>
+                    <strong>
+                      {transaction.kind === 'income' ? '−' : '+'}{formatMoney(transaction.amount)}
+                    </strong>
+                  </button>
+                ))}
+              </div>
+            )}
             <label>
               Remind me
               <input
@@ -2929,6 +3092,36 @@ export function BudgetingDashboard({
     }
     onRefresh();
   };
+  const renameReceivable = async (person: string, nextName: string) => {
+    if (!nextName.trim() || nextName.trim() === person) return false;
+    const related = data.transactions.filter((transaction) => transaction.receivable?.trim() === person);
+    try {
+      const results = await Promise.all(
+        related.map((transaction) =>
+          apiFetch(`/api/finance/transactions/${transaction.id}`, {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ receivable: nextName.trim() }),
+          }),
+        ),
+      );
+      const failed = results.find((response) => !response.ok);
+      if (failed) {
+        window.alert((await failed.text()) || 'Could not update every linked transaction.');
+        onRefresh();
+        return false;
+      }
+      onRefresh();
+      return true;
+    } catch {
+      window.alert('Could not update every linked transaction. Refresh to check the current names.');
+      onRefresh();
+      return false;
+    }
+  };
   const content =
     view === 'dashboard' ? (
       <DashboardView
@@ -2962,6 +3155,7 @@ export function BudgetingDashboard({
           void deleteRecord('transactions', transaction.id, transaction.merchant)
         }
         onOpenTransaction={setViewingTransaction}
+        onRenameReceivable={renameReceivable}
       />
     ) : view === 'budgets' ? (
       <BudgetsView

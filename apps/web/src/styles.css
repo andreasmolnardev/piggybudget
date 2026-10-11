@@ -1702,6 +1702,14 @@ kbd {
   padding: 14px 0;
   border-top: 1px solid var(--border);
 }
+.money-lent-actions,
+.money-lent-inline-form,
+.money-lent-history { grid-column: 1 / -1; }
+.money-lent-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.money-lent-inline-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.money-lent-inline-form label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.money-lent-inline-form input { width: 150px; padding: 7px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--background); }
+.money-lent-history { display: grid; gap: 3px; }
 .asset-mark,
 .goal-mark {
   display: grid;
