@@ -4305,6 +4305,27 @@ export function BudgetingDashboard({
     }
     onRefresh();
   };
+  const deleteTransaction = async (transaction: Transaction) => {
+    if (!transaction.splitGroup) {
+      await deleteRecord('transactions', transaction.id, transaction.merchant);
+      return;
+    }
+    if (!window.confirm(`Delete all parts of ${transaction.merchant}? This cannot be undone.`)) {
+      return;
+    }
+    const response = await apiFetch(
+      `/api/finance/transactions/splits/${encodeURIComponent(transaction.splitGroup)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+      },
+    );
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not delete the split transaction.');
+      return;
+    }
+    onRefresh();
+  };
   const archiveBudget = async (budget: Budget) => {
     const archived = !budget.archived;
     const response = await apiFetch(`/api/finance/budgets/${budget.id}`, {
@@ -4420,9 +4441,7 @@ export function BudgetingDashboard({
           setEditingTransaction(transaction);
           setComposer('transaction');
         }}
-        onDeleteTransaction={(transaction) =>
-          void deleteRecord('transactions', transaction.id, transaction.merchant)
-        }
+        onDeleteTransaction={(transaction) => void deleteTransaction(transaction)}
         onDuplicateTransaction={(transaction) => void duplicateTransaction(transaction)}
         onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
@@ -4439,9 +4458,7 @@ export function BudgetingDashboard({
           setEditingTransaction(transaction);
           setComposer('transaction');
         }}
-        onDeleteTransaction={(transaction) =>
-          void deleteRecord('transactions', transaction.id, transaction.merchant)
-        }
+        onDeleteTransaction={(transaction) => void deleteTransaction(transaction)}
         onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenTransaction={setViewingTransaction}
         onRenameReceivable={renameReceivable}
@@ -6029,6 +6046,11 @@ function FinanceComposer({
     (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
   const [repeat, setRepeat] = useState(false);
+  const [splitting, setSplitting] = useState(false);
+  const [splitLines, setSplitLines] = useState([
+    { amount: '', category: '', budget: '' },
+    { amount: '', category: '', budget: '' },
+  ]);
   const [repeatFrequency, setRepeatFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>(
     'monthly',
   );
@@ -6070,6 +6092,7 @@ function FinanceComposer({
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const numericAmount = Number(amount);
     if (
       kind === 'budget' &&
       data.budgets.some(
@@ -6101,13 +6124,43 @@ function FinanceComposer({
       setError('Choose a repeat interval from 1 to 365.');
       return;
     }
+    if (splitting) {
+      const splitTotal = splitLines.reduce((sum, split) => sum + Number(split.amount), 0);
+      if (
+        splitLines.length < 2 ||
+        splitLines.some(
+          (split) =>
+            !split.category.trim() ||
+            !Number.isFinite(Number(split.amount)) ||
+            Number(split.amount) <= 0,
+        )
+      ) {
+        setError('Add at least two split entries with an amount and category.');
+        return;
+      }
+      if (
+        !Number.isFinite(numericAmount) ||
+        numericAmount <= 0 ||
+        !['expense', 'income'].includes(type)
+      ) {
+        setError('Split an expense or income with a valid total amount.');
+        return;
+      }
+      if (Math.round(splitTotal * 100) !== Math.round(numericAmount * 100)) {
+        setError('Split amounts must add up to the transaction total.');
+        return;
+      }
+      if (repeat || pictureFiles.length) {
+        setError('Split transactions cannot repeat or include uploaded pictures.');
+        return;
+      }
+    }
     if (repeat && pictureFiles.length) {
       setError('Remove transaction pictures before saving a recurring rule.');
       return;
     }
     setBusy(true);
     setError('');
-    const numericAmount = Number(amount);
     const body =
       kind === 'account'
         ? { name: accountName, type: accountType, currency, opening_balance: numericAmount }
@@ -6178,8 +6231,10 @@ function FinanceComposer({
         : body;
     let transactionSaved = false;
     try {
-      const resource =
-        kind === 'account'
+      const isSplit = kind === 'transaction' && splitting && !transaction;
+      const resource = isSplit
+        ? 'transactions/split'
+        : kind === 'account'
           ? 'accounts'
           : kind === 'budget'
             ? 'budgets'
@@ -6194,7 +6249,7 @@ function FinanceComposer({
                     : 'transactions';
       const isTransfer = kind === 'transaction' && type === 'transfer';
       const editedId =
-        repeat && kind === 'transaction'
+        isSplit || (repeat && kind === 'transaction')
           ? undefined
           : isTransfer
             ? transaction?.transferId
@@ -6206,13 +6261,35 @@ function FinanceComposer({
                   ? budgetRecord?.id
                   : undefined;
       if (kind === 'transaction' && pictureFiles.length) validateTransactionFiles(pictureFiles);
+      const requestBody = isSplit
+        ? {
+            account,
+            date,
+            amount: numericAmount,
+            type,
+            payee,
+            description,
+            receivable,
+            tags: tags
+              .split(',')
+              .map((tag) => tag.trim())
+              .filter(Boolean),
+            receipt,
+            notes: note,
+            splits: splitLines.map((split) => ({
+              amount: Number(split.amount),
+              category: split.category.trim(),
+              budget: split.budget,
+            })),
+          }
+        : recurringBody;
       const response = await apiFetch(`/api/finance/${resource}${editedId ? `/${editedId}` : ''}`, {
         method: editedId ? 'PUT' : 'POST',
         headers: {
           Authorization: `Bearer ${pb.authStore.token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(recurringBody),
+        body: JSON.stringify(requestBody),
       });
       if (!response.ok) throw new Error((await response.text()) || 'Could not save this record.');
       transactionSaved = kind === 'transaction';
@@ -6503,6 +6580,119 @@ function FinanceComposer({
                 Repeat this transaction
               </label>
             )}
+            {!transaction && (type === 'expense' || type === 'income') && (
+              <label className="transaction-repeat-toggle">
+                <input
+                  type="checkbox"
+                  checked={splitting}
+                  onChange={(event) => setSplitting(event.target.checked)}
+                />
+                Split into categories
+              </label>
+            )}
+            {splitting && (
+              <section className="transaction-split-editor" aria-label="Transaction split entries">
+                <div>
+                  <strong>Split the total by category</strong>
+                  <small>
+                    Assigned{' '}
+                    {formatMoney(
+                      splitLines.reduce((sum, split) => sum + (Number(split.amount) || 0), 0),
+                    )}
+                    {' of '}
+                    {formatMoney(Number(amount) || 0)}
+                  </small>
+                </div>
+                {splitLines.map((split, index) => (
+                  <div className="transaction-split-row" key={index}>
+                    <label>
+                      Part {index + 1}
+                      <input
+                        required
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={split.amount}
+                        onChange={(event) =>
+                          setSplitLines((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, amount: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      Category
+                      <input
+                        required
+                        value={split.category}
+                        onChange={(event) =>
+                          setSplitLines((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, category: event.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                        placeholder="e.g. Groceries"
+                      />
+                    </label>
+                    <label>
+                      Budget
+                      <select
+                        value={split.budget}
+                        onChange={(event) =>
+                          setSplitLines((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, budget: event.target.value } : item,
+                            ),
+                          )
+                        }
+                      >
+                        <option value="">No budget</option>
+                        {data.budgets
+                          .filter((item) => !item.archived)
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.category}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    {splitLines.length > 2 && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label={`Remove split part ${index + 1}`}
+                        onClick={() =>
+                          setSplitLines((current) =>
+                            current.filter((_, itemIndex) => itemIndex !== index),
+                          )
+                        }
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {splitLines.length < 20 && (
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() =>
+                      setSplitLines((current) => [
+                        ...current,
+                        { amount: '', category: '', budget: '' },
+                      ])
+                    }
+                  >
+                    <Plus size={14} /> Add split part
+                  </button>
+                )}
+              </section>
+            )}
             {repeat && (
               <>
                 <label>
@@ -6597,25 +6787,29 @@ function FinanceComposer({
                     placeholder="Details for receipt matching or later review"
                   />
                 </label>
-                <label>
-                  Category
-                  <input
-                    value={category}
-                    onChange={(event) => setCategory(event.target.value)}
-                    placeholder="e.g. Groceries"
-                  />
-                </label>
-                <label>
-                  Budget bucket
-                  <select value={budget} onChange={(event) => setBudget(event.target.value)}>
-                    <option value="">No budget</option>
-                    {data.budgets.map((item) => (
-                      <option value={item.id} key={item.id}>
-                        {item.category}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {!splitting && (
+                  <>
+                    <label>
+                      Category
+                      <input
+                        value={category}
+                        onChange={(event) => setCategory(event.target.value)}
+                        placeholder="e.g. Groceries"
+                      />
+                    </label>
+                    <label>
+                      Budget bucket
+                      <select value={budget} onChange={(event) => setBudget(event.target.value)}>
+                        <option value="">No budget</option>
+                        {data.budgets.map((item) => (
+                          <option value={item.id} key={item.id}>
+                            {item.category}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
                 <label>
                   Receivable / person
                   <input

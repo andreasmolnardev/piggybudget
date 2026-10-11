@@ -60,6 +60,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.TextField{Name: "receivable"},
 				&core.TextField{Name: "notes"},
 				&core.TextField{Name: "transfer_id"},
+				&core.TextField{Name: "split_group"},
 				&core.TextField{Name: "recurring_rule"},
 				&core.DateField{Name: "recurring_date"},
 				&core.BoolField{Name: "cleared"},
@@ -68,6 +69,7 @@ func EnsureFinanceCollections(app core.App) error {
 			indexes: []financeIndex{
 				{"idx_transactions_owner_account_date", "owner, account, date", false},
 				{"idx_transactions_owner_transfer", "owner, transfer_id", false},
+				{"idx_transactions_owner_split_group", "owner, split_group", false},
 			},
 		},
 		{

@@ -15,6 +15,7 @@ export type Transaction = {
   signedAmount?: number;
   kind: TransactionKind;
   transferId?: string;
+  splitGroup?: string;
   date: string;
   budgetId?: string;
   note?: string;
@@ -420,6 +421,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       signedAmount: numberValue(record, 'amount', 'value'),
       kind: transactionKind(record),
       transferId: textValue(record, 'transfer_id') || undefined,
+      splitGroup: textValue(record, 'split_group') || undefined,
       date: dateValue(record),
       budgetId: textValue(record, 'budget'),
       note: textValue(record, 'notes', 'note', 'memo'),

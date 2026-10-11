@@ -133,6 +133,7 @@ func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 	// use for clients that already use /api/{resource} custom endpoints.
 	for _, prefix := range []string{"/api/finance", "/api"} {
 		registerFinanceResourceRoutes(e, prefix, config)
+		registerTransactionSplitRoutes(e, prefix)
 		registerGoalContributionRoutes(e, prefix)
 		registerRecurringGoalContributionRoutes(e, prefix)
 		registerTransferRoutes(e, prefix)

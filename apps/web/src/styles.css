@@ -2936,6 +2936,12 @@ h1 {
 .transaction-attachment-grid img { width: 100%; height: 110px; display: block; object-fit: cover; }
 .transaction-upload-retry { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
 .transaction-repeat-toggle { display: flex; align-items: center; gap: 8px; }
+.transaction-split-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--soft); }
+.transaction-split-editor > div:first-child { display: flex; justify-content: space-between; gap: 10px; color: var(--foreground); font-size: 12px; }
+.transaction-split-editor > div:first-child small { color: var(--muted); font-size: 10px; }
+.transaction-split-row { display: grid; grid-template-columns: 0.8fr 1fr 1fr auto; align-items: end; gap: 8px; }
+.transaction-split-row label { display: grid; gap: 5px; font-size: 11px; }
+.transaction-split-row .icon-button { width: 32px; height: 36px; }
 .composer-overlay { animation: overlay-in 0.18s ease-out both; }
 .composer-backdrop { animation: backdrop-in 0.18s ease-out both; }
 .composer-card { animation: modal-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -2991,4 +2997,16 @@ h1 {
 @media (prefers-reduced-motion: reduce) {
   .composer-overlay, .composer-backdrop, .composer-card,
   .topbar-popover, .popover-content { animation-duration: 0.01ms; }
+}
+
+@media (max-width: 700px) {
+  .transaction-split-editor > div:first-child {
+    flex-direction: column;
+  }
+  .transaction-split-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .transaction-split-row .icon-button {
+    justify-self: end;
+  }
 }
