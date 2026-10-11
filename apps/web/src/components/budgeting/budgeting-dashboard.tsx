@@ -2188,19 +2188,116 @@ function AssetsView({
   onDeleteAsset: (asset: Asset) => void;
 }) {
   const [historyAsset, setHistoryAsset] = useState<Asset | null>(null);
+  const [historyRange, setHistoryRange] = useState<'3m' | '1y' | 'all'>('1y');
+  const [portfolioSnapshots, setPortfolioSnapshots] = useState<
+    Array<{ asset: string; position: string; source: string; value: number; as_of: string }>
+  >([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!remote) return;
+    void apiFetch('/api/finance/asset-valuations')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not load portfolio history.');
+        const records = (await response.json()) as Array<{
+          asset: string;
+          position: string;
+          source: string;
+          value: number;
+          as_of: string;
+        }>;
+        if (!cancelled) setPortfolioSnapshots(records);
+      })
+      .catch(() => {
+        if (!cancelled) setPortfolioSnapshots([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.assets, data.assetPositions, remote]);
   const activeGroupIds = new Set(
     data.assetGroups.filter((group) => !group.archived).map((group) => group.id),
   );
   const activePositions = data.assetPositions.filter(
     (position) => !position.archived && activeGroupIds.has(position.group),
   );
+  const groupsWithPositions = new Set(activePositions.map((position) => position.group));
+  const standaloneAssets = data.assets.filter(
+    (asset) => !asset.assetGroup || !groupsWithPositions.has(asset.assetGroup),
+  );
   const totalValue =
-    data.assets.reduce((sum, asset) => sum + asset.value, 0) +
+    standaloneAssets.reduce((sum, asset) => sum + asset.value, 0) +
     activePositions.reduce((sum, position) => sum + position.value, 0);
   const totalCost =
-    data.assets.reduce((sum, asset) => sum + asset.cost, 0) +
+    standaloneAssets.reduce((sum, asset) => sum + asset.cost, 0) +
     activePositions.reduce((sum, position) => sum + position.purchasePrice, 0);
   const roi = totalCost ? ((totalValue - totalCost) / totalCost) * 100 : 0;
+  const compositionTotals = new Map<string, number>();
+  for (const item of [
+    ...standaloneAssets.map((asset) => ({ type: asset.type || 'Other', value: asset.value })),
+    ...activePositions.map((position) => ({
+      type: position.type || 'Other',
+      value: position.value,
+    })),
+  ]) {
+    compositionTotals.set(item.type, (compositionTotals.get(item.type) ?? 0) + item.value);
+  }
+  const composition = [...compositionTotals.entries()]
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const compositionColors = ['#5f8d7e', '#be8a54', '#8e82b9', '#6b9ab8', '#d68b5e', '#789c63'];
+  let compositionOffset = 0;
+  const compositionStops = composition.map(([type, value], index) => {
+    const start = compositionOffset;
+    compositionOffset += totalValue ? (value / totalValue) * 100 : 0;
+    return `${compositionColors[index % compositionColors.length]} ${start}% ${compositionOffset}%`;
+  });
+  const compositionShare =
+    totalValue && composition.length ? (composition[0][1] / totalValue) * 100 : 0;
+  const activeSourceKeys = new Set([
+    ...standaloneAssets.map((asset) => `asset:${asset.id}`),
+    ...activePositions.map((position) => `position:${position.id}`),
+  ]);
+  const snapshotsBySource = new Map<string, Array<{ date: string; value: number }>>();
+  for (const snapshot of portfolioSnapshots) {
+    const sourceId = snapshot.source === 'position' ? snapshot.position : snapshot.asset;
+    const key = `${snapshot.source}:${sourceId}`;
+    if (!activeSourceKeys.has(key)) continue;
+    const values = snapshotsBySource.get(key) ?? [];
+    values.push({ date: snapshot.as_of.slice(0, 10), value: snapshot.value });
+    snapshotsBySource.set(key, values);
+  }
+  for (const values of snapshotsBySource.values())
+    values.sort((a, b) => a.date.localeCompare(b.date));
+  const snapshotDates = [
+    ...new Set(
+      portfolioSnapshots
+        .filter((snapshot) =>
+          activeSourceKeys.has(
+            `${snapshot.source}:${snapshot.source === 'position' ? snapshot.position : snapshot.asset}`,
+          ),
+        )
+        .map((snapshot) => snapshot.as_of.slice(0, 10)),
+    ),
+  ].sort();
+  const portfolioHistory = snapshotDates.map((date) => {
+    let value = 0;
+    for (const snapshots of snapshotsBySource.values()) {
+      const previous = snapshots.filter((snapshot) => snapshot.date <= date);
+      const latest = previous[previous.length - 1];
+      if (latest) value += latest.value;
+    }
+    return { date, value };
+  });
+  const historyCutoff = new Date();
+  if (historyRange === '3m') historyCutoff.setMonth(historyCutoff.getMonth() - 3);
+  if (historyRange === '1y') historyCutoff.setFullYear(historyCutoff.getFullYear() - 1);
+  const visibleHistory =
+    historyRange === 'all'
+      ? portfolioHistory
+      : portfolioHistory.filter((point) => point.date >= dateKey(historyCutoff));
+  const sparklineValues = visibleHistory.slice(-14).map((point) => point.value);
+  const sparklineMin = Math.min(...sparklineValues);
+  const sparklineMax = Math.max(...sparklineValues);
   return (
     <>
       <PageHeader
@@ -2224,12 +2321,14 @@ function AssetsView({
           <div
             className="asset-donut"
             style={{
-              background: `conic-gradient(#5f8d7e 0 42%, #be8a54 42% 76%, #8e82b9 76% 100%)`,
+              background: compositionStops.length
+                ? `conic-gradient(${compositionStops.join(', ')})`
+                : 'var(--border)',
             }}
           >
             <div>
-              <strong>100%</strong>
-              <small>assets</small>
+              <strong>{compositionShare.toFixed(0)}%</strong>
+              <small>{composition[0]?.[0] ?? 'No values'}</small>
             </div>
           </div>
         </section>
@@ -2240,15 +2339,37 @@ function AssetsView({
           <span>Portfolio ROI</span>
           <strong>+{formatMoney(totalValue - totalCost)}</strong>
           <small>Since you started tracking</small>
-          <div className="mini-sparkline">
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-            <i />
-          </div>
+          <label className="asset-history-range">
+            <span className="sr-only">Valuation history range</span>
+            <select
+              value={historyRange}
+              onChange={(event) => setHistoryRange(event.target.value as typeof historyRange)}
+            >
+              <option value="3m">3 months</option>
+              <option value="1y">1 year</option>
+              <option value="all">All history</option>
+            </select>
+          </label>
+          {sparklineValues.length ? (
+            <div className="mini-sparkline" aria-label="Portfolio value history">
+              {sparklineValues.map((value, index) => {
+                const height =
+                  sparklineMax === sparklineMin
+                    ? 50
+                    : 20 + ((value - sparklineMin) / (sparklineMax - sparklineMin)) * 80;
+                return (
+                  <i
+                    key={`${visibleHistory.slice(-14)[index]?.date}-${index}`}
+                    style={{ height: `${height}%` }}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <small className="asset-history-empty">
+              Value history will appear as assets change.
+            </small>
+          )}
         </section>
       </div>
       <section className="asset-list-panel">

@@ -78,6 +78,7 @@ export type Asset = {
   targetSalePrice?: number;
   purchasePrice?: number;
   purchaseTransaction?: string;
+  assetGroup?: string;
   notes?: string;
 };
 
@@ -440,6 +441,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       purchasePrice: numberValue(record, 'purchase_price'),
       purchaseTransaction: textValue(record, 'purchase_transaction'),
       targetSalePrice: numberValue(record, 'target_sale_price'),
+      assetGroup: textValue(record, 'asset_group') || undefined,
       notes: textValue(record, 'notes'),
     })),
     assetGroups: assetGroups.map((record) => ({

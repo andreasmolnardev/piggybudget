@@ -202,6 +202,11 @@ func registerAssetGroupResourceRoutes(event *core.ServeEvent, prefix, path, coll
 		if err := request.App.Save(record); err != nil {
 			return err
 		}
+		if collection == "asset_positions" {
+			if err := saveAssetPositionValuation(request.App, user.Id, record); err != nil {
+				request.App.Logger().Error("save initial asset position valuation", "position_id", record.Id, "error", err)
+			}
+		}
 		logDomainMutation(request, user.Id, "create", collection, record.Id, nil)
 		return request.JSON(http.StatusCreated, record.PublicExport())
 	})
@@ -236,6 +241,11 @@ func registerAssetGroupResourceRoutes(event *core.ServeEvent, prefix, path, coll
 		record.Set("owner", user.Id)
 		if err := request.App.Save(record); err != nil {
 			return err
+		}
+		if collection == "asset_positions" {
+			if err := saveAssetPositionValuation(request.App, user.Id, record); err != nil {
+				request.App.Logger().Error("save asset position valuation", "position_id", record.Id, "error", err)
+			}
 		}
 		logDomainMutation(request, user.Id, "update", collection, record.Id, nil)
 		return request.JSON(http.StatusOK, record.PublicExport())

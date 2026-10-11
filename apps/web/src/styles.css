@@ -1645,6 +1645,26 @@ kbd {
 .roi-panel .small-panel-icon {
   margin-bottom: 19px;
 }
+.asset-history-range {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+}
+.asset-history-range select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--card);
+  font: inherit;
+  font-size: 10px;
+}
+.asset-history-empty {
+  position: absolute;
+  right: 25px;
+  bottom: 28px;
+  max-width: 150px;
+}
 .small-panel-icon.is-green {
   color: var(--primary);
   background: var(--accent);
@@ -1670,26 +1690,7 @@ kbd {
   border-radius: 4px 4px 0 0;
   background: #a9cfb8;
 }
-.mini-sparkline i:nth-child(1) {
-  height: 35%;
-}
-.mini-sparkline i:nth-child(2) {
-  height: 50%;
-}
-.mini-sparkline i:nth-child(3) {
-  height: 43%;
-}
-.mini-sparkline i:nth-child(4) {
-  height: 67%;
-}
-.mini-sparkline i:nth-child(5) {
-  height: 58%;
-}
-.mini-sparkline i:nth-child(6) {
-  height: 80%;
-}
-.mini-sparkline i:nth-child(7) {
-  height: 100%;
+.mini-sparkline i:last-child {
   background: var(--primary);
 }
 .asset-list-panel {
