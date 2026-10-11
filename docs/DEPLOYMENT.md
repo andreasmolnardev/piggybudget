@@ -11,6 +11,11 @@ The image and service are named `piggybudget`. Project identity and build defaul
 The server build resolves the pinned Slopstack Go module v0.3.0 from `go.mod`,
 so the image builds from this repository alone.
 
+Pushes to `main` run the GitHub Actions image pipeline, which builds and pushes
+`linux/amd64` and `linux/arm64` images to GHCR as `main` and `sha-<commit>`.
+Version tags are published by the release workflow as the matching version and
+`latest` tags. The image repository is `ghcr.io/piggybudget/piggybudget`.
+
 `pnpm deploy` validates the config and prints the multi-platform Buildx command by default. To publish, log in to the registry and opt in explicitly:
 
 ```sh

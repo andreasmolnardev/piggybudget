@@ -49,8 +49,8 @@ export async function checkProjectIdentity(root = projectRoot) {
     || !devCompose.includes(`air@v${config.tools.air}`)) {
     throw new Error('docker-compose.dev.yaml must use the tool versions declared in slopstack.yaml');
   }
-  if (!dockerfile.includes(`FROM node:${config.tools.node}-alpine3.24 AS web-build`)
-    || !dockerfile.includes(`FROM golang:${config.tools.go}-alpine3.24 AS server-build`)
+  if (!new RegExp(`^FROM(?: --platform=\\$BUILDPLATFORM)? node:${config.tools.node}-alpine3\\.24 AS web-build$`, 'm').test(dockerfile)
+    || !new RegExp(`^FROM(?: --platform=\\$BUILDPLATFORM)? golang:${config.tools.go}-alpine3\\.24 AS server-build$`, 'm').test(dockerfile)
     || !dockerfile.includes('FROM alpine:3.24.2')) {
     throw new Error('Dockerfile base images must use the pinned versions validated for Piggybudget');
   }
