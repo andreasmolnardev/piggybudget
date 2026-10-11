@@ -43,10 +43,12 @@ function tabForPath(pathname: string): SidebarTab {
 function Header({
   activeTab,
   remote,
+  refreshing,
   onRefresh,
 }: {
   activeTab: SidebarTab;
   remote: boolean;
+  refreshing: boolean;
   onRefresh: () => void;
 }) {
   return (
@@ -56,7 +58,7 @@ function Header({
         <span className="topbar-slash">/</span>
         <strong>{pageLabels[activeTab]}</strong>
         <span className={`data-status ${remote ? 'is-synced' : ''}`}>
-          <i /> {remote ? 'Synced' : 'Sample data'}
+          <i /> {refreshing ? 'Refreshing' : remote ? 'Synced' : 'Sample data'}
         </span>
       </div>
       <div className="topbar-actions">
@@ -64,9 +66,11 @@ function Header({
           className="icon-button topbar-icon"
           type="button"
           onClick={onRefresh}
-          aria-label="Refresh data"
+          disabled={refreshing}
+          aria-label={refreshing ? 'Refreshing saved data' : 'Refresh data'}
+          aria-busy={refreshing}
         >
-          <RefreshCw size={17} />
+          <RefreshCw className={refreshing ? 'refresh-icon is-spinning' : 'refresh-icon'} size={17} />
         </button>
       </div>
     </header>
@@ -90,6 +94,7 @@ export function App() {
   const data = budgetQuery.data?.data ?? sampleData;
   const remote = budgetQuery.data?.remote ?? false;
   const loading = budgetQuery.isLoading;
+  const lastRefreshedAt = budgetQuery.dataUpdatedAt;
   const dataError =
     budgetQuery.isError && !dataErrorDismissed
       ? 'Could not reach your saved data. Showing the local sample instead.'
@@ -180,7 +185,12 @@ export function App() {
         onSearch={() => setSearchOpen(true)}
       />
       <main className="main-content">
-        <Header activeTab={activeTab} remote={remote} onRefresh={refresh} />
+        <Header
+          activeTab={activeTab}
+          remote={remote}
+          refreshing={budgetQuery.isFetching}
+          onRefresh={refresh}
+        />
         <div className="content-wrap">
           {dataError && (
             <AppError>
@@ -210,7 +220,11 @@ export function App() {
         </div>
         <footer className="app-footer">
           <span>Built for a calmer money life</span>
-          <span>Last checked just now</span>
+          <span>
+            {lastRefreshedAt
+              ? `Last refreshed ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(lastRefreshedAt))}`
+              : 'Not refreshed yet'}
+          </span>
         </footer>
       </main>
       {searchOpen && (

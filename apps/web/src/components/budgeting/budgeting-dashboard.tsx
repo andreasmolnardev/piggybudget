@@ -303,42 +303,88 @@ function ReconciliationCard({
   );
 }
 
-function CashFlowChart({ transactions }: { transactions: Transaction[] }) {
+type DashboardPeriod = 'this-month' | 'last-month' | 'last-7-days' | 'last-30-days';
+
+function dateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+function periodRange(period: DashboardPeriod) {
   const today = new Date();
   today.setHours(12, 0, 0, 0);
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (6 - index));
-    const dateKey = [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, '0'),
-      String(date.getDate()).padStart(2, '0'),
-    ].join('-');
-    const matchingTransactions = transactions.filter((transaction) => transaction.date === dateKey);
-    return {
-      dateKey,
-      label: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date),
-      income: matchingTransactions
-        .filter((transaction) => transaction.kind === 'income')
-        .reduce((sum, transaction) => sum + transaction.amount, 0),
-      expenses: matchingTransactions
-        .filter((transaction) => transaction.kind === 'expense')
-        .reduce((sum, transaction) => sum + transaction.amount, 0),
-    };
-  });
+  const end = new Date(today);
+  const start = new Date(today);
+  if (period === 'this-month') start.setDate(1);
+  if (period === 'last-month') {
+    start.setDate(1);
+    start.setMonth(start.getMonth() - 1);
+    end.setDate(0);
+  }
+  if (period === 'last-7-days') start.setDate(start.getDate() - 6);
+  if (period === 'last-30-days') start.setDate(start.getDate() - 29);
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const previousEnd = new Date(start);
+  previousEnd.setDate(previousEnd.getDate() - 1);
+  const previousStart = new Date(previousEnd);
+  previousStart.setDate(previousStart.getDate() - days + 1);
+  return { start, end, previousStart, previousEnd, days };
+}
+
+function CashFlowChart({
+  transactions,
+  start,
+  end,
+  onSelectDay,
+}: {
+  transactions: Transaction[];
+  start: Date;
+  end: Date;
+  onSelectDay: (date: string) => void;
+}) {
+  const days = Array.from(
+    { length: Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1 },
+    (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const key = dateKey(date);
+      const matchingTransactions = transactions.filter((transaction) => transaction.date === key);
+      return {
+        dateKey: key,
+        date,
+        label:
+          Math.round((end.getTime() - start.getTime()) / 86_400_000) < 7
+            ? new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date)
+            : `${date.getMonth() + 1}/${date.getDate()}`,
+        income: matchingTransactions
+          .filter((transaction) => transaction.kind === 'income')
+          .reduce((sum, transaction) => sum + transaction.amount, 0),
+        expenses: matchingTransactions
+          .filter((transaction) => transaction.kind === 'expense')
+          .reduce((sum, transaction) => sum + transaction.amount, 0),
+      };
+    },
+  );
   const scale = Math.max(
     2000,
     Math.ceil(Math.max(...days.flatMap((day) => [day.income, day.expenses])) / 1000) * 1000,
   );
   return (
-    <div className="cashflow-chart" aria-label="Cash flow over the last seven days">
+    <div
+      className="cashflow-chart"
+      aria-label={`Cash flow from ${dateKey(start)} through ${dateKey(end)}`}
+    >
       <div className="chart-y-labels">
         <span>{formatMoney(scale, true)}</span>
         <span>{formatMoney(scale / 2, true)}</span>
         <span>$0</span>
       </div>
-      <div className="chart-bars">
-        {days.map((day) => (
+      {days.some((day) => day.income > 0 || day.expenses > 0) ? (
+        <div className="chart-bars" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+          {days.map((day) => (
           <div className="chart-day" key={day.dateKey}>
             <div className="chart-bar-wrap">
               <Tooltip>
@@ -348,6 +394,7 @@ function CashFlowChart({ transactions }: { transactions: Transaction[] }) {
                     className="chart-income"
                     style={{ height: `${(day.income / scale) * 100}%` }}
                     aria-label={`${day.label} income: ${formatMoney(day.income)}`}
+                    onClick={() => onSelectDay(day.dateKey)}
                   />
                 </TooltipTrigger>
                 <TooltipContent>{`${day.label} income: ${formatMoney(day.income)}`}</TooltipContent>
@@ -359,20 +406,51 @@ function CashFlowChart({ transactions }: { transactions: Transaction[] }) {
                     className="chart-expense"
                     style={{ height: `${(day.expenses / scale) * 100}%` }}
                     aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
+                    onClick={() => onSelectDay(day.dateKey)}
                   />
                 </TooltipTrigger>
                 <TooltipContent>{`${day.label} expenses: ${formatMoney(day.expenses)}`}</TooltipContent>
               </Tooltip>
             </div>
-            <small>{day.label}</small>
+            <button
+              className="chart-day-label"
+              type="button"
+              onClick={() => onSelectDay(day.dateKey)}
+              aria-label={`Open transactions for ${new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}`}
+            >
+              {day.label}
+            </button>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="chart-empty">No income or expenses in this date range.</div>
+      )}
     </div>
   );
 }
 
-function FinanceHelper({ reconciliation }: { reconciliation: BudgetData['reconciliation'] }) {
+function FinanceHelper({
+  data,
+  reconciliation,
+  onNavigate,
+  onOpenTransaction,
+}: {
+  data: BudgetData;
+  reconciliation: BudgetData['reconciliation'];
+  onNavigate: (view: BudgetView) => void;
+  onOpenTransaction: (transaction: Transaction) => void;
+}) {
+  const [answer, setAnswer] = useState<'changes' | 'spend' | null>(null);
+  const expenses = data.transactions.filter((item) => item.kind === 'expense');
+  const categoryTotals = new Map<string, number>();
+  for (const transaction of expenses) {
+    const category = transaction.category || 'Uncategorized';
+    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + transaction.amount);
+  }
+  const largestCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+  const largestExpense = [...expenses].sort((a, b) => b.amount - a.amount)[0];
+  const remainingBudget = data.budgets.reduce((sum, budget) => sum + budget.limit - budget.spent, 0);
   return (
     <aside className="helper-panel">
       <div className="helper-heading">
@@ -390,13 +468,35 @@ function FinanceHelper({ reconciliation }: { reconciliation: BudgetData['reconci
           : 'Your recorded balances and checkpoints are in sync.'}
       </p>
       <div className="helper-prompt-list">
-        <button type="button" onClick={() => undefined}>
+        <button type="button" onClick={() => setAnswer('changes')}>
           What changed this month? <ArrowRight size={14} />
         </button>
-        <button type="button" onClick={() => undefined}>
+        <button type="button" onClick={() => setAnswer('spend')}>
           How much can I spend? <ArrowRight size={14} />
         </button>
       </div>
+      {answer === 'changes' && (
+        <div className="helper-answer">
+          {largestCategory
+            ? `${largestCategory[0]} is your largest expense category at ${formatMoney(largestCategory[1])} across ${expenses.length} loaded expense${expenses.length === 1 ? '' : 's'}.`
+            : 'There are no loaded expense transactions to compare yet.'}
+          {largestExpense && (
+            <button className="text-button" type="button" onClick={() => onOpenTransaction(largestExpense)}>
+              Open largest expense: {largestExpense.merchant} <ArrowRight size={14} />
+            </button>
+          )}
+        </div>
+      )}
+      {answer === 'spend' && (
+        <div className="helper-answer">
+          {data.budgets.length
+            ? `${formatMoney(remainingBudget)} remains across ${data.budgets.length} loaded budgets. This is the sum of each budget limit minus its recorded spending.`
+            : 'Add a budget to see how much remains to spend.'}
+          <button className="text-button" type="button" onClick={() => onNavigate('budgets')}>
+            Open budgets <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
       <small className="helper-note">No bank connection needed.</small>
     </aside>
   );
@@ -404,24 +504,52 @@ function FinanceHelper({ reconciliation }: { reconciliation: BudgetData['reconci
 
 function DashboardView({
   data,
+  profile,
   onNavigate,
   onAddTransaction,
+  onOpenTransaction,
 }: {
   data: BudgetData;
+  profile: UserProfile;
   onNavigate: (view: BudgetView) => void;
   onAddTransaction: () => void;
+  onOpenTransaction: (transaction: Transaction) => void;
 }) {
-  const income = data.transactions
+  const [period, setPeriod] = useState<DashboardPeriod>('this-month');
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const range = periodRange(period);
+  const currentTransactions = data.transactions.filter(
+    (transaction) => transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
+  );
+  const previousTransactions = data.transactions.filter(
+    (transaction) =>
+      transaction.date >= dateKey(range.previousStart) &&
+      transaction.date <= dateKey(range.previousEnd),
+  );
+  const income = currentTransactions
     .filter((item) => item.kind === 'income')
     .reduce((sum, item) => sum + item.amount, 0);
-  const expenses = data.transactions
+  const expenses = currentTransactions
     .filter((item) => item.kind === 'expense')
     .reduce((sum, item) => sum + item.amount, 0);
+  const previousNet = previousTransactions
+    .filter((item) => item.kind === 'income')
+    .reduce((sum, item) => sum + item.amount, 0) -
+    previousTransactions
+      .filter((item) => item.kind === 'expense')
+      .reduce((sum, item) => sum + item.amount, 0);
+  const netChange = income - expenses - previousNet;
+  const firstName = profile.name.trim().split(/\s+/)[0] || 'there';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const recent = data.transactions.slice(0, 5);
+  const selectedDayTransactions = selectedDay
+    ? currentTransactions.filter((transaction) => transaction.date === selectedDay)
+    : [];
   return (
     <>
       <PageHeader
-        title="Good morning, Alex"
+        title={`${greeting}, ${firstName}`}
         description="Here is your money at a glance."
         action={
           <button className="button button-primary" type="button" onClick={onAddTransaction}>
@@ -435,18 +563,45 @@ function DashboardView({
           <SectionHeading
             title="Cash flow"
             action={
-              <button className="select-button" type="button">
-                This month <ChevronDown size={14} />
-              </button>
+              <select
+                className="select-button"
+                aria-label="Cash flow date range"
+                value={period}
+                onChange={(event) => setPeriod(event.target.value as DashboardPeriod)}
+              >
+                <option value="this-month">This month</option>
+                <option value="last-month">Last month</option>
+                <option value="last-7-days">Last 7 days</option>
+                <option value="last-30-days">Last 30 days</option>
+              </select>
             }
           />
           <div className="cashflow-total">
             <strong>{formatMoney(income - expenses)}</strong>
-            <span>
-              <ArrowUpRight size={14} /> $320 more than last month
+            <span className={netChange < 0 ? 'cashflow-change is-down' : 'cashflow-change'}>
+              <ArrowUpRight size={14} /> {formatMoney(Math.abs(netChange))}{' '}
+              {netChange < 0 ? 'less' : 'more'} than the previous period
             </span>
           </div>
-          <CashFlowChart transactions={data.transactions} />
+          <CashFlowChart
+            transactions={currentTransactions}
+            start={range.start}
+            end={range.end}
+            onSelectDay={setSelectedDay}
+          />
+          {selectedDay && (
+            <div className="chart-day-transactions">
+              <div className="chart-day-transactions-heading">
+                <strong>{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(`${selectedDay}T12:00:00`))}</strong>
+                <button className="icon-button" type="button" onClick={() => setSelectedDay(null)} aria-label="Close day transactions"><X size={15} /></button>
+              </div>
+              {selectedDayTransactions.length ? selectedDayTransactions.map((transaction) => (
+                <button className="chart-transaction-link" type="button" key={transaction.id} onClick={() => onOpenTransaction(transaction)}>
+                  <span>{transaction.merchant}</span><strong>{formatMoney(transaction.amount)}</strong>
+                </button>
+              )) : <p>No transactions were recorded on this day.</p>}
+            </div>
+          )}
           <div className="chart-legend">
             <span>
               <i className="legend-dot income" />
@@ -458,7 +613,12 @@ function DashboardView({
             </span>
           </div>
         </section>
-        <FinanceHelper reconciliation={data.reconciliation} />
+        <FinanceHelper
+          data={{ ...data, transactions: currentTransactions }}
+          reconciliation={data.reconciliation}
+          onNavigate={onNavigate}
+          onOpenTransaction={onOpenTransaction}
+        />
       </div>
       <div className="dashboard-grid dashboard-secondary-grid">
         <section className="panel">
@@ -476,7 +636,11 @@ function DashboardView({
           />
           <div className="transaction-list">
             {recent.map((transaction) => (
-              <TransactionRow key={transaction.id} transaction={transaction} />
+              <TransactionRow
+                key={transaction.id}
+                transaction={transaction}
+                onOpen={() => onOpenTransaction(transaction)}
+              />
             ))}
           </div>
         </section>
@@ -2017,8 +2181,10 @@ export function BudgetingDashboard({
     view === 'dashboard' ? (
       <DashboardView
         data={data}
+        profile={profile}
         onNavigate={onNavigate}
         onAddTransaction={() => setComposer('transaction')}
+        onOpenTransaction={setViewingTransaction}
       />
     ) : view === 'transactions' ? (
       <TransactionsView
