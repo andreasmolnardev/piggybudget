@@ -15,6 +15,8 @@ export type Transaction = {
   budgetId?: string;
   note?: string;
   tags?: string[];
+  cleared?: boolean;
+  reconciled?: boolean;
   receipt?: string;
   description?: string;
   receivable?: string;
@@ -315,7 +317,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     transactions: transactions.map((record) => ({
       id: record.id,
       merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
-      category: textValue(record, 'category', 'budget') || 'Other',
+      category: textValue(record, 'category', 'budget'),
       account: textValue(record, 'account') || 'Unassigned account',
       amount: Math.abs(numberValue(record, 'amount', 'value')),
       kind: transactionKind(record),
@@ -323,6 +325,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       budgetId: textValue(record, 'budget'),
       note: textValue(record, 'notes', 'note', 'memo'),
       tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
+      cleared: Boolean(record.cleared),
+      reconciled: Boolean(record.reconciled),
       receipt: textValue(record, 'receipt'),
       description: textValue(record, 'description'),
       receivable: textValue(record, 'receivable'),

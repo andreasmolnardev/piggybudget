@@ -1116,6 +1116,27 @@ kbd {
   padding: 0 0 15px;
   border-bottom: 1px solid var(--border);
 }
+.transaction-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.transaction-sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.transaction-sort-control select {
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--foreground);
+  background: var(--background);
+  font: inherit;
+}
 .transaction-filter-trigger {
   min-height: 34px;
   gap: 7px;
@@ -1161,6 +1182,14 @@ kbd {
   background: var(--background);
   font: inherit;
 }
+.transaction-filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground);
+  font-size: 11px;
+}
+.transaction-filter-checkbox input { accent-color: var(--primary); }
 .transaction-filter-field .filter-group {
   width: 100%;
   margin: 0;
@@ -1272,6 +1301,39 @@ kbd {
   color: var(--muted);
   font-size: 10px;
 }
+.transaction-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pagination-button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+.saved-views-popover {
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.saved-view-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+}
+.saved-view-apply {
+  flex: 1;
+  padding: 7px 5px;
+  border: 0;
+  color: var(--foreground);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.saved-view-row .icon-button { width: auto; padding: 0 6px; font-size: 10px; }
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -2386,7 +2448,12 @@ h1 {
     text-align: right;
   }
   .transaction-toolbar {
+    flex-wrap: wrap;
     padding-bottom: 12px;
+  }
+  .transaction-toolbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
   .search-field {
     width: auto;
@@ -2402,6 +2469,9 @@ h1 {
     padding: 0;
   }
   .table-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
     padding: 12px;
   }
   .reconciliation-card {

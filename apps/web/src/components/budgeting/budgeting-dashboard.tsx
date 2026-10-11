@@ -136,7 +136,7 @@ function TransactionRow({
       <div className="transaction-main">
         <strong>{transaction.merchant}</strong>
         <span>
-          {transaction.category} · {transaction.account}
+          {transaction.category || 'Uncategorized'} · {transaction.account}
         </span>
       </div>
       <time>{formatDate(transaction.date)}</time>
@@ -500,8 +500,39 @@ function DashboardView({
   );
 }
 
+type TransactionFilters = {
+  account: string;
+  kind: 'all' | TransactionKind;
+  category: string;
+  tagQuery: string;
+  fromDate: string;
+  toDate: string;
+  minAmount: string;
+  maxAmount: string;
+  uncategorized: boolean;
+  cleared: 'all' | 'cleared' | 'uncleared';
+  reconciled: 'all' | 'reconciled' | 'unreconciled';
+};
+
+type SavedTransactionView = { id: string; name: string; filters: TransactionFilters };
+
+const emptyTransactionFilters: TransactionFilters = {
+  account: 'All accounts',
+  kind: 'all',
+  category: 'All categories',
+  tagQuery: '',
+  fromDate: '',
+  toDate: '',
+  minAmount: '',
+  maxAmount: '',
+  uncategorized: false,
+  cleared: 'all',
+  reconciled: 'all',
+};
+
 function TransactionsView({
   data,
+  userId,
   onAddTransaction,
   onAddCheckpoint,
   onAddAccount,
@@ -510,6 +541,7 @@ function TransactionsView({
   onOpenTransaction,
 }: {
   data: BudgetData;
+  userId: string;
   onAddTransaction: () => void;
   onAddCheckpoint: () => void;
   onAddAccount: () => void;
@@ -517,45 +549,108 @@ function TransactionsView({
   onDeleteTransaction: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
 }) {
-  const [account, setAccount] = useState('All accounts');
-  const [kind, setKind] = useState<'all' | TransactionKind>('all');
-  const [category, setCategory] = useState('All categories');
-  const [tagQuery, setTagQuery] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [filters, setFilters] = useState<TransactionFilters>(emptyTransactionFilters);
+  const [sort, setSort] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>('date-desc');
+  const [page, setPage] = useState(1);
   const [addPopoverOpen, setAddPopoverOpen] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedTransactionView[]>([]);
+  const [loadedViewsKey, setLoadedViewsKey] = useState('');
+  const [savedViewsOpen, setSavedViewsOpen] = useState(false);
+  const pageSize = 25;
+  const savedViewsKey = `piggybudget:transaction-views:${userId}`;
+  useEffect(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(savedViewsKey) ?? '[]');
+      setSavedViews(Array.isArray(value) ? value : []);
+    } catch {
+      setSavedViews([]);
+    }
+    setLoadedViewsKey(savedViewsKey);
+  }, [savedViewsKey]);
+  useEffect(() => {
+    if (loadedViewsKey === savedViewsKey) {
+      localStorage.setItem(savedViewsKey, JSON.stringify(savedViews));
+    }
+  }, [loadedViewsKey, savedViews, savedViewsKey]);
+  useEffect(() => setPage(1), [filters, sort]);
   const activeFilterCount =
-    Number(account !== 'All accounts') +
-    Number(kind !== 'all') +
-    Number(category !== 'All categories') +
-    Number(Boolean(tagQuery.trim())) +
-    Number(Boolean(fromDate)) +
-    Number(Boolean(toDate));
+    Number(filters.account !== 'All accounts') +
+    Number(filters.kind !== 'all') +
+    Number(filters.category !== 'All categories') +
+    Number(Boolean(filters.tagQuery.trim())) +
+    Number(Boolean(filters.fromDate)) +
+    Number(Boolean(filters.toDate)) +
+    Number(Boolean(filters.minAmount)) +
+    Number(Boolean(filters.maxAmount)) +
+    Number(filters.uncategorized) +
+    Number(filters.cleared !== 'all') +
+    Number(filters.reconciled !== 'all');
   const clearFilters = () => {
-    setAccount('All accounts');
-    setKind('all');
-    setCategory('All categories');
-    setTagQuery('');
-    setFromDate('');
-    setToDate('');
+    setFilters(emptyTransactionFilters);
   };
   const filtered = useMemo(
-    () =>
-      data.transactions.filter((transaction) => {
-        const matchesAccount = account === 'All accounts' || transaction.account === account;
-        const matchesKind = kind === 'all' || transaction.kind === kind;
-        const matchesCategory = category === 'All categories' || transaction.category === category;
+    () => {
+      const result = data.transactions.filter((transaction) => {
+        const matchesAccount =
+          filters.account === 'All accounts' || transaction.account === filters.account;
+        const matchesKind = filters.kind === 'all' || transaction.kind === filters.kind;
+        const matchesCategory = filters.uncategorized
+          ? !transaction.category
+          : filters.category === 'All categories' || transaction.category === filters.category;
         const matchesTag =
-          !tagQuery ||
+          !filters.tagQuery ||
           (transaction.tags ?? []).some((tag) =>
-            tag.toLowerCase().includes(tagQuery.toLowerCase()),
+            tag.toLowerCase().includes(filters.tagQuery.toLowerCase()),
           );
         const matchesDate =
-          (!fromDate || transaction.date >= fromDate) && (!toDate || transaction.date <= toDate);
-        return matchesAccount && matchesKind && matchesCategory && matchesTag && matchesDate;
-      }),
-    [account, category, data.transactions, fromDate, kind, tagQuery, toDate],
+          (!filters.fromDate || transaction.date >= filters.fromDate) &&
+          (!filters.toDate || transaction.date <= filters.toDate);
+        const matchesAmount =
+          (!filters.minAmount || transaction.amount >= Number(filters.minAmount)) &&
+          (!filters.maxAmount || transaction.amount <= Number(filters.maxAmount));
+        const matchesCleared =
+          filters.cleared === 'all' ||
+          Boolean(transaction.cleared) === (filters.cleared === 'cleared');
+        const matchesReconciled =
+          filters.reconciled === 'all' ||
+          Boolean(transaction.reconciled) === (filters.reconciled === 'reconciled');
+        return (
+          matchesAccount &&
+          matchesKind &&
+          matchesCategory &&
+          matchesTag &&
+          matchesDate &&
+          matchesAmount &&
+          matchesCleared &&
+          matchesReconciled
+        );
+      });
+      return result.sort((a, b) => {
+        if (sort === 'date-asc') return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
+        if (sort === 'amount-desc') return b.amount - a.amount || b.date.localeCompare(a.date);
+        if (sort === 'amount-asc') return a.amount - b.amount || b.date.localeCompare(a.date);
+        return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
+      });
+    },
+    [data.transactions, filters, sort],
   );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const saveView = () => {
+    const name = window.prompt('Name this saved view');
+    if (!name?.trim()) return;
+    setSavedViews((current) => [
+      ...current,
+      { id: crypto.randomUUID(), name: name.trim(), filters: { ...filters } },
+    ]);
+  };
+  const renameView = (view: SavedTransactionView) => {
+    const name = window.prompt('Rename saved view', view.name);
+    if (!name?.trim()) return;
+    setSavedViews((current) =>
+      current.map((item) => (item.id === view.id ? { ...item, name: name.trim() } : item)),
+    );
+  };
   return (
     <>
       <PageHeader title="Transactions" />
@@ -563,6 +658,15 @@ function TransactionsView({
       <section className="transactions-section">
         <div className="transaction-toolbar">
           <div className="transaction-toolbar-actions">
+            <label className="transaction-sort-control">
+              Sort
+              <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
+                <option value="date-desc">Newest date</option>
+                <option value="date-asc">Oldest date</option>
+                <option value="amount-desc">Highest amount</option>
+                <option value="amount-asc">Lowest amount</option>
+              </select>
+            </label>
             <Popover>
               <PopoverTrigger asChild>
                 <button className="button transaction-filter-trigger" type="button">
@@ -585,7 +689,10 @@ function TransactionsView({
                 </div>
                 <label className="transaction-filter-field">
                   Account
-                  <select value={account} onChange={(event) => setAccount(event.target.value)}>
+                  <select
+                    value={filters.account}
+                    onChange={(event) => setFilters({ ...filters, account: event.target.value })}
+                  >
                     <option>All accounts</option>
                     {data.accounts.map((item) => (
                       <option key={item.id}>{item.name}</option>
@@ -595,34 +702,59 @@ function TransactionsView({
                 <div className="transaction-filter-field">
                   <span>Type</span>
                   <div className="filter-group" role="group" aria-label="Transaction type">
-                    {(['all', 'expense', 'income'] as const).map((option) => (
-                      <button
-                        key={option}
-                        className={kind === option ? 'is-active' : ''}
-                        type="button"
-                        onClick={() => setKind(option)}
-                      >
-                        {option === 'all' ? 'All' : option === 'expense' ? 'Expenses' : 'Income'}
-                      </button>
-                    ))}
+                    {(['all', 'expense', 'income', 'transfer', 'adjustment'] as const).map(
+                      (option) => (
+                        <button
+                          key={option}
+                          className={filters.kind === option ? 'is-active' : ''}
+                          type="button"
+                          onClick={() => setFilters({ ...filters, kind: option })}
+                        >
+                          {option === 'all'
+                            ? 'All'
+                            : option === 'expense'
+                              ? 'Expenses'
+                              : option === 'income'
+                                ? 'Income'
+                                : option === 'transfer'
+                                  ? 'Transfers'
+                                  : 'Adjustments'}
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
                 <label className="transaction-filter-field">
                   Category
-                  <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                  <select
+                    value={filters.category}
+                    disabled={filters.uncategorized}
+                    onChange={(event) => setFilters({ ...filters, category: event.target.value })}
+                  >
                     <option>All categories</option>
                     {[...new Set(data.transactions.map((item) => item.category))]
                       .sort()
+                      .filter(Boolean)
                       .map((item) => (
                         <option key={item}>{item}</option>
                       ))}
                   </select>
                 </label>
+                <label className="transaction-filter-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={filters.uncategorized}
+                    onChange={(event) =>
+                      setFilters({ ...filters, uncategorized: event.target.checked })
+                    }
+                  />
+                  Uncategorized only
+                </label>
                 <label className="transaction-filter-field">
                   Tag
                   <input
-                    value={tagQuery}
-                    onChange={(event) => setTagQuery(event.target.value)}
+                    value={filters.tagQuery}
+                    onChange={(event) => setFilters({ ...filters, tagQuery: event.target.value })}
                     placeholder="Filter by tag"
                   />
                 </label>
@@ -631,8 +763,10 @@ function TransactionsView({
                     From
                     <input
                       type="date"
-                      value={fromDate}
-                      onChange={(event) => setFromDate(event.target.value)}
+                      value={filters.fromDate}
+                      onChange={(event) =>
+                        setFilters({ ...filters, fromDate: event.target.value })
+                      }
                       aria-label="From date"
                     />
                   </label>
@@ -640,12 +774,72 @@ function TransactionsView({
                     To
                     <input
                       type="date"
-                      value={toDate}
-                      onChange={(event) => setToDate(event.target.value)}
+                      value={filters.toDate}
+                      onChange={(event) =>
+                        setFilters({ ...filters, toDate: event.target.value })
+                      }
                       aria-label="To date"
                     />
                   </label>
                 </div>
+                <div className="transaction-date-filters">
+                  <label className="transaction-filter-field">
+                    Min amount
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={filters.minAmount}
+                      onChange={(event) =>
+                        setFilters({ ...filters, minAmount: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="transaction-filter-field">
+                    Max amount
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={filters.maxAmount}
+                      onChange={(event) =>
+                        setFilters({ ...filters, maxAmount: event.target.value })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="transaction-filter-field">
+                  Cleared
+                  <select
+                    value={filters.cleared}
+                    onChange={(event) =>
+                      setFilters({
+                        ...filters,
+                        cleared: event.target.value as TransactionFilters['cleared'],
+                      })
+                    }
+                  >
+                    <option value="all">All</option>
+                    <option value="cleared">Cleared</option>
+                    <option value="uncleared">Uncleared</option>
+                  </select>
+                </label>
+                <label className="transaction-filter-field">
+                  Reconciliation
+                  <select
+                    value={filters.reconciled}
+                    onChange={(event) =>
+                      setFilters({
+                        ...filters,
+                        reconciled: event.target.value as TransactionFilters['reconciled'],
+                      })
+                    }
+                  >
+                    <option value="all">All</option>
+                    <option value="reconciled">Reconciled</option>
+                    <option value="unreconciled">Unreconciled</option>
+                  </select>
+                </label>
               </PopoverContent>
             </Popover>
             <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
@@ -698,7 +892,7 @@ function TransactionsView({
         </div>
         <div className="transaction-list transaction-table transaction-cards">
           {filtered.length ? (
-            filtered.map((transaction) => (
+            pageItems.map((transaction) => (
               <TransactionRow
                 key={transaction.id}
                 transaction={transaction}
@@ -716,10 +910,81 @@ function TransactionsView({
           )}
         </div>
         <div className="table-footer">
-          Showing {filtered.length} of {data.transactions.length} transactions{' '}
-          <button className="text-button" type="button">
-            <Filter size={14} /> Saved views
-          </button>
+          <span>
+            {filtered.length
+              ? `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filtered.length)}`
+              : 'Showing 0'} of {filtered.length} filtered transactions · {data.transactions.length} total
+          </span>
+          <div className="transaction-footer-actions">
+            <button
+              className="button button-quiet pagination-button"
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((current) => current - 1)}
+            >
+              Previous
+            </button>
+            <span>Page {page} of {pageCount}</span>
+            <button
+              className="button button-quiet pagination-button"
+              type="button"
+              disabled={page >= pageCount}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Next
+            </button>
+            <Popover open={savedViewsOpen} onOpenChange={setSavedViewsOpen}>
+              <PopoverTrigger asChild>
+                <button className="text-button" type="button">
+                  <Filter size={14} /> Saved views {savedViews.length ? `(${savedViews.length})` : ''}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="saved-views-popover">
+                <div className="transaction-filter-heading">
+                  <strong>Saved views</strong>
+                  <button className="text-button" type="button" onClick={saveView}>Save current</button>
+                </div>
+                {savedViews.length ? (
+                  savedViews.map((view) => (
+                    <div className="saved-view-row" key={view.id}>
+                      <button
+                        className="saved-view-apply"
+                        type="button"
+                        onClick={() => {
+                          setFilters(view.filters);
+                          setSavedViewsOpen(false);
+                        }}
+                      >
+                        {view.name}
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label={`Rename ${view.name}`}
+                        onClick={() => renameView(view)}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        aria-label={`Delete ${view.name}`}
+                        onClick={() => {
+                          if (window.confirm(`Delete saved view “${view.name}”?`)) {
+                            setSavedViews((items) => items.filter((item) => item.id !== view.id));
+                          }
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="page-description">Save your filters to reuse them here.</p>
+                )}
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </section>
     </>
@@ -1758,6 +2023,7 @@ export function BudgetingDashboard({
     ) : view === 'transactions' ? (
       <TransactionsView
         data={data}
+        userId={userId}
         onAddTransaction={() => setComposer('transaction')}
         onAddCheckpoint={() => setComposer('checkpoint')}
         onAddAccount={() => setComposer('account')}
