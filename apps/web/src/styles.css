@@ -2903,6 +2903,11 @@ h1 {
 .asset-group-empty { color: var(--muted); font-size: 12px; }
 .asset-group-card { padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
 .asset-group-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.asset-group-heading-actions, .asset-group-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px; }
+.asset-group-head-copy { min-width: 0; }
+.asset-group-rename { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.asset-group-rename input { min-width: 120px; width: 100%; max-width: 190px; padding: 7px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--background); }
+.asset-archived-toggle { margin: 2px 0 8px; }
 .asset-group-card h3 { margin: 0 0 4px; font-size: 14px; }
 .asset-group-card header span,
 .asset-position span { color: var(--muted); font-size: 11px; }
@@ -2915,6 +2920,9 @@ h1 {
 .asset-position-edit { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
 .asset-position-edit input { width: 130px; padding: 7px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--background); }
 .asset-position-edit-trigger { grid-column: 1 / -1; justify-self: start; }
+.asset-position-edit { flex-wrap: wrap; }
+.asset-position-edit input:first-child { width: 180px; }
+.asset-position-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; }
 @media (max-width: 700px) {
   .asset-card { grid-template-columns: 35px minmax(0, 1fr) auto; }
   .transaction-toolbar-actions { justify-content: flex-start; }

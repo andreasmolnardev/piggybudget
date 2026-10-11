@@ -1586,12 +1586,18 @@ function AssetsView({
   onEditAsset: (asset: Asset) => void;
   onDeleteAsset: (asset: Asset) => void;
 }) {
+  const activeGroupIds = new Set(
+    data.assetGroups.filter((group) => !group.archived).map((group) => group.id),
+  );
+  const activePositions = data.assetPositions.filter(
+    (position) => !position.archived && activeGroupIds.has(position.group),
+  );
   const totalValue =
     data.assets.reduce((sum, asset) => sum + asset.value, 0) +
-    data.assetPositions.reduce((sum, position) => sum + position.value, 0);
+    activePositions.reduce((sum, position) => sum + position.value, 0);
   const totalCost =
     data.assets.reduce((sum, asset) => sum + asset.cost, 0) +
-    data.assetPositions.reduce((sum, position) => sum + position.purchasePrice, 0);
+    activePositions.reduce((sum, position) => sum + position.purchasePrice, 0);
   const roi = totalCost ? ((totalValue - totalCost) / totalCost) * 100 : 0;
   return (
     <>
@@ -1732,6 +1738,7 @@ function AssetGroupsSection({
   onRefresh: () => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const createGroup = async (event: React.FormEvent) => {
@@ -1761,13 +1768,22 @@ function AssetGroupsSection({
       <SectionHeading
         title="Asset groups"
         action={
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => setCreating((value) => !value)}
-          >
-            <Plus size={14} /> Add group
-          </button>
+          <div className="asset-group-heading-actions">
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => setShowArchived((value) => !value)}
+            >
+              {showArchived ? 'Show active' : 'Show archived'}
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => setCreating((value) => !value)}
+            >
+              <Plus size={14} /> Add group
+            </button>
+          </div>
         }
       />
       {creating && (
@@ -1784,14 +1800,15 @@ function AssetGroupsSection({
           </button>
         </form>
       )}
-      {groups.length ? (
+      {groups.some((group) => Boolean(group.archived) === showArchived) ? (
         <div className="asset-group-grid">
           {groups
-            .filter((group) => !group.archived)
+            .filter((group) => Boolean(group.archived) === showArchived)
             .map((group) => (
               <AssetGroupCard
                 key={group.id}
                 group={group}
+                allPositions={positions.filter((position) => position.group === group.id)}
                 positions={positions.filter(
                   (position) => position.group === group.id && !position.archived,
                 )}
@@ -1811,10 +1828,12 @@ function AssetGroupsSection({
 
 function AssetGroupCard({
   group,
+  allPositions,
   positions,
   onRefresh,
 }: {
   group: AssetGroup;
+  allPositions: AssetPosition[];
   positions: AssetPosition[];
   onRefresh: () => void;
 }) {
@@ -1823,8 +1842,18 @@ function AssetGroupCard({
   const [value, setValue] = useState('');
   const [purchasePrice, setPurchasePrice] = useState('');
   const [targetSalePrice, setTargetSalePrice] = useState('');
-  const [editingPosition, setEditingPosition] = useState<string | null>(null);
-  const [salePrice, setSalePrice] = useState('');
+  const [editingPosition, setEditingPosition] = useState<AssetPosition | null>(null);
+  const [positionName, setPositionName] = useState('');
+  const [positionValue, setPositionValue] = useState('');
+  const [positionPurchasePrice, setPositionPurchasePrice] = useState('');
+  const [positionTargetSalePrice, setPositionTargetSalePrice] = useState('');
+  const [groupName, setGroupName] = useState(group.name);
+  const [editingGroup, setEditingGroup] = useState(false);
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [showArchivedPositions, setShowArchivedPositions] = useState(false);
+  const visiblePositions = allPositions.filter(
+    (position) => Boolean(position.archived) === showArchivedPositions,
+  );
   const savePosition = async (event: React.FormEvent) => {
     event.preventDefault();
     const response = await apiFetch('/api/finance/asset-positions', {
@@ -1853,76 +1882,237 @@ function AssetGroupCard({
     setTargetSalePrice('');
     onRefresh();
   };
-  const updateSalePrice = async (position: AssetPosition) => {
+  const updatePosition = async (event: React.FormEvent, position: AssetPosition) => {
+    event.preventDefault();
     const response = await apiFetch(`/api/finance/asset-positions/${position.id}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${pb.authStore.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ target_sale_price: Number(salePrice) }),
+      body: JSON.stringify({
+        name: positionName.trim(),
+        value: Number(positionValue),
+        purchase_price: Number(positionPurchasePrice),
+        target_sale_price: Number(positionTargetSalePrice),
+      }),
     });
     if (!response.ok) {
-      window.alert((await response.text()) || 'Could not update sale value.');
+      window.alert((await response.text()) || 'Could not update holding.');
       return;
     }
     setEditingPosition(null);
     onRefresh();
   };
+  const archivePosition = async (position: AssetPosition) => {
+    const response = await apiFetch(`/api/finance/asset-positions/${position.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ archived: !position.archived }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not update holding status.');
+      return;
+    }
+    onRefresh();
+  };
+  const deletePosition = async (position: AssetPosition) => {
+    if (!window.confirm(`Delete ${position.name}? This cannot be undone.`)) return;
+    const response = await apiFetch(`/api/finance/asset-positions/${position.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${pb.authStore.token}` },
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not delete holding.');
+      return;
+    }
+    onRefresh();
+  };
+  const saveGroupName = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setGroupBusy(true);
+    const response = await apiFetch(`/api/finance/asset-groups/${group.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: groupName.trim() }),
+    });
+    setGroupBusy(false);
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not rename group.');
+      return;
+    }
+    setEditingGroup(false);
+    onRefresh();
+  };
+  const archiveGroup = async () => {
+    const response = await apiFetch(`/api/finance/asset-groups/${group.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ archived: !group.archived }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not update group status.');
+      return;
+    }
+    onRefresh();
+  };
+  const deleteGroup = async () => {
+    if (allPositions.length) {
+      window.alert('Delete this group’s holdings before deleting the group.');
+      return;
+    }
+    if (!window.confirm(`Delete ${group.name}? This cannot be undone.`)) return;
+    const response = await apiFetch(`/api/finance/asset-groups/${group.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${pb.authStore.token}` },
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not delete group.');
+      return;
+    }
+    onRefresh();
+  };
   return (
     <article className="asset-group-card">
       <header>
-        <div>
-          <h3>{group.name}</h3>
-          <span>{positions.length} holdings</span>
-        </div>
-        <button className="text-button" type="button" onClick={() => setAdding((open) => !open)}>
-          <Plus size={14} /> Add holding
-        </button>
-      </header>
-      {positions.map((position) => (
-        <div className="asset-position" key={position.id}>
-          <strong>{position.name}</strong>
-          <span>
-            Buy {formatMoney(position.purchasePrice)} · Sell {formatMoney(position.targetSalePrice)}
-          </span>
-          <b>{formatMoney(position.value)}</b>
-          {editingPosition === position.id ? (
-            <div className="asset-position-edit">
+        <div className="asset-group-head-copy">
+          {editingGroup ? (
+            <form className="asset-group-rename" onSubmit={(event) => void saveGroupName(event)}>
               <input
-                aria-label={`Sell value for ${position.name}`}
+                required
+                aria-label="Asset group name"
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+              />
+              <button className="text-button" type="submit" disabled={groupBusy}>
+                {groupBusy ? 'Saving…' : 'Save'}
+              </button>
+              <button className="text-button" type="button" onClick={() => setEditingGroup(false)}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <>
+              <h3>{group.name}</h3>
+              <span>
+                {positions.length} active holdings{group.archived ? ' · Archived group' : ''}
+              </span>
+            </>
+          )}
+        </div>
+        <div className="asset-group-actions">
+          <button className="text-button" type="button" onClick={() => setEditingGroup(true)}>
+            Rename
+          </button>
+          <button className="text-button" type="button" onClick={() => void archiveGroup()}>
+            {group.archived ? 'Restore' : 'Archive'}
+          </button>
+          <button
+            className="text-button button-danger"
+            type="button"
+            onClick={() => void deleteGroup()}
+          >
+            Delete
+          </button>
+          {!group.archived && (
+            <button className="text-button" type="button" onClick={() => setAdding((open) => !open)}>
+              <Plus size={14} /> Add holding
+            </button>
+          )}
+        </div>
+      </header>
+      <button
+        className="text-button asset-archived-toggle"
+        type="button"
+        onClick={() => setShowArchivedPositions((current) => !current)}
+      >
+        {showArchivedPositions ? 'Show active holdings' : 'Show archived holdings'}
+      </button>
+      {visiblePositions.map((position) => (
+        <div className="asset-position" key={position.id}>
+          {editingPosition?.id === position.id ? (
+            <form
+              className="asset-position-edit"
+              onSubmit={(event) => void updatePosition(event, position)}
+            >
+              <input
+                required
+                aria-label="Holding name"
+                value={positionName}
+                onChange={(event) => setPositionName(event.target.value)}
+              />
+              <input
+                required
+                aria-label="Current value"
                 type="number"
                 min="0"
                 step="0.01"
-                value={salePrice}
-                onChange={(event) => setSalePrice(event.target.value)}
+                value={positionValue}
+                onChange={(event) => setPositionValue(event.target.value)}
               />
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => void updateSalePrice(position)}
-              >
-                Save
-              </button>
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => setEditingPosition(null)}
-              >
+              <input
+                required
+                aria-label="Purchase value"
+                type="number"
+                min="0"
+                step="0.01"
+                value={positionPurchasePrice}
+                onChange={(event) => setPositionPurchasePrice(event.target.value)}
+              />
+              <input
+                required
+                aria-label="Target sale value"
+                type="number"
+                min="0"
+                step="0.01"
+                value={positionTargetSalePrice}
+                onChange={(event) => setPositionTargetSalePrice(event.target.value)}
+              />
+              <button className="text-button" type="submit">Save</button>
+              <button className="text-button" type="button" onClick={() => setEditingPosition(null)}>
                 Cancel
               </button>
-            </div>
+            </form>
           ) : (
-            <button
-              className="text-button asset-position-edit-trigger"
-              type="button"
-              onClick={() => {
-                setEditingPosition(position.id);
-                setSalePrice(String(position.targetSalePrice));
-              }}
-            >
-              Update sell value
-            </button>
+            <>
+              <strong>{position.name}</strong>
+              <span>
+                Buy {formatMoney(position.purchasePrice)} · Sell {formatMoney(position.targetSalePrice)}
+              </span>
+              <b>{formatMoney(position.value)}</b>
+              <div className="asset-position-actions">
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => {
+                    setEditingPosition(position);
+                    setPositionName(position.name);
+                    setPositionValue(String(position.value));
+                    setPositionPurchasePrice(String(position.purchasePrice));
+                    setPositionTargetSalePrice(String(position.targetSalePrice));
+                  }}
+                >
+                  Edit holding
+                </button>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => void archivePosition(position)}
+                >
+                  {position.archived ? 'Restore' : 'Archive'}
+                </button>
+                <button className="text-button button-danger" type="button" onClick={() => void deletePosition(position)}>Delete</button>
+              </div>
+            </>
           )}
         </div>
       ))}
