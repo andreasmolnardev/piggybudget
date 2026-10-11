@@ -5855,7 +5855,8 @@ function WelcomeWalkthrough({
             </div>
             <p className="page-description">
               Your default account is selected automatically when you add a transaction. You can
-              change this setup any time in Developer settings.
+              manage accounts and preferences in Settings, or import transactions from CSV on the
+              Transactions page.
             </p>
             <div className="composer-actions">
               <button className="button" type="button" onClick={onClose}>
