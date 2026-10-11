@@ -6123,7 +6123,7 @@ async function scanReceipt(file: File): Promise<string> {
     const image = await createImageBitmap(file);
     try {
       const results = await new Detector().detect(image);
-      return results.map((result) => result.rawValue ?? '').join('\\n');
+      return results.map((result) => result.rawValue ?? '').join('\n');
     } finally {
       image.close();
     }
@@ -7008,14 +7008,14 @@ function FinanceComposer({
                               return;
                             }
                             const lines = text
-                              .split(/\\n+/)
+                              .split(/\n+/)
                               .map((line) => line.trim())
                               .filter(Boolean);
                             const amountMatch = text.match(
-                              /(?:[$€£]\\s*)?([0-9]+[.,][0-9]{2})\\s*(?:[$€£])?/,
+                              /(?:[$€£]\s*)?([0-9]+[.,][0-9]{2})\s*(?:[$€£])?/,
                             );
                             const dateMatch = text.match(
-                              /\\b(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})\\b/,
+                              /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/,
                             );
                             const merchant = lines.find((line) => !/[0-9]{2,}/.test(line));
                             if (merchant) setPayee(merchant.slice(0, 120));
