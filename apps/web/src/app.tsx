@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -85,6 +85,7 @@ export function App() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const scrollPositions = useRef(new Map<string, number>());
   const [userId, setUserId] = useState(pb.authStore.record?.id ?? '');
   const [profile, setProfile] = useState<UserProfile>(() => profileFromRecord(pb.authStore.record));
   const [dataErrorDismissed, setDataErrorDismissed] = useState(false);
@@ -101,6 +102,13 @@ export function App() {
       ? 'Could not reach your saved data. Showing the local sample instead.'
       : '';
   const activeTab = tabForPath(pathname);
+
+  useLayoutEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo(0, scrollPositions.current.get(pathname) ?? 0);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname]);
 
   useEffect(
     () =>
@@ -162,6 +170,7 @@ export function App() {
   const handleSearchTargetHandled = useCallback(() => setSearchTarget(null), []);
 
   const onNavigate = (tab: SidebarTab) => {
+    scrollPositions.current.set(pathname, window.scrollY);
     void navigate({ to: routeForTab[tab] });
   };
 

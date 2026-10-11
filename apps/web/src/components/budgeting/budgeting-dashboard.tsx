@@ -717,8 +717,27 @@ function DashboardView({
   onDuplicateTransaction: (transaction: Transaction) => void;
   onOpenBudget: (budget: Budget) => void;
 }) {
-  const [period, setPeriod] = useState<DashboardPeriod>('this-month');
+  const dashboardPeriodKey = `piggybudget:dashboard-period:${pb.authStore.record?.id ?? ''}`;
+  const [period, setPeriod] = useState<DashboardPeriod>(() => {
+    try {
+      const saved = sessionStorage.getItem(dashboardPeriodKey);
+      return ['this-month', 'last-month', 'this-week', 'last-7-days', 'last-30-days'].includes(
+        saved ?? '',
+      )
+        ? (saved as DashboardPeriod)
+        : 'this-month';
+    } catch {
+      return 'this-month';
+    }
+  });
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(dashboardPeriodKey, period);
+    } catch {
+      // Keep the dashboard usable when browser storage is unavailable.
+    }
+  }, [dashboardPeriodKey, period]);
   const range = periodRange(period, readPreferences().weekStart);
   const currentTransactions = data.transactions.filter(
     (transaction) =>
@@ -979,6 +998,28 @@ const emptyTransactionFilters: TransactionFilters = {
   reconciled: 'all',
 };
 
+type TransactionSort = 'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc';
+
+function readTransactionViewState(userId: string): {
+  filters: TransactionFilters;
+  sort: TransactionSort;
+} {
+  try {
+    const saved = JSON.parse(
+      sessionStorage.getItem(`piggybudget:transaction-state:${userId}`) ?? '{}',
+    ) as { filters?: Partial<TransactionFilters>; sort?: string };
+    const sort = ['date-desc', 'date-asc', 'amount-desc', 'amount-asc'].includes(saved.sort ?? '')
+      ? (saved.sort as TransactionSort)
+      : 'date-desc';
+    return {
+      filters: { ...emptyTransactionFilters, ...saved.filters },
+      sort,
+    };
+  } catch {
+    return { filters: emptyTransactionFilters, sort: 'date-desc' };
+  }
+}
+
 function TransactionsView({
   data,
   userId,
@@ -1004,10 +1045,11 @@ function TransactionsView({
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
   onRefresh: () => void;
 }) {
-  const [filters, setFilters] = useState<TransactionFilters>(emptyTransactionFilters);
-  const [sort, setSort] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>(
-    'date-desc',
+  const [filters, setFilters] = useState<TransactionFilters>(
+    () => readTransactionViewState(userId).filters,
   );
+  const [sort, setSort] = useState<TransactionSort>(() => readTransactionViewState(userId).sort);
+  const [stateUserId, setStateUserId] = useState(userId);
   const [page, setPage] = useState(1);
   const [addPopoverOpen, setAddPopoverOpen] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedTransactionView[]>([]);
@@ -1017,6 +1059,24 @@ function TransactionsView({
   const [csvMessage, setCsvMessage] = useState('');
   const [recurringMessage, setRecurringMessage] = useState('');
   const pageSize = 25;
+  useEffect(() => {
+    if (stateUserId === userId) return;
+    const saved = readTransactionViewState(userId);
+    setFilters(saved.filters);
+    setSort(saved.sort);
+    setStateUserId(userId);
+  }, [stateUserId, userId]);
+  useEffect(() => {
+    if (stateUserId !== userId) return;
+    try {
+      sessionStorage.setItem(
+        `piggybudget:transaction-state:${userId}`,
+        JSON.stringify({ filters, sort }),
+      );
+    } catch {
+      // Keep filtering usable when browser storage is unavailable.
+    }
+  }, [filters, sort, stateUserId, userId]);
   const changeRecurringRule = async (rule: RecurringTransaction, active?: boolean) => {
     if (
       active === undefined &&
@@ -2023,6 +2083,7 @@ function budgetPeriodLabel(range: ReturnType<typeof selectedBudgetRange>, period
 }
 
 function BudgetsView({
+  userId,
   data,
   onAddBudget,
   onEditBudget,
@@ -2030,6 +2091,7 @@ function BudgetsView({
   onDeleteBudget,
   onOpenBudget,
 }: {
+  userId: string;
   data: BudgetData;
   onAddBudget: () => void;
   onEditBudget: (budget: Budget) => void;
@@ -2037,9 +2099,43 @@ function BudgetsView({
   onDeleteBudget: (budget: Budget) => void;
   onOpenBudget: (budget: Budget) => void;
 }) {
-  const [monthValue, setMonthValue] = useState(dateKey(new Date()).slice(0, 7));
-  const [period, setPeriod] = useState<BudgetPeriod>('month');
-  const [showArchived, setShowArchived] = useState(false);
+  const viewStateKey = `piggybudget:budget-view:${userId}`;
+  const [viewState, setViewState] = useState<{
+    monthValue: string;
+    period: BudgetPeriod;
+    showArchived: boolean;
+  }>(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(viewStateKey) ?? '{}') as {
+        monthValue?: string;
+        period?: BudgetPeriod;
+        showArchived?: boolean;
+      };
+      return {
+        monthValue: /^\d{4}-(0[1-9]|1[0-2])$/.test(saved.monthValue ?? '')
+          ? saved.monthValue!
+          : dateKey(new Date()).slice(0, 7),
+        period: ['month', 'quarter', 'year'].includes(saved.period ?? '') ? saved.period! : 'month',
+        showArchived: Boolean(saved.showArchived),
+      };
+    } catch {
+      return { monthValue: dateKey(new Date()).slice(0, 7), period: 'month', showArchived: false };
+    }
+  });
+  const { monthValue, period, showArchived } = viewState;
+  const setMonthValue = (value: string) =>
+    setViewState((current) => ({ ...current, monthValue: value }));
+  const setPeriod = (value: BudgetPeriod) =>
+    setViewState((current) => ({ ...current, period: value }));
+  const setShowArchived = (value: boolean) =>
+    setViewState((current) => ({ ...current, showArchived: value }));
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(viewStateKey, JSON.stringify(viewState));
+    } catch {
+      // Keep the budget controls usable when browser storage is unavailable.
+    }
+  }, [viewState, viewStateKey]);
   const range = selectedBudgetRange(monthValue, period);
   const periodName = budgetPeriodLabel(range, period);
   const budgets = data.budgets
@@ -2122,7 +2218,7 @@ function BudgetsView({
           <button
             className="text-button budget-archive-toggle"
             type="button"
-            onClick={() => setShowArchived((current) => !current)}
+            onClick={() => setShowArchived(!showArchived)}
           >
             {showArchived ? 'Show active budgets' : 'Show archived budgets'}
           </button>
@@ -2173,6 +2269,7 @@ function BudgetsView({
 }
 
 function AssetsView({
+  userId,
   data,
   remote,
   onRefresh,
@@ -2180,6 +2277,7 @@ function AssetsView({
   onEditAsset,
   onDeleteAsset,
 }: {
+  userId: string;
   data: BudgetData;
   remote: boolean;
   onRefresh: () => void;
@@ -2188,10 +2286,25 @@ function AssetsView({
   onDeleteAsset: (asset: Asset) => void;
 }) {
   const [historyAsset, setHistoryAsset] = useState<Asset | null>(null);
-  const [historyRange, setHistoryRange] = useState<'3m' | '1y' | 'all'>('1y');
+  const historyRangeKey = `piggybudget:asset-history-range:${userId}`;
+  const [historyRange, setHistoryRange] = useState<'3m' | '1y' | 'all'>(() => {
+    try {
+      const saved = sessionStorage.getItem(historyRangeKey);
+      return ['3m', '1y', 'all'].includes(saved ?? '') ? (saved as '3m' | '1y' | 'all') : '1y';
+    } catch {
+      return '1y';
+    }
+  });
   const [portfolioSnapshots, setPortfolioSnapshots] = useState<
     Array<{ asset: string; position: string; source: string; value: number; as_of: string }>
   >([]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(historyRangeKey, historyRange);
+    } catch {
+      // Keep the history control usable when browser storage is unavailable.
+    }
+  }, [historyRange, historyRangeKey]);
   useEffect(() => {
     let cancelled = false;
     if (!remote) return;
@@ -3959,6 +4072,7 @@ export function BudgetingDashboard({
       />
     ) : view === 'budgets' ? (
       <BudgetsView
+        userId={userId}
         data={data}
         onAddBudget={() => {
           setEditingBudget(null);
@@ -3974,6 +4088,7 @@ export function BudgetingDashboard({
       />
     ) : view === 'assets' ? (
       <AssetsView
+        userId={userId}
         data={data}
         remote={remote}
         onRefresh={onRefresh}
