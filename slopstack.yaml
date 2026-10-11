@@ -21,7 +21,7 @@ tools:
   dockerBuildx: 0.30.0
 
 image:
-  repository: ghcr.io/piggybudget/piggybudget
+  repository: ghcr.io/andreasmolnardev/piggybudget
   tag: latest
   platforms: linux/amd64,linux/arm64
 

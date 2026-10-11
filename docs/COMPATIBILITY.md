@@ -55,7 +55,7 @@ finance behavior, and routes.
 
 ## Deployment and release status
 
-The `slopstack.yaml` image repository is `ghcr.io/piggybudget/piggybudget`.
+The `slopstack.yaml` image repository is `ghcr.io/andreasmolnardev/piggybudget`.
 `pnpm deploy --dry-run` prints the configured multi-platform build, while
 `pnpm deploy --push` publishes after explicit opt-in. The tag-triggered GitHub
 Actions release workflow validates the configured version and publishes the
