@@ -38,6 +38,7 @@ import type {
   Budget,
   BudgetData,
   Goal,
+  FinanceRecordTarget,
   Transaction,
   TransactionKind,
 } from './data';
@@ -101,6 +102,8 @@ type Props = {
   onRefresh: () => void;
   onNavigate: (view: BudgetView) => void;
   profile: UserProfile;
+  recordTarget: FinanceRecordTarget | null;
+  onRecordTargetHandled: () => void;
 };
 
 export function formatMoney(value: number, compact = false) {
@@ -2189,6 +2192,8 @@ export function BudgetingDashboard({
   onRefresh,
   onNavigate,
   profile,
+  recordTarget,
+  onRecordTargetHandled,
 }: Props) {
   const [settingsMessage, setSettingsMessage] = useState('');
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -2200,12 +2205,24 @@ export function BudgetingDashboard({
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  const [recordDetailsTarget, setRecordDetailsTarget] = useState<FinanceRecordTarget | null>(null);
   useEffect(() => {
     if (!userId || !remote || data.accounts.length > 0) return;
     if (localStorage.getItem(onboardingStorageKey(userId)) !== 'complete') {
       setOnboardingOpen(true);
     }
   }, [data.accounts.length, remote, userId]);
+  useEffect(() => {
+    if (!recordTarget || loading) return;
+    if (recordTarget.type === 'transaction') {
+      const transaction = data.transactions.find((item) => item.id === recordTarget.id);
+      if (transaction) setViewingTransaction(transaction);
+      else setRecordDetailsTarget(recordTarget);
+    } else {
+      setRecordDetailsTarget(recordTarget);
+    }
+    onRecordTargetHandled();
+  }, [data, loading, onRecordTargetHandled, recordTarget]);
   if (loading)
     return (
       <div className="loading-state">
@@ -2315,6 +2332,17 @@ export function BudgetingDashboard({
             setEditingTransaction(viewingTransaction);
             setViewingTransaction(null);
             setComposer('transaction');
+          }}
+        />
+      )}
+      {recordDetailsTarget && (
+        <FinanceRecordDetails
+          target={recordDetailsTarget}
+          data={data}
+          onClose={() => setRecordDetailsTarget(null)}
+          onOpenTransaction={(transaction) => {
+            setRecordDetailsTarget(null);
+            setViewingTransaction(transaction);
           }}
         />
       )}
@@ -2713,6 +2741,159 @@ function SettingsView({
         />
       )}
     </>
+  );
+}
+
+function FinanceRecordDetails({
+  target,
+  data,
+  onClose,
+  onOpenTransaction,
+}: {
+  target: FinanceRecordTarget;
+  data: BudgetData;
+  onClose: () => void;
+  onOpenTransaction: (transaction: Transaction) => void;
+}) {
+  const transaction =
+    target.type === 'transaction'
+      ? data.transactions.find((item) => item.id === target.id)
+      : undefined;
+  const account =
+    target.type === 'account' ? data.accounts.find((item) => item.id === target.id) : undefined;
+  const budget =
+    target.type === 'budget' ? data.budgets.find((item) => item.id === target.id) : undefined;
+  const asset = target.type === 'asset' ? data.assets.find((item) => item.id === target.id) : undefined;
+  const goal = target.type === 'goal' ? data.goals.find((item) => item.id === target.id) : undefined;
+  const relatedTransactions = transaction
+    ? [transaction]
+    : account
+      ? data.transactions.filter((item) => item.accountId === account.id)
+      : budget
+        ? data.transactions.filter((item) => item.budgetId === budget.id)
+        : asset?.purchaseTransaction
+          ? data.transactions.filter((item) => item.id === asset.purchaseTransaction)
+          : [];
+  const title =
+    transaction?.merchant ??
+    account?.name ??
+    budget?.category ??
+    asset?.name ??
+    goal?.name ??
+    'Record not available';
+  const recordType = `${target.type[0].toUpperCase()}${target.type.slice(1)}`;
+
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <section
+        className="composer-card record-detail"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="search-record-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="search-record-title">{title}</h2>
+            <span>{recordType} details</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        {transaction && (
+          <dl className="transaction-detail-list">
+            <DetailRow label="Date" value={formatDate(transaction.date)} />
+            <DetailRow label="Amount" value={formatMoney(transaction.amount)} />
+            <DetailRow label="Account" value={transaction.account} />
+            <DetailRow label="Category" value={transaction.category || 'Uncategorized'} />
+            {transaction.note && <DetailRow label="Note" value={transaction.note} />}
+          </dl>
+        )}
+        {account && (
+          <dl className="transaction-detail-list">
+            <DetailRow label="Type" value={account.type} />
+            <DetailRow label="Balance" value={formatMoney(account.balance)} />
+            <DetailRow label="Currency" value={account.currency ?? 'USD'} />
+            <DetailRow label="Default account" value={account.isDefault ? 'Yes' : 'No'} />
+            <DetailRow label="Status" value={account.archived ? 'Archived' : 'Active'} />
+          </dl>
+        )}
+        {budget && (
+          <dl className="transaction-detail-list">
+            <DetailRow label="Category" value={budget.category} />
+            <DetailRow label="Spent" value={formatMoney(budget.spent)} />
+            <DetailRow label="Limit" value={formatMoney(budget.limit)} />
+            <DetailRow label="Remaining" value={formatMoney(budget.limit - budget.spent)} />
+          </dl>
+        )}
+        {asset && (
+          <dl className="transaction-detail-list">
+            <DetailRow label="Type" value={asset.type} />
+            <DetailRow label="Current value" value={formatMoney(asset.value)} />
+            <DetailRow label="Purchase cost" value={formatMoney(asset.cost)} />
+            <DetailRow label="Change" value={formatMoney(asset.value - asset.cost)} />
+            <DetailRow
+              label="Purchase date"
+              value={asset.purchaseDate ? formatDate(asset.purchaseDate) : 'Not recorded'}
+            />
+          </dl>
+        )}
+        {goal && (
+          <>
+            <div className="goal-detail-total">
+              <strong>{formatMoney(goal.current)}</strong>
+              <span> saved of {formatMoney(goal.target)}</span>
+            </div>
+            <ProgressBar
+              value={goal.target > 0 ? (goal.current / goal.target) * 100 : 0}
+              color={goal.color}
+            />
+            <p className="page-description">
+              Progress is saved amount divided by target amount. Target date: {goal.deadline}.
+            </p>
+            {goal.notes && <p className="goal-detail-notes">{goal.notes}</p>}
+          </>
+        )}
+        {relatedTransactions.length > 0 && (
+          <div className="record-related-transactions">
+            <strong>{transaction ? 'Transaction' : 'Related transactions'}</strong>
+            {relatedTransactions.slice(0, 8).map((item) => (
+              <button
+                className="chart-transaction-link"
+                type="button"
+                key={item.id}
+                onClick={() => onOpenTransaction(item)}
+              >
+                <span>{item.merchant} · {formatDate(item.date)}</span>
+                <strong>{formatMoney(item.amount)}</strong>
+              </button>
+            ))}
+          </div>
+        )}
+        {!transaction && !account && !budget && !asset && !goal && (
+          <div className="empty-state">
+            <Search size={20} />
+            <strong>This record is no longer loaded.</strong>
+            <span>Refresh the page and try the search again.</span>
+          </div>
+        )}
+        <div className="composer-actions">
+          <button className="button button-primary" type="button" onClick={onClose}>
+            Close details
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
   );
 }
 

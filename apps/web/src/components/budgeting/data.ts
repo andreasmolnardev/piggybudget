@@ -2,6 +2,8 @@ import type { RecordModel } from 'pocketbase';
 import { apiRequest } from '../../api/client';
 
 export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment';
+export type FinanceRecordType = 'transaction' | 'account' | 'budget' | 'asset' | 'goal';
+export type FinanceRecordTarget = { type: FinanceRecordType; id: string };
 
 export type Transaction = {
   id: string;

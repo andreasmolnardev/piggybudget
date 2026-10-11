@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FinanceSearch } from './components/app/finance-search';
 import { Sidebar, type SidebarTab } from './components/sidebar';
 import { BudgetingDashboard } from './components/budgeting/budgeting-dashboard';
-import { sampleData } from './components/budgeting/data';
+import { sampleData, type FinanceRecordTarget } from './components/budgeting/data';
 import { budgetDataQueryKey, budgetDataQueryOptions } from './components/budgeting/query';
 import { pb } from './api/pocketbase';
 import { profileFromRecord, type UserProfile } from './profile';
@@ -90,6 +90,7 @@ export function App() {
   const [dataErrorDismissed, setDataErrorDismissed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchClosing, setSearchClosing] = useState(false);
+  const [searchTarget, setSearchTarget] = useState<FinanceRecordTarget | null>(null);
   const budgetQuery = useQuery(budgetDataQueryOptions(userId));
   const data = budgetQuery.data?.data ?? sampleData;
   const remote = budgetQuery.data?.remote ?? false;
@@ -158,6 +159,7 @@ export function App() {
   }, []);
 
   const closeSearch = () => setSearchClosing(true);
+  const handleSearchTargetHandled = useCallback(() => setSearchTarget(null), []);
 
   const onNavigate = (tab: SidebarTab) => {
     void navigate({ to: routeForTab[tab] });
@@ -215,6 +217,8 @@ export function App() {
               onRefresh={refresh}
               onNavigate={onNavigate}
               profile={profile}
+              recordTarget={searchTarget}
+              onRecordTargetHandled={handleSearchTargetHandled}
             />
           </div>
         </div>
@@ -229,7 +233,14 @@ export function App() {
       </main>
       {searchOpen && (
         <div className={searchClosing ? 'search-dismiss' : undefined}>
-          <FinanceSearch data={data} onClose={closeSearch} onNavigate={onNavigate} />
+        <FinanceSearch
+          data={data}
+          onClose={closeSearch}
+          onSelect={({ record, tab }) => {
+            setSearchTarget(record);
+            onNavigate(tab);
+          }}
+        />
         </div>
       )}
     </div>

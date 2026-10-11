@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Search, X } from 'lucide-react';
 import type { SidebarTab } from '../sidebar';
-import type { BudgetData } from '../budgeting/data';
+import type { BudgetData, FinanceRecordTarget, FinanceRecordType } from '../budgeting/data';
 import { formatMoney } from '../budgeting/budgeting-dashboard';
 
 type SearchResult = {
   id: string;
+  record: FinanceRecordTarget;
   title: string;
   detail: string;
   section: string;
@@ -19,6 +20,7 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
   const results: SearchResult[] = [
     ...data.transactions.map((transaction) => ({
       id: `transaction-${transaction.id}`,
+      record: { type: 'transaction' as const, id: transaction.id },
       title: transaction.merchant,
       detail: `${transaction.category} · ${transaction.account} · ${transaction.date} · ${formatMoney(transaction.amount)}`,
       section: 'Transaction',
@@ -26,6 +28,7 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
     })),
     ...data.accounts.map((account) => ({
       id: `account-${account.id}`,
+      record: { type: 'account' as const, id: account.id },
       title: account.name,
       detail: `${account.type} · ${formatMoney(account.balance)}`,
       section: 'Account',
@@ -33,6 +36,7 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
     })),
     ...data.budgets.map((budget) => ({
       id: `budget-${budget.id}`,
+      record: { type: 'budget' as const, id: budget.id },
       title: budget.category,
       detail: `${formatMoney(budget.spent)} spent of ${formatMoney(budget.limit)}`,
       section: 'Budget',
@@ -40,6 +44,7 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
     })),
     ...data.assets.map((asset) => ({
       id: `asset-${asset.id}`,
+      record: { type: 'asset' as const, id: asset.id },
       title: asset.name,
       detail: `${asset.type} · ${formatMoney(asset.value)}`,
       section: 'Asset',
@@ -47,6 +52,7 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
     })),
     ...data.goals.map((goal) => ({
       id: `goal-${goal.id}`,
+      record: { type: 'goal' as const, id: goal.id },
       title: goal.name,
       detail: `${formatMoney(goal.current)} saved of ${formatMoney(goal.target)} · ${goal.deadline}`,
       section: 'Goal',
@@ -54,21 +60,33 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
     })),
   ];
   return results
-    .filter((result) => matches(`${result.title} ${result.detail} ${result.section}`))
-    .slice(0, 10);
+    .filter((result) => matches(`${result.title} ${result.detail} ${result.section}`));
 }
 
 export function FinanceSearch({
   data,
   onClose,
-  onNavigate,
+  onSelect,
 }: {
   data: BudgetData;
   onClose: () => void;
-  onNavigate: (tab: SidebarTab) => void;
+  onSelect: (result: { record: FinanceRecordTarget; tab: SidebarTab }) => void;
 }) {
   const [query, setQuery] = useState('');
-  const results = useMemo(() => resultsFor(data, query), [data, query]);
+  const [typeFilter, setTypeFilter] = useState<'all' | FinanceRecordType>('all');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const results = useMemo(
+    () =>
+      resultsFor(data, query).filter(
+        (result) => typeFilter === 'all' || result.record.type === typeFilter,
+      ).slice(0, 10),
+    [data, query, typeFilter],
+  );
+  useEffect(() => setActiveIndex(0), [query, typeFilter]);
+  const selectResult = (result: SearchResult) => {
+    onClose();
+    onSelect({ record: result.record, tab: result.tab });
+  };
 
   return (
     <div
@@ -87,31 +105,56 @@ export function FinanceSearch({
         <div className="search-dialog-input">
           <Search size={20} />
           <input
+            id="finance-search-input"
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onClose();
+              if (event.key === 'ArrowDown' && results.length) {
+                event.preventDefault();
+                setActiveIndex((index) => Math.min(results.length - 1, index + 1));
+              }
+              if (event.key === 'ArrowUp' && results.length) {
+                event.preventDefault();
+                setActiveIndex((index) => Math.max(0, index - 1));
+              }
+              if (event.key === 'Enter' && results[activeIndex]) {
+                event.preventDefault();
+                selectResult(results[activeIndex]);
+              }
             }}
             placeholder="Search transactions, accounts, budgets, assets, goals…"
           />
+          <select
+            className="finance-search-type"
+            aria-label="Filter search results by type"
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value as 'all' | FinanceRecordType)}
+          >
+            <option value="all">All types</option>
+            <option value="transaction">Transactions</option>
+            <option value="account">Accounts</option>
+            <option value="budget">Budgets</option>
+            <option value="asset">Assets</option>
+            <option value="goal">Goals</option>
+          </select>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close search">
             <X size={18} />
           </button>
         </div>
         {query.trim() ? (
           results.length ? (
-            <div role="list" aria-label="Search results">
-              {results.map((result) => (
+            <div role="listbox" aria-label="Search results">
+              {results.map((result, index) => (
                 <button
-                  className="search-result"
+                  className={`search-result ${index === activeIndex ? 'is-active' : ''}`}
                   type="button"
-                  role="listitem"
+                  role="option"
+                  aria-selected={index === activeIndex}
                   key={result.id}
-                  onClick={() => {
-                    onClose();
-                    onNavigate(result.tab);
-                  }}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => selectResult(result)}
                 >
                   <span>
                     <Search size={15} />
