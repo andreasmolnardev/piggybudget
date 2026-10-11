@@ -311,7 +311,19 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
   );
 }
 
-function BudgetLine({ budget, onOpen }: { budget: Budget; onOpen?: () => void }) {
+function BudgetLine({
+  budget,
+  onOpen,
+  onEdit,
+  onArchive,
+  onDelete,
+}: {
+  budget: Budget;
+  onOpen?: () => void;
+  onEdit?: () => void;
+  onArchive?: () => void;
+  onDelete?: () => void;
+}) {
   const percentage = budget.limit ? (budget.spent / budget.limit) * 100 : 0;
   return (
     <div className="budget-line">
@@ -345,6 +357,25 @@ function BudgetLine({ budget, onOpen }: { budget: Budget; onOpen?: () => void })
           ? `${formatMoney(budget.limit - budget.spent)} left`
           : 'Over budget'}
       </small>
+      {(onEdit || onArchive || onDelete) && (
+        <div className="budget-line-actions">
+          {onEdit && (
+            <button className="text-button" type="button" onClick={onEdit}>
+              Edit
+            </button>
+          )}
+          {onArchive && (
+            <button className="text-button" type="button" onClick={onArchive}>
+              {budget.archived ? 'Restore' : 'Archive'}
+            </button>
+          )}
+          {onDelete && (
+            <button className="text-button button-danger" type="button" onClick={onDelete}>
+              Delete
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1394,13 +1425,28 @@ function budgetPeriodLabel(range: ReturnType<typeof selectedBudgetRange>, period
   );
 }
 
-function BudgetsView({ data, onAddBudget }: { data: BudgetData; onAddBudget: () => void }) {
+function BudgetsView({
+  data,
+  onAddBudget,
+  onEditBudget,
+  onArchiveBudget,
+  onDeleteBudget,
+  onOpenBudget,
+}: {
+  data: BudgetData;
+  onAddBudget: () => void;
+  onEditBudget: (budget: Budget) => void;
+  onArchiveBudget: (budget: Budget) => void;
+  onDeleteBudget: (budget: Budget) => void;
+  onOpenBudget: (budget: Budget) => void;
+}) {
   const [monthValue, setMonthValue] = useState(dateKey(new Date()).slice(0, 7));
   const [period, setPeriod] = useState<BudgetPeriod>('month');
+  const [showArchived, setShowArchived] = useState(false);
   const range = selectedBudgetRange(monthValue, period);
   const periodName = budgetPeriodLabel(range, period);
   const budgets = data.budgets
-    .filter((budget) => !budget.archived)
+    .filter((budget) => Boolean(budget.archived) === showArchived)
     .filter((budget) =>
       (!budget.startDate || budget.startDate <= range.end) && (!budget.endDate || budget.endDate >= range.start),
     )
@@ -1474,9 +1520,23 @@ function BudgetsView({ data, onAddBudget }: { data: BudgetData; onAddBudget: () 
               </div>
             }
           />
+          <button
+            className="text-button budget-archive-toggle"
+            type="button"
+            onClick={() => setShowArchived((current) => !current)}
+          >
+            {showArchived ? 'Show active budgets' : 'Show archived budgets'}
+          </button>
           <div className="budget-list budget-list-large">
             {budgets.map((budget) => (
-              <BudgetLine key={budget.id} budget={budget} />
+              <BudgetLine
+                key={budget.id}
+                budget={budget}
+                onOpen={() => onOpenBudget(budget)}
+                onEdit={() => onEditBudget(budget)}
+                onArchive={() => onArchiveBudget(budget)}
+                onDelete={() => onDeleteBudget(budget)}
+              />
             ))}
           </div>
           {!budgets.length && (
@@ -2580,6 +2640,7 @@ export function BudgetingDashboard({
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [recordDetailsTarget, setRecordDetailsTarget] = useState<FinanceRecordTarget | null>(null);
   useEffect(() => {
@@ -2613,13 +2674,18 @@ export function BudgetingDashboard({
     setComposer(null);
     setEditingTransaction(null);
     setEditingAsset(null);
+    setEditingBudget(null);
     setPreferredAccountId(null);
   };
   const saved = () => {
     closeComposer();
     onRefresh();
   };
-  const deleteRecord = async (resource: 'transactions' | 'assets', id: string, name: string) => {
+  const deleteRecord = async (
+    resource: 'transactions' | 'assets' | 'budgets',
+    id: string,
+    name: string,
+  ) => {
     if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
     const response = await apiFetch(`/api/finance/${resource}/${id}`, {
       method: 'DELETE',
@@ -2627,6 +2693,22 @@ export function BudgetingDashboard({
     });
     if (!response.ok) {
       window.alert((await response.text()) || `Could not delete ${name}.`);
+      return;
+    }
+    onRefresh();
+  };
+  const archiveBudget = async (budget: Budget) => {
+    const archived = !budget.archived;
+    const response = await apiFetch(`/api/finance/budgets/${budget.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ archived }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || `Could not ${archived ? 'archive' : 'restore'} this budget.`);
       return;
     }
     onRefresh();
@@ -2692,7 +2774,20 @@ export function BudgetingDashboard({
         onOpenTransaction={setViewingTransaction}
       />
     ) : view === 'budgets' ? (
-      <BudgetsView data={data} onAddBudget={() => setComposer('budget')} />
+      <BudgetsView
+        data={data}
+        onAddBudget={() => {
+          setEditingBudget(null);
+          setComposer('budget');
+        }}
+        onEditBudget={(budget) => {
+          setEditingBudget(budget);
+          setComposer('budget');
+        }}
+        onArchiveBudget={(budget) => void archiveBudget(budget)}
+        onDeleteBudget={(budget) => void deleteRecord('budgets', budget.id, budget.category)}
+        onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
+      />
     ) : view === 'assets' ? (
       <AssetsView
         data={data}
@@ -2733,6 +2828,7 @@ export function BudgetingDashboard({
           remote={remote}
           transaction={editingTransaction}
           asset={editingAsset}
+          budgetRecord={editingBudget}
           preferredAccountId={preferredAccountId}
           onClose={closeComposer}
           onSaved={saved}
@@ -3976,6 +4072,7 @@ function FinanceComposer({
   remote,
   transaction,
   asset,
+  budgetRecord,
   preferredAccountId,
   onClose,
   onSaved,
@@ -3985,6 +4082,7 @@ function FinanceComposer({
   remote: boolean;
   transaction: Transaction | null;
   asset: Asset | null;
+  budgetRecord: Budget | null;
   preferredAccountId: string | null;
   onClose: () => void;
   onSaved: () => void;
@@ -4001,20 +4099,29 @@ function FinanceComposer({
   const [accountType, setAccountType] = useState('Checking');
   const [currency, setCurrency] = useState(readPreferences().currency);
   const [date, setDate] = useState(
-    transaction?.date ?? asset?.purchaseDate ?? new Date().toISOString().slice(0, 10),
+    transaction?.date ??
+      asset?.purchaseDate ??
+      budgetRecord?.startDate ??
+      new Date().toISOString().slice(0, 10),
   );
   const [amount, setAmount] = useState(
-    transaction ? String(transaction.amount) : asset ? String(asset.value) : '',
+    transaction
+      ? String(transaction.amount)
+      : asset
+        ? String(asset.value)
+        : budgetRecord
+          ? String(budgetRecord.limit)
+          : '',
   );
   const [payee, setPayee] = useState(transaction?.merchant ?? '');
   const [type, setType] = useState<'expense' | 'income'>(
     transaction?.kind === 'income' ? 'income' : 'expense',
   );
-  const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? '');
+  const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
   const [description, setDescription] = useState(transaction?.description ?? '');
   const [receivable, setReceivable] = useState(transaction?.receivable ?? '');
   const [purchaseTransaction, setPurchaseTransaction] = useState(asset?.purchaseTransaction ?? '');
-  const [category, setCategory] = useState(transaction?.category ?? '');
+  const [category, setCategory] = useState(transaction?.category ?? budgetRecord?.category ?? '');
   const [budget, setBudget] = useState(transaction?.budgetId ?? '');
   const [tags, setTags] = useState(transaction?.tags?.join(', ') ?? '');
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
@@ -4044,6 +4151,19 @@ function FinanceComposer({
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (
+      kind === 'budget' &&
+      data.budgets.some(
+        (item) =>
+          !item.archived &&
+          item.id !== budgetRecord?.id &&
+          item.category.trim().toLowerCase() === category.trim().toLowerCase() &&
+          (!item.startDate || item.startDate.slice(0, 7) === date.slice(0, 7)),
+      )
+    ) {
+      setError('A budget already exists for this category and month.');
+      return;
+    }
     setBusy(true);
     setError('');
     const numericAmount = Number(amount);
@@ -4108,7 +4228,9 @@ function FinanceComposer({
           ? (transaction?.id ?? savedTransactionId ?? undefined)
           : kind === 'asset'
             ? asset?.id
-            : undefined;
+            : kind === 'budget'
+              ? budgetRecord?.id
+              : undefined;
       if (kind === 'transaction' && pictureFiles.length) validateTransactionFiles(pictureFiles);
       const response = await apiFetch(`/api/finance/${resource}${editedId ? `/${editedId}` : ''}`, {
         method: editedId ? 'PUT' : 'POST',
@@ -4160,7 +4282,9 @@ function FinanceComposer({
               {isAccount
                 ? 'Add an account'
                 : isBudget
-                  ? 'Create a monthly budget'
+                  ? budgetRecord
+                    ? 'Edit budget'
+                    : 'Create a monthly budget'
                   : isAsset
                     ? `${asset ? 'Edit' : 'Add'} asset`
                     : kind === 'checkpoint'
@@ -4182,6 +4306,17 @@ function FinanceComposer({
         )}
         {isBudget ? (
           <>
+            <label>
+              Budget month
+              <input
+                required
+                type="month"
+                value={date.slice(0, 7)}
+                onChange={(event) => {
+                  if (event.target.value) setDate(`${event.target.value}-01`);
+                }}
+              />
+            </label>
             <label>
               Bucket name
               <input

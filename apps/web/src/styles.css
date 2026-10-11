@@ -1209,6 +1209,9 @@ kbd {
   color: var(--muted);
   font-size: 9px;
 }
+.budget-line-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.budget-line-actions .button-danger { font-size: 10px; }
+.budget-archive-toggle { margin: 14px 0 10px; }
 
 /* Transactions */
 .transactions-section {

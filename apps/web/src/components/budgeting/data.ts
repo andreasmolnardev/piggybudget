@@ -47,6 +47,7 @@ export type Budget = {
   startDate?: string;
   endDate?: string;
   archived?: boolean;
+  notes?: string;
 };
 
 export type Asset = {
@@ -380,6 +381,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       startDate: optionalDateValue(record, 'start_date') || undefined,
       endDate: optionalDateValue(record, 'end_date') || undefined,
       archived: Boolean(record.archived),
+      notes: textValue(record, 'notes') || undefined,
     })),
     assets: assets.map((record, index) => ({
       id: record.id,
