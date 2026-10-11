@@ -2174,17 +2174,20 @@ function BudgetsView({
 
 function AssetsView({
   data,
+  remote,
   onRefresh,
   onAddAsset,
   onEditAsset,
   onDeleteAsset,
 }: {
   data: BudgetData;
+  remote: boolean;
   onRefresh: () => void;
   onAddAsset: () => void;
   onEditAsset: (asset: Asset) => void;
   onDeleteAsset: (asset: Asset) => void;
 }) {
+  const [historyAsset, setHistoryAsset] = useState<Asset | null>(null);
   const activeGroupIds = new Set(
     data.assetGroups.filter((group) => !group.archived).map((group) => group.id),
   );
@@ -2262,6 +2265,7 @@ function AssetsView({
             <AssetRow
               key={asset.id}
               asset={asset}
+              onHistory={() => setHistoryAsset(asset)}
               onEdit={() => onEditAsset(asset)}
               onDelete={() => onDeleteAsset(asset)}
             />
@@ -2273,16 +2277,25 @@ function AssetsView({
         positions={data.assetPositions}
         onRefresh={onRefresh}
       />
+      {historyAsset && (
+        <AssetValuationHistoryDialog
+          asset={historyAsset}
+          remote={remote}
+          onClose={() => setHistoryAsset(null)}
+        />
+      )}
     </>
   );
 }
 
 function AssetRow({
   asset,
+  onHistory,
   onEdit,
   onDelete,
 }: {
   asset: Asset;
+  onHistory: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -2311,6 +2324,9 @@ function AssetRow({
         </span>
       </div>
       <span className="row-actions">
+        <button className="text-button" type="button" onClick={onHistory}>
+          History
+        </button>
         <button className="text-button" type="button" onClick={onEdit}>
           Edit
         </button>
@@ -2324,6 +2340,102 @@ function AssetRow({
         </button>
       </span>
     </article>
+  );
+}
+
+function AssetValuationHistoryDialog({
+  asset,
+  remote,
+  onClose,
+}: {
+  asset: Asset;
+  remote: boolean;
+  onClose: () => void;
+}) {
+  const [history, setHistory] = useState<Array<{ id: string; value: number; as_of: string }>>([]);
+  const [loading, setLoading] = useState(remote);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    if (!remote) return;
+    void apiFetch(`/api/finance/assets/${asset.id}/valuations`)
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error((await response.text()) || 'Could not load valuation history.');
+        const records = (await response.json()) as Array<{
+          id: string;
+          value: number;
+          as_of: string;
+        }>;
+        if (!cancelled) setHistory(records);
+      })
+      .catch((caught) => {
+        if (!cancelled)
+          setError(caught instanceof Error ? caught.message : 'Could not load valuation history.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [asset.id, remote]);
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <section
+        className="composer-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="asset-history-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="asset-history-title">{asset.name} valuation history</h2>
+            <span>Saved values over time</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        {loading ? (
+          <p className="page-description">Loading valuations…</p>
+        ) : error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : history.length ? (
+          <div className="asset-valuation-history">
+            {history.map((item, index) => {
+              const previous = history[index + 1];
+              const change = previous ? item.value - previous.value : undefined;
+              return (
+                <div className="saved-view-row" key={item.id}>
+                  <span>{formatDate(item.as_of.slice(0, 10))}</span>
+                  <strong>{formatMoney(item.value)}</strong>
+                  {change !== undefined && (
+                    <small className={change < 0 ? 'negative' : 'positive'}>
+                      {change >= 0 ? '+' : '−'}
+                      {formatMoney(Math.abs(change))}
+                    </small>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="page-description">No valuation snapshots have been saved yet.</p>
+        )}
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>
+            Close
+          </button>
+          <button className="button button-primary" type="button" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -3742,6 +3854,7 @@ export function BudgetingDashboard({
     ) : view === 'assets' ? (
       <AssetsView
         data={data}
+        remote={remote}
         onRefresh={onRefresh}
         onAddAsset={() => setComposer('asset')}
         onEditAsset={(asset) => {

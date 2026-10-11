@@ -135,6 +135,7 @@ func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 		registerFinanceResourceRoutes(e, prefix, config)
 		registerGoalContributionRoutes(e, prefix)
 		registerTransferRoutes(e, prefix)
+		registerAssetValuationRoutes(e, prefix)
 	}
 }
 
@@ -571,6 +572,11 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err := event.App.Save(record); err != nil {
 		return err
 	}
+	if collection == "assets" {
+		if err := saveAssetValuation(event.App, user.Id, record); err != nil {
+			event.App.Logger().Error("save initial asset valuation", "asset_id", record.Id, "error", err)
+		}
+	}
 	if collection == "transactions" {
 		if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
 			event.App.Logger().Error("create budget alert", "transaction_id", record.Id, "error", err)
@@ -625,6 +631,11 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 	}
 	if err := event.App.Save(record); err != nil {
 		return err
+	}
+	if collection == "assets" {
+		if err := saveAssetValuation(event.App, user.Id, record); err != nil {
+			event.App.Logger().Error("save asset valuation", "asset_id", record.Id, "error", err)
+		}
 	}
 	if collection == "transactions" {
 		if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {

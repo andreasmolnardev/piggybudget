@@ -42,6 +42,9 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 		if err := EnsureAssetGroupCollections(e.App); err != nil {
 			return err
 		}
+		if err := EnsureAssetValuationCollection(e.App); err != nil {
+			return err
+		}
 		if err := EnsureTransactionAttachmentCollection(e.App); err != nil {
 			return err
 		}
