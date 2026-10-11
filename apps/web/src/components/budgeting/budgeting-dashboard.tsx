@@ -4631,6 +4631,7 @@ function AccountEditor({
   );
   const [currency, setCurrency] = useState(account.currency ?? 'USD');
   const [openingBalance, setOpeningBalance] = useState(String(account.openingBalance ?? 0));
+  const [alertBelow, setAlertBelow] = useState(String(account.alertBelow ?? ''));
   const [notes, setNotes] = useState(account.notes ?? '');
   const [isDefault, setIsDefault] = useState(Boolean(account.isDefault && !account.archived));
   const [busy, setBusy] = useState(false);
@@ -4645,6 +4646,7 @@ function AccountEditor({
         type,
         currency: currency.trim().toUpperCase(),
         opening_balance: Number(openingBalance),
+        alert_below: Number(alertBelow) || 0,
         notes: notes.trim(),
         is_default: !account.archived && isDefault,
       });
@@ -4711,6 +4713,17 @@ function AccountEditor({
             step="0.01"
             value={openingBalance}
             onChange={(event) => setOpeningBalance(event.target.value)}
+          />
+        </label>
+        <label>
+          Low balance alert (optional)
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={alertBelow}
+            onChange={(event) => setAlertBelow(event.target.value)}
+            placeholder="Disabled"
           />
         </label>
         <label>

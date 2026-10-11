@@ -197,16 +197,32 @@ export function FinanceNotifications({
               <div className="finance-notification-copy">
                 <strong>{notification.title}</strong>
                 {notification.body && <small>{notification.body}</small>}
-                {notification.targetKind === 'receivable' && (
+                {['receivable', 'budget', 'goal', 'account'].includes(
+                  notification.targetKind ?? '',
+                ) && (
                   <button
                     className="text-button"
                     type="button"
                     onClick={() => {
                       void updateServerNotification(notification, 'read');
-                      onNavigate('transactions');
+                      onNavigate(
+                        notification.targetKind === 'receivable'
+                          ? 'transactions'
+                          : notification.targetKind === 'budget'
+                            ? 'budgets'
+                            : notification.targetKind === 'goal'
+                              ? 'goals'
+                              : 'settings',
+                      );
                     }}
                   >
-                    Review Money Lent
+                    {notification.targetKind === 'receivable'
+                      ? 'Review Money Lent'
+                      : notification.targetKind === 'budget'
+                        ? 'Review budget'
+                        : notification.targetKind === 'goal'
+                          ? 'Review goal'
+                          : 'Review account'}
                   </button>
                 )}
               </div>

@@ -33,6 +33,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.TextField{Name: "type"},
 				&core.TextField{Name: "currency"},
 				&core.NumberField{Name: "opening_balance"},
+				&core.NumberField{Name: "alert_below"},
 				&core.DateField{Name: "opening_balance_date"},
 				&core.TextField{Name: "notes"},
 				&core.BoolField{Name: "archived"},

@@ -138,6 +138,12 @@ func runDueRecurringRule(app core.App, ruleID string, today time.Time) (int, err
 			if err := tx.Save(transaction); err != nil {
 				return err
 			}
+			if err := createBudgetOverrunNotifications(tx, rule.GetString("owner"), transaction); err != nil {
+				return err
+			}
+			if err := createAccountLowBalanceNotifications(tx, rule.GetString("owner")); err != nil {
+				return err
+			}
 			created++
 			if err := (audit.PocketBaseRecorder{App: tx}).Log(context.Background(), audit.Event{
 				ActorID: rule.GetString("owner"), Action: "create", Resource: "transactions", ResourceID: transaction.Id,

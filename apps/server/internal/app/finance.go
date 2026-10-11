@@ -23,7 +23,7 @@ var financeCollections = []string{"accounts", "transactions", "checkpoints", "bu
 var financeFields = map[string]map[string]bool{
 	"accounts": {
 		"name": true, "type": true, "currency": true, "opening_balance": true,
-		"opening_balance_date": true, "notes": true, "archived": true, "is_default": true,
+		"opening_balance_date": true, "alert_below": true, "notes": true, "archived": true, "is_default": true,
 	},
 	"transactions": {
 		"account": true, "date": true, "amount": true, "type": true, "payee": true, "description": true,
@@ -217,6 +217,9 @@ func createTransferRoute(event *core.RequestEvent) error {
 	if err != nil {
 		return err
 	}
+	if err := createAccountLowBalanceNotifications(event.App, user.Id); err != nil {
+		event.App.Logger().Error("create low balance alert for transfer", "transfer_id", source.Id, "error", err)
+	}
 	logDomainMutation(event, user.Id, "create", "transactions", source.Id, map[string]any{"transfer_id": source.Id})
 	logDomainMutation(event, user.Id, "create", "transactions", destination.Id, map[string]any{"transfer_id": source.Id})
 	return event.JSON(http.StatusCreated, map[string]any{"transfer_id": source.Id, "source": source.PublicExport(), "destination": destination.PublicExport()})
@@ -289,6 +292,9 @@ func updateTransferRoute(event *core.RequestEvent) error {
 	})
 	if err != nil {
 		return err
+	}
+	if err := createAccountLowBalanceNotifications(event.App, user.Id); err != nil {
+		event.App.Logger().Error("update low balance alert for transfer", "transfer_id", transferID, "error", err)
 	}
 	logDomainMutation(event, user.Id, "update", "transactions", source.Id, map[string]any{"transfer_id": transferID})
 	logDomainMutation(event, user.Id, "update", "transactions", destination.Id, map[string]any{"transfer_id": transferID})
@@ -392,7 +398,8 @@ func createGoalContributionRoute(event *core.RequestEvent) error {
 				return event.BadRequestError("transaction must use the selected account", nil)
 			}
 		}
-		current := goal.GetFloat("current_amount")
+		previous := goal.GetFloat("current_amount")
+		current := previous
 		if kind == "withdrawal" {
 			if amount > current+0.000001 {
 				return event.BadRequestError("withdrawal cannot exceed the saved goal amount", nil)
@@ -419,6 +426,9 @@ func createGoalContributionRoute(event *core.RequestEvent) error {
 		}
 		goal.Set("current_amount", current)
 		if err := tx.Save(goal); err != nil {
+			return err
+		}
+		if err := createGoalMilestoneNotifications(tx, user.Id, goal, previous, current); err != nil {
 			return err
 		}
 		contribution = map[string]any{"contribution": record.PublicExport(), "goal_current": current}
@@ -561,6 +571,16 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err := event.App.Save(record); err != nil {
 		return err
 	}
+	if collection == "transactions" {
+		if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
+			event.App.Logger().Error("create budget alert", "transaction_id", record.Id, "error", err)
+		}
+	}
+	if collection == "transactions" || collection == "accounts" {
+		if err := createAccountLowBalanceNotifications(event.App, user.Id); err != nil {
+			event.App.Logger().Error("create low balance alert", "record_id", record.Id, "error", err)
+		}
+	}
 	logDomainMutation(event, user.Id, "create", collection, record.Id, nil)
 	response, err := financeRecordResponse(event.App, collection, record, user.Id)
 	if err != nil {
@@ -605,6 +625,16 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 	}
 	if err := event.App.Save(record); err != nil {
 		return err
+	}
+	if collection == "transactions" {
+		if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
+			event.App.Logger().Error("update budget alert", "transaction_id", record.Id, "error", err)
+		}
+	}
+	if collection == "transactions" || collection == "accounts" {
+		if err := createAccountLowBalanceNotifications(event.App, user.Id); err != nil {
+			event.App.Logger().Error("update low balance alert", "record_id", record.Id, "error", err)
+		}
 	}
 	logDomainMutation(event, user.Id, "update", collection, record.Id, nil)
 	response, err := financeRecordResponse(event.App, collection, record, user.Id)
