@@ -169,12 +169,15 @@ function TransactionRow({
   onOpen,
   onEdit,
   onDelete,
+  onDuplicate,
 }: {
   transaction: Transaction;
   onOpen?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onDuplicate?: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div
       className="transaction-row transaction-entry"
@@ -201,7 +204,70 @@ function TransactionRow({
         {transaction.kind === 'income' ? '+' : '-'}
         {formatMoney(transaction.amount)}
       </strong>
-      {onEdit && onDelete ? (
+      {onEdit && onDelete && onDuplicate ? (
+        <span className="transaction-row-menu-wrap">
+          <button
+            className="icon-button row-menu"
+            aria-label={`More options for ${transaction.merchant}`}
+            aria-expanded={menuOpen}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen((open) => !open);
+            }}
+          >
+            <MoreHorizontal size={17} />
+          </button>
+          {menuOpen && (
+            <span
+              className="transaction-row-menu"
+              role="menu"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpen?.();
+                }}
+              >
+                View
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEdit();
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDuplicate();
+                }}
+              >
+                Duplicate
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete();
+                }}
+              >
+                Delete
+              </button>
+            </span>
+          )}
+        </span>
+      ) : onEdit && onDelete ? (
         <span className="row-actions">
           <button
             className="text-button"
@@ -246,16 +312,33 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
   );
 }
 
-function BudgetLine({ budget }: { budget: Budget }) {
+function BudgetLine({ budget, onOpen }: { budget: Budget; onOpen?: () => void }) {
   const percentage = budget.limit ? (budget.spent / budget.limit) * 100 : 0;
   return (
     <div className="budget-line">
       <div className="budget-line-heading">
         <span className="budget-dot" style={{ background: budget.color }} />
-        <strong>{budget.category}</strong>
-        <span className="budget-line-amount">
-          {formatMoney(budget.spent)} <em>/ {formatMoney(budget.limit)}</em>
-        </span>
+        {onOpen ? (
+          <button className="budget-line-open" type="button" onClick={onOpen}>
+            {budget.category}
+          </button>
+        ) : (
+          <strong>{budget.category}</strong>
+        )}
+        {onOpen ? (
+          <button
+            className="budget-line-amount budget-line-open"
+            type="button"
+            onClick={onOpen}
+            aria-label={`Open ${budget.category} budget and transactions`}
+          >
+            {formatMoney(budget.spent)} <em>/ {formatMoney(budget.limit)}</em>
+          </button>
+        ) : (
+          <span className="budget-line-amount">
+            {formatMoney(budget.spent)} <em>/ {formatMoney(budget.limit)}</em>
+          </span>
+        )}
       </div>
       <ProgressBar value={percentage} color={budget.color} />
       <small>
@@ -569,12 +652,20 @@ function DashboardView({
   onNavigate,
   onAddTransaction,
   onOpenTransaction,
+  onEditTransaction,
+  onDeleteTransaction,
+  onDuplicateTransaction,
+  onOpenBudget,
 }: {
   data: BudgetData;
   profile: UserProfile;
   onNavigate: (view: BudgetView) => void;
   onAddTransaction: () => void;
   onOpenTransaction: (transaction: Transaction) => void;
+  onEditTransaction: (transaction: Transaction) => void;
+  onDeleteTransaction: (transaction: Transaction) => void;
+  onDuplicateTransaction: (transaction: Transaction) => void;
+  onOpenBudget: (budget: Budget) => void;
 }) {
   const [period, setPeriod] = useState<DashboardPeriod>('this-month');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -702,6 +793,9 @@ function DashboardView({
                 key={transaction.id}
                 transaction={transaction}
                 onOpen={() => onOpenTransaction(transaction)}
+                onEdit={() => onEditTransaction(transaction)}
+                onDelete={() => onDeleteTransaction(transaction)}
+                onDuplicate={() => onDuplicateTransaction(transaction)}
               />
             ))}
           </div>
@@ -717,7 +811,7 @@ function DashboardView({
           />
           <div className="budget-list">
             {data.budgets.slice(0, 4).map((budget) => (
-              <BudgetLine key={budget.id} budget={budget} />
+              <BudgetLine key={budget.id} budget={budget} onOpen={() => onOpenBudget(budget)} />
             ))}
           </div>
         </section>
@@ -2472,6 +2566,32 @@ export function BudgetingDashboard({
     }
     onRefresh();
   };
+  const duplicateTransaction = async (transaction: Transaction) => {
+    const response = await apiFetch('/api/finance/transactions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        account: transaction.accountId,
+        date: transaction.date,
+        amount: transaction.kind === 'expense' ? -transaction.amount : transaction.amount,
+        type: transaction.kind,
+        payee: transaction.merchant,
+        description: transaction.description ?? '',
+        category: transaction.category,
+        budget: transaction.budgetId ?? '',
+        tags: transaction.tags ?? [],
+        notes: transaction.note ?? '',
+      }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not duplicate this transaction.');
+      return;
+    }
+    onRefresh();
+  };
   const content =
     view === 'dashboard' ? (
       <DashboardView
@@ -2480,6 +2600,15 @@ export function BudgetingDashboard({
         onNavigate={onNavigate}
         onAddTransaction={() => setComposer('transaction')}
         onOpenTransaction={setViewingTransaction}
+        onEditTransaction={(transaction) => {
+          setEditingTransaction(transaction);
+          setComposer('transaction');
+        }}
+        onDeleteTransaction={(transaction) =>
+          void deleteRecord('transactions', transaction.id, transaction.merchant)
+        }
+        onDuplicateTransaction={(transaction) => void duplicateTransaction(transaction)}
+        onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
     ) : view === 'transactions' ? (
       <TransactionsView
