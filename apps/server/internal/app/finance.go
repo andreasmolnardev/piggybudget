@@ -134,6 +134,7 @@ func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 	for _, prefix := range []string{"/api/finance", "/api"} {
 		registerFinanceResourceRoutes(e, prefix, config)
 		registerGoalContributionRoutes(e, prefix)
+		registerRecurringGoalContributionRoutes(e, prefix)
 		registerTransferRoutes(e, prefix)
 		registerAssetValuationRoutes(e, prefix)
 	}

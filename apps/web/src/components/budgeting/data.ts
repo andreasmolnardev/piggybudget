@@ -131,6 +131,19 @@ export type GoalContribution = {
   notes?: string;
 };
 
+export type RecurringGoalContribution = {
+  id: string;
+  goalId: string;
+  amount: number;
+  accountId?: string;
+  frequency: RecurringTransaction['frequency'];
+  interval: number;
+  nextDate: string;
+  endDate?: string;
+  active: boolean;
+  notes?: string;
+};
+
 export type Reconciliation = {
   amount: number;
   state: 'reconciled' | 'incomplete' | 'invalid';
@@ -150,6 +163,7 @@ export type BudgetData = {
   assetPositions: AssetPosition[];
   goals: Goal[];
   goalContributions: GoalContribution[];
+  recurringGoalContributions: RecurringGoalContribution[];
   reconciliation: Reconciliation | null;
 };
 
@@ -288,6 +302,7 @@ export const sampleData: BudgetData = {
     },
   ],
   goalContributions: [],
+  recurringGoalContributions: [],
   reconciliation: {
     amount: 190.12,
     state: 'incomplete',
@@ -362,12 +377,22 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     getRecords('goals'),
     getRecords('recurring_transactions'),
   ]);
-  const contributionRecords = await Promise.all(
-    goals.map(async (goal) => {
-      const records = await apiRequest<unknown>(`/api/finance/goals/${goal.id}/contributions`);
-      return Array.isArray(records) ? (records as RecordModel[]) : [];
-    }),
-  );
+  const [contributionRecords, recurringGoalContributionRecords] = await Promise.all([
+    Promise.all(
+      goals.map(async (goal) => {
+        const records = await apiRequest<unknown>(`/api/finance/goals/${goal.id}/contributions`);
+        return Array.isArray(records) ? (records as RecordModel[]) : [];
+      }),
+    ),
+    Promise.all(
+      goals.map(async (goal) => {
+        const records = await apiRequest<unknown>(
+          `/api/finance/goals/${goal.id}/recurring-contributions`,
+        );
+        return Array.isArray(records) ? (records as RecordModel[]) : [];
+      }),
+    ),
+  ]);
 
   const remoteData: BudgetData = {
     recurringTransactions: recurringTransactions.map((record) => ({
@@ -496,6 +521,20 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
         amount: numberValue(record, 'amount'),
         accountId: textValue(record, 'account') || undefined,
         transactionId: textValue(record, 'transaction') || undefined,
+        notes: textValue(record, 'notes') || undefined,
+      })),
+    ),
+    recurringGoalContributions: recurringGoalContributionRecords.flatMap((records) =>
+      records.map((record) => ({
+        id: record.id,
+        goalId: textValue(record, 'goal'),
+        amount: numberValue(record, 'amount'),
+        accountId: textValue(record, 'account') || undefined,
+        frequency: textValue(record, 'frequency') as RecurringTransaction['frequency'],
+        interval: numberValue(record, 'interval') || 1,
+        nextDate: optionalDateValue(record, 'next_date') ?? '',
+        endDate: optionalDateValue(record, 'end_date') || undefined,
+        active: Boolean(record.active),
         notes: textValue(record, 'notes') || undefined,
       })),
     ),

@@ -39,6 +39,7 @@ import type {
   BudgetData,
   Goal,
   GoalContribution,
+  RecurringGoalContribution,
   FinanceRecordTarget,
   RecurringTransaction,
   Transaction,
@@ -3139,6 +3140,7 @@ function GoalsView({
   const [composerGoal, setComposerGoal] = useState<Goal | null | undefined>(undefined);
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [contributionType, setContributionType] = useState<GoalContribution['type'] | null>(null);
+  const [recurringGoalOpen, setRecurringGoalOpen] = useState(false);
   const goals = data.goals.filter((goal) => !goal.archived);
   useEffect(() => {
     if (!selectedGoal) return;
@@ -3223,6 +3225,55 @@ function GoalsView({
       throw new Error((await response.text()) || 'Could not save the goal contribution.');
     }
     setContributionType(null);
+    onRefresh();
+  };
+  const saveRecurringContribution = async (
+    goal: Goal,
+    values: {
+      amount: string;
+      account: string;
+      frequency: RecurringGoalContribution['frequency'];
+      interval: string;
+      startDate: string;
+      endDate: string;
+      notes: string;
+    },
+  ) => {
+    const response = await apiFetch(`/api/finance/goals/${goal.id}/recurring-contributions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: Number(values.amount),
+        account: values.account,
+        frequency: values.frequency,
+        interval: Number(values.interval),
+        start_date: values.startDate,
+        end_date: values.endDate,
+        notes: values.notes,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Could not schedule this contribution.');
+    }
+    setRecurringGoalOpen(false);
+    onRefresh();
+  };
+  const updateRecurringContribution = async (
+    schedule: RecurringGoalContribution,
+    active?: boolean,
+  ) => {
+    if (active === undefined && !window.confirm('Delete this recurring contribution schedule?')) {
+      return;
+    }
+    const response = await apiFetch(`/api/finance/recurring-goal-contributions/${schedule.id}`, {
+      method: active === undefined ? 'DELETE' : 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      ...(active === undefined ? {} : { body: JSON.stringify({ active }) }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not update the recurring contribution.');
+      return;
+    }
     onRefresh();
   };
   const orderedGoals = [...data.goals].sort((a, b) => {
@@ -3349,9 +3400,14 @@ function GoalsView({
             )
           }
           contributions={data.goalContributions.filter((item) => item.goalId === selectedGoal.id)}
+          recurringContributions={data.recurringGoalContributions.filter(
+            (item) => item.goalId === selectedGoal.id,
+          )}
           accounts={data.accounts}
           transactions={data.transactions}
           onAddContribution={setContributionType}
+          onAddRecurringContribution={() => setRecurringGoalOpen(true)}
+          onUpdateRecurringContribution={updateRecurringContribution}
           onOpenTransaction={(transaction) => {
             setSelectedGoal(null);
             onOpenTransaction(transaction);
@@ -3366,6 +3422,14 @@ function GoalsView({
           transactions={data.transactions}
           onClose={() => setContributionType(null)}
           onSave={(values) => saveContribution(selectedGoal, values)}
+        />
+      )}
+      {recurringGoalOpen && selectedGoal && (
+        <RecurringGoalContributionDialog
+          goal={selectedGoal}
+          accounts={data.accounts}
+          onClose={() => setRecurringGoalOpen(false)}
+          onSave={(values) => saveRecurringContribution(selectedGoal, values)}
         />
       )}
     </>
@@ -3698,9 +3762,174 @@ function GoalContributionDialog({
   );
 }
 
+function RecurringGoalContributionDialog({
+  goal,
+  accounts,
+  onClose,
+  onSave,
+}: {
+  goal: Goal;
+  accounts: Account[];
+  onClose: () => void;
+  onSave: (values: {
+    amount: string;
+    account: string;
+    frequency: RecurringGoalContribution['frequency'];
+    interval: string;
+    startDate: string;
+    endDate: string;
+    notes: string;
+  }) => Promise<void>;
+}) {
+  const [amount, setAmount] = useState('');
+  const [account, setAccount] = useState('');
+  const [frequency, setFrequency] = useState<RecurringGoalContribution['frequency']>('monthly');
+  const [interval, setInterval] = useState('1');
+  const [startDate, setStartDate] = useState(dateKey(new Date()));
+  const [endDate, setEndDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await onSave({
+        amount,
+        account,
+        frequency,
+        interval,
+        startDate,
+        endDate,
+        notes: notes.trim(),
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not schedule this contribution.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="composer-overlay account-editor-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <form
+        className="composer-card"
+        onSubmit={(event) => void submit(event)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recurring-goal-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="recurring-goal-title">Schedule contributions</h2>
+            <span>{goal.name}</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <label>
+          Amount each time
+          <input
+            required
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </label>
+        <div className="form-grid">
+          <label>
+            Repeat
+            <select
+              value={frequency}
+              onChange={(event) =>
+                setFrequency(event.target.value as RecurringGoalContribution['frequency'])
+              }
+            >
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </label>
+          <label>
+            Every
+            <input
+              required
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              value={interval}
+              onChange={(event) => setInterval(event.target.value)}
+            />
+          </label>
+        </div>
+        <label>
+          Linked account <small>Optional</small>
+          <select value={account} onChange={(event) => setAccount(event.target.value)}>
+            <option value="">No linked account</option>
+            {accounts
+              .filter((item) => !item.archived)
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <div className="form-grid">
+          <label>
+            First contribution
+            <input
+              required
+              type="date"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+            />
+          </label>
+          <label>
+            Stop after <small>Optional</small>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+            />
+          </label>
+        </div>
+        <label>
+          Notes
+          <textarea
+            rows={2}
+            maxLength={1000}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
+        </label>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Schedule contributions'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function GoalDetails({
   goal,
   contributions,
+  recurringContributions,
   accounts,
   transactions,
   onClose,
@@ -3709,10 +3938,13 @@ function GoalDetails({
   onArchive,
   onPause,
   onAddContribution,
+  onAddRecurringContribution,
+  onUpdateRecurringContribution,
   onOpenTransaction,
 }: {
   goal: Goal;
   contributions: GoalContribution[];
+  recurringContributions: RecurringGoalContribution[];
   accounts: Account[];
   transactions: Transaction[];
   onClose: () => void;
@@ -3721,6 +3953,8 @@ function GoalDetails({
   onArchive: () => void;
   onPause: () => void;
   onAddContribution: (type: GoalContribution['type']) => void;
+  onAddRecurringContribution: () => void;
+  onUpdateRecurringContribution: (schedule: RecurringGoalContribution, active?: boolean) => void;
   onOpenTransaction: (transaction: Transaction) => void;
 }) {
   const progress =
@@ -3829,6 +4063,60 @@ function GoalDetails({
             })
           ) : (
             <p className="page-description">No contributions have been recorded yet.</p>
+          )}
+        </section>
+        <section className="goal-contribution-history" aria-label="Recurring contributions">
+          <div className="goal-history-heading">
+            <strong>Recurring contributions</strong>
+            {!goal.archived && goal.status !== 'paused' && goal.status !== 'completed' && (
+              <button className="text-button" type="button" onClick={onAddRecurringContribution}>
+                <Plus size={13} /> Schedule
+              </button>
+            )}
+          </div>
+          {recurringContributions.length ? (
+            recurringContributions.map((schedule) => {
+              const account = accounts.find((item) => item.id === schedule.accountId);
+              const unit = {
+                daily: 'day',
+                weekly: 'week',
+                monthly: 'month',
+                yearly: 'year',
+              }[schedule.frequency];
+              const cadence = `${schedule.interval > 1 ? `${schedule.interval} ` : ''}${unit}${schedule.interval > 1 ? 's' : ''}`;
+              return (
+                <div className="goal-history-row" key={schedule.id}>
+                  <span>
+                    <strong>
+                      {formatMoney(schedule.amount)} every {cadence}
+                    </strong>
+                    <small>
+                      {schedule.active ? `Next ${formatDate(schedule.nextDate)}` : 'Paused'}
+                      {account ? ` · ${account.name}` : ''}
+                      {schedule.endDate ? ` · Ends ${formatDate(schedule.endDate)}` : ''}
+                    </small>
+                  </span>
+                  <div>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => onUpdateRecurringContribution(schedule, !schedule.active)}
+                    >
+                      {schedule.active ? 'Pause' : 'Resume'}
+                    </button>
+                    <button
+                      className="text-button button-danger"
+                      type="button"
+                      onClick={() => onUpdateRecurringContribution(schedule)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="page-description">No recurring contributions are scheduled.</p>
           )}
         </section>
         <div className="goal-detail-actions">

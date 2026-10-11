@@ -74,6 +74,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 	registerCalDAVChangeHooks(pb)
 	registerReminderScheduler(pb)
 	registerRecurringTransactionScheduler(pb)
+	registerRecurringGoalContributionScheduler(pb)
 	registerFinanceReminderScheduler(pb)
 	// Keep protocol fixtures available to the server's existing DAV tests. They
 	// are not part of the Piggybudget product surface or web navigation.

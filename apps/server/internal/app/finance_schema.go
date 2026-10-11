@@ -168,6 +168,23 @@ func EnsureFinanceCollections(app core.App) error {
 			},
 			indexes: []financeIndex{{"idx_goal_contributions_owner_goal_date", "owner, goal, date", false}},
 		},
+		{
+			name: "recurring_goal_contributions",
+			fields: []core.Field{
+				&core.TextField{Name: "owner", Required: true},
+				&core.TextField{Name: "goal", Required: true},
+				&core.NumberField{Name: "amount", Required: true},
+				&core.TextField{Name: "account"},
+				&core.TextField{Name: "frequency", Required: true},
+				&core.NumberField{Name: "interval", Required: true, OnlyInt: true},
+				&core.DateField{Name: "start_date", Required: true},
+				&core.DateField{Name: "next_date", Required: true},
+				&core.DateField{Name: "end_date"},
+				&core.TextField{Name: "notes"},
+				&core.BoolField{Name: "active"},
+			},
+			indexes: []financeIndex{{"idx_recurring_goal_contributions_owner_next", "owner, active, next_date", false}},
+		},
 	}
 
 	for _, definition := range definitions {
