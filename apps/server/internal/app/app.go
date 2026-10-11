@@ -3,7 +3,6 @@ package app
 import (
 	"crypto/rand"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -167,7 +166,6 @@ func protectUserAdminFlag(pb *pocketbase.PocketBase, config Config) {
 			code := activationCode()
 			e.Record.Set("activation_code", code)
 			e.Record.Set("registration_status", "awaiting_activation")
-			log.Printf("registration activation code email=%s code=%s", e.Record.GetString("email"), code)
 		} else {
 			e.Record.Set("registration_status", "awaiting_approval")
 		}

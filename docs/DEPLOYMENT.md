@@ -8,10 +8,8 @@ docker compose up --build
 
 The image and service are named `piggybudget`. Project identity and build defaults are validated from [`slopstack.yaml`](../slopstack.yaml). PocketBase data persists in the existing `slopstack-data` volume mounted at `/app/pb_data`; keep that volume name and mount when upgrading an existing deployment.
 
-The server build resolves the pinned Slopstack Go module from `go.mod`, so the
-image can be built from this repository alone after the backup command options
-are released in Slopstack v0.2.0. For now, local validation uses the temporary
-sibling checkout replacement in `go.mod`.
+The server build resolves the pinned Slopstack Go module v0.2.0 from `go.mod`,
+so the image builds from this repository alone.
 
 `pnpm deploy` validates the config and prints the multi-platform Buildx command by default. To publish, log in to the registry and opt in explicitly:
 
@@ -19,10 +17,13 @@ sibling checkout replacement in `go.mod`.
 pnpm deploy --push
 ```
 
-The command reads image repository, tag, platforms, and registry host from
-`slopstack.yaml`. Before the v0.2.0 runtime release, the app's Go dependency uses
-a temporary local replacement; afterwards remove it and pin the immutable
-v0.2.0 module version.
+To build a local multi-platform OCI archive without registry access, run
+`pnpm deploy --export ./piggybudget.oci.tar`. Publishing and exporting check
+that the installed Docker Buildx version matches `tools.dockerBuildx` in
+`slopstack.yaml`.
+
+The command reads image repository, tag, platforms, registry host, and Buildx
+version from `slopstack.yaml`.
 
 `pnpm release --version 1.2.3` previews a release config update. Apply it with
 `pnpm release --version 1.2.3 --apply`; that only updates `release.version` and
@@ -31,9 +32,37 @@ v0.2.0 module version.
 ## Required production settings
 
 - Set `PIGGYBUDGET_PUBLIC_URL` to the public origin.
-- Set `PIGGYBUDGET_SECURE_COOKIES=true` behind HTTPS.
 - Set a durable `PIGGYBUDGET_STORAGE_PATH`.
 - Keep PocketBase data outside ephemeral container storage.
+- Set `PIGGYBUDGET_LOG_LEVEL` to `debug`, `info`, `warn`, or `error` to filter
+  application `slog` output. PocketBase's persisted log settings still control
+  its own logs.
+
+Piggybudget's web client sends PocketBase bearer tokens; the server does not use
+cookie authentication, so there is no secure-cookie setting to configure.
+
+## Reverse proxy and upgrades
+
+Terminate HTTPS at a trusted reverse proxy and forward requests to the private
+server port. Keep the `Host` and forwarded protocol headers intact so links and
+redirects use the public HTTPS origin. For Caddy:
+
+```caddyfile
+finance.example.com {
+    reverse_proxy 127.0.0.1:8090
+}
+```
+
+Set `PIGGYBUDGET_PUBLIC_URL=https://finance.example.com`. Keep port 8090 off
+the public network. Before an upgrade, create a backup and retain a copy outside
+the live volume. Deploy the new image with the existing data volume mounted;
+PocketBase applies additive migrations at startup. Check `/api/health` after
+startup. If the new version cannot use the data, stop all app instances and
+restore the pre-upgrade archive before restarting the previous image.
+
+`PIGGYBUDGET_REGISTRATION_MODE=otp` currently stores a generated activation
+code but does not deliver it by email. Use `approval` until mail delivery is
+configured; activation codes are never written to application logs.
 
 The `PIGGYBUDGET_*` names are preferred. Existing `SLOPSTACK_*` names remain supported as deprecated aliases; the Piggybudget value wins if both are set.
 

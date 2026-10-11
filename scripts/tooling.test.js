@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { buildDeployCommand } from './deploy.js';
+import { buildDeployCommand, validateBuildxVersion } from './deploy.js';
 import { parseConfigYaml, validateProjectConfig } from './project-config.js';
 import { planRelease } from './release.js';
 
@@ -42,6 +42,19 @@ test('deploy plan builds from the app checkout using configured platforms', () =
   assert.ok(command.args.includes('--platform'));
   assert.ok(command.args.includes('--push'));
   assert.equal(command.args.at(-1), '.');
+});
+
+test('deploy can export a local OCI archive', () => {
+  const command = buildDeployCommand({
+    image: { platforms: 'linux/amd64,linux/arm64', repository: 'ghcr.io/example/piggybudget', tag: 'latest' },
+  }, { exportPath: '/tmp/piggybudget.oci.tar' });
+  assert.deepEqual(command.args.slice(-3), ['--output', 'type=oci,dest=/tmp/piggybudget.oci.tar', '.']);
+  assert.equal(command.args.includes('--push'), false);
+});
+
+test('deploy requires the configured Docker Buildx version for publishing or export', () => {
+  validateBuildxVersion('0.30.0', 'github.com/docker/buildx v0.30.0 123abc');
+  assert.throws(() => validateBuildxVersion('0.30.0', 'github.com/docker/buildx v0.29.1 123abc'), /requires 0\.30\.0/);
 });
 
 test('release preparation is a plan and leaves the app config unchanged', async () => {

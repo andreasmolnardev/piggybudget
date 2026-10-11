@@ -14,9 +14,10 @@ cd "$repo_dir"
 binary="$fixture_dir/piggybudget"
 source_dir="$fixture_dir/source-data"
 restore_dir="$fixture_dir/restore-data"
+historical_restore_dir="$fixture_dir/historical-restore-data"
 legacy_dir="$fixture_dir/legacy-data"
 
-mkdir -p "$source_dir" "$restore_dir/backups"
+mkdir -p "$source_dir" "$restore_dir/backups" "$historical_restore_dir/backups"
 
 go build -o "$binary" ./apps/server/cmd/piggybudget
 if [ "$(go list -m)" != "github.com/piggybudget/piggybudget" ]; then
@@ -70,6 +71,31 @@ if [ ! -s "$restore_dir/data.db" ]; then
 	exit 1
 fi
 
+# Exercise the current CLI restore path with a populated archive from an older
+# Piggybudget source revision. The fixture is synthetic and checked into source.
+historical_archive=piggybudget-historical-fixture.zip
+cp apps/server/testdata/piggybudget-eb40d62-populated.zip "$historical_restore_dir/backups/$historical_archive"
+env -u SLOPSTACK_STORAGE_PATH \
+	-u PIGGYBUDGET_BACKUP_RESTORE_RESTARTED \
+	-u SLOPSTACK_BACKUP_RESTORE_RESTARTED \
+	PIGGYBUDGET_BACKUP_ENABLED=false \
+	PIGGYBUDGET_STORAGE_PATH="$historical_restore_dir" \
+	"$binary" backup restore "$historical_archive" --confirm
+
+python3 - "$historical_restore_dir/data.db" <<'PY'
+import sqlite3
+import sys
+
+db = sqlite3.connect(sys.argv[1])
+assert db.execute("SELECT email FROM users WHERE id = ?", ("histuser0000001",)).fetchone() == ("historical-piggy@example.invalid",)
+assert db.execute("SELECT name, currency, opening_balance FROM accounts WHERE id = ?", ("histacct0000001",)).fetchone() == ("Historical checking", "EUR", 125.5)
+assert db.execute("SELECT payee, description, category, amount FROM transactions WHERE id = ?", ("histtxn00000001",)).fetchone() == ("Historical market", "Synthetic historical transaction", "Groceries", -18.75)
+assert db.execute("SELECT name, type, currency FROM assets WHERE id = ?", ("histasset000001",)).fetchone() == ("Historical index fund", "investment", "EUR")
+for collection in ("transaction_attachments", "asset_groups", "asset_positions"):
+    assert db.execute("SELECT 1 FROM _collections WHERE name = ?", (collection,)).fetchone(), f"missing migrated collection {collection}"
+assert "asset_group" in {row[1] for row in db.execute("PRAGMA table_info(assets)")}
+PY
+
 env -u SLOPSTACK_STORAGE_PATH \
 	PIGGYBUDGET_BACKUP_ENABLED=false \
 	PIGGYBUDGET_STORAGE_PATH="$source_dir" \
@@ -96,4 +122,4 @@ env -u SLOPSTACK_STORAGE_PATH \
 	PIGGYBUDGET_STORAGE_PATH="$restore_dir" \
 	"$binary" backup restore "$encrypted_archive" --confirm
 
-printf 'identity and disposable plain/encrypted backup restore checks passed: %s %s\n' "$archive" "$encrypted_archive"
+printf 'identity, disposable plain/encrypted restore, and historical CLI restore checks passed: %s %s\n' "$archive" "$encrypted_archive"

@@ -15,7 +15,6 @@ const (
 type Config struct {
 	HTTPAddress      string
 	PublicURL        string
-	SecureCookies    bool
 	RegistrationMode RegistrationMode
 	LogLevel         string
 	StoragePath      string
@@ -40,7 +39,6 @@ func LoadConfig() Config {
 	return Config{
 		HTTPAddress:      piggybudgetEnv("HTTP_ADDRESS", "0.0.0.0:8090"),
 		PublicURL:        piggybudgetEnv("PUBLIC_URL", "http://localhost:8090"),
-		SecureCookies:    piggybudgetEnvBool("SECURE_COOKIES", false),
 		RegistrationMode: registrationMode(),
 		LogLevel:         piggybudgetEnv("LOG_LEVEL", "info"),
 		StoragePath:      piggybudgetEnv("STORAGE_PATH", "pb_data"),

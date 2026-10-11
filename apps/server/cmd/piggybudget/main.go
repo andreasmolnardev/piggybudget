@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -17,6 +18,10 @@ import (
 
 func main() {
 	config := app.LoadConfig()
+	if err := configureLogger(config.LogLevel, config.Development); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: config.StoragePath, DefaultDev: config.Development})
 	pb.RootCmd.Use = "piggybudget"
 	pb.RootCmd.Short = "Piggybudget application server"
@@ -34,6 +39,29 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func configureLogger(configuredLevel string, development bool) error {
+	var level slog.Level
+	switch strings.ToLower(strings.TrimSpace(configuredLevel)) {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		return fmt.Errorf("invalid PIGGYBUDGET_LOG_LEVEL %q (use debug, info, warn, or error)", configuredLevel)
+	}
+	options := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler = slog.NewJSONHandler(os.Stdout, options)
+	if development {
+		handler = slog.NewTextHandler(os.Stdout, options)
+	}
+	slog.SetDefault(slog.New(handler))
+	return nil
 }
 
 func newOpenAPI(config app.Config) huma.API {

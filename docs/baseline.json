@@ -46,14 +46,13 @@
       "SLOPSTACK_PUBLIC_URL",
       "SLOPSTACK_REGISTRATION_ENABLED",
       "SLOPSTACK_REGISTRATION_MODE",
-      "SLOPSTACK_SECURE_COOKIES",
       "SLOPSTACK_STORAGE_PATH"
     ],
     "binary_dir": "apps/server/cmd/piggybudget",
     "cli_use_string": "piggybudget",
     "localstorage_key_taskboard_leak": "taskboard-custom-theme",
     "guest_user_email": "guest@taskboard.local",
-    "env_var_count": 19
+    "env_var_count": 18
   },
   "vcs": {
     "remotes": [],
@@ -1881,7 +1880,7 @@
         "otp"
       ],
       "default": "approval",
-      "note": "non-superuser create forces isAdmin=false, disabled=true; otp mode logs the activation code to stdout (app.go:164)"
+      "note": "non-superuser create forces isAdmin=false, disabled=true; otp stores an activation code without sending or logging it; configure mail delivery before enabling otp"
     },
     {
       "name": "js_sdk",
