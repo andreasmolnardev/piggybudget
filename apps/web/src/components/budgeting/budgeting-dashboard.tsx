@@ -180,12 +180,14 @@ function TransactionRow({
   onEdit,
   onDelete,
   onDuplicate,
+  onToggleCleared,
 }: {
   transaction: Transaction;
   onOpen?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
+  onToggleCleared?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -214,7 +216,7 @@ function TransactionRow({
         {(transaction.signedAmount ?? (transaction.kind === 'income' ? 1 : -1)) >= 0 ? '+' : '−'}
         {formatMoney(transaction.amount)}
       </strong>
-      {onEdit && onDelete && onDuplicate ? (
+      {onEdit && onDelete && (onDuplicate || onToggleCleared) ? (
         <span className="transaction-row-menu-wrap">
           <button
             className="icon-button row-menu"
@@ -254,16 +256,30 @@ function TransactionRow({
               >
                 Edit
               </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDuplicate();
-                }}
-              >
-                Duplicate
-              </button>
+              {onDuplicate && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDuplicate();
+                  }}
+                >
+                  Duplicate
+                </button>
+              )}
+              {onToggleCleared && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onToggleCleared();
+                  }}
+                >
+                  {transaction.cleared ? 'Mark uncleared' : 'Mark cleared'}
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"
@@ -706,6 +722,7 @@ function DashboardView({
   onEditTransaction,
   onDeleteTransaction,
   onDuplicateTransaction,
+  onToggleCleared,
   onOpenBudget,
 }: {
   data: BudgetData;
@@ -716,6 +733,7 @@ function DashboardView({
   onEditTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
   onDuplicateTransaction: (transaction: Transaction) => void;
+  onToggleCleared: (transaction: Transaction) => void;
   onOpenBudget: (budget: Budget) => void;
 }) {
   const dashboardPeriodKey = `piggybudget:dashboard-period:${pb.authStore.record?.id ?? ''}`;
@@ -889,6 +907,7 @@ function DashboardView({
                 onEdit={() => onEditTransaction(transaction)}
                 onDelete={() => onDeleteTransaction(transaction)}
                 onDuplicate={() => onDuplicateTransaction(transaction)}
+                onToggleCleared={() => onToggleCleared(transaction)}
               />
             ))}
           </div>
@@ -1030,6 +1049,7 @@ function TransactionsView({
   onAddAccount,
   onEditTransaction,
   onDeleteTransaction,
+  onToggleCleared,
   onOpenTransaction,
   onRenameReceivable,
   onRefresh,
@@ -1042,6 +1062,7 @@ function TransactionsView({
   onAddAccount: () => void;
   onEditTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
+  onToggleCleared: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
   onRefresh: () => void;
@@ -1660,6 +1681,7 @@ function TransactionsView({
                 onOpen={() => onOpenTransaction(transaction)}
                 onEdit={() => onEditTransaction(transaction)}
                 onDelete={() => onDeleteTransaction(transaction)}
+                onToggleCleared={() => onToggleCleared(transaction)}
               />
             ))
           ) : (
@@ -4218,6 +4240,21 @@ export function BudgetingDashboard({
     }
     onRefresh();
   };
+  const toggleTransactionCleared = async (transaction: Transaction) => {
+    const response = await apiFetch(`/api/finance/transactions/${transaction.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cleared: !transaction.cleared }),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not update the cleared status.');
+      return;
+    }
+    onRefresh();
+  };
   const archiveBudget = async (budget: Budget) => {
     const archived = !budget.archived;
     const response = await apiFetch(`/api/finance/budgets/${budget.id}`, {
@@ -4337,6 +4374,7 @@ export function BudgetingDashboard({
           void deleteRecord('transactions', transaction.id, transaction.merchant)
         }
         onDuplicateTransaction={(transaction) => void duplicateTransaction(transaction)}
+        onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
     ) : view === 'transactions' ? (
@@ -4354,6 +4392,7 @@ export function BudgetingDashboard({
         onDeleteTransaction={(transaction) =>
           void deleteRecord('transactions', transaction.id, transaction.merchant)
         }
+        onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenTransaction={setViewingTransaction}
         onRenameReceivable={renameReceivable}
         onRefresh={onRefresh}
