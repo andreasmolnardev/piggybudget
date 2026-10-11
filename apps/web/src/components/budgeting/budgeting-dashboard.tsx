@@ -2360,13 +2360,23 @@ function AssetsView({
   const standaloneAssets = data.assets.filter(
     (asset) => !asset.assetGroup || !groupsWithPositions.has(asset.assetGroup),
   );
+  const assetsWithCost = standaloneAssets.filter((asset) => asset.costKnown !== false);
+  const positionsWithCost = activePositions.filter((position) => position.costKnown !== false);
+  const missingCostCount =
+    standaloneAssets.length -
+    assetsWithCost.length +
+    activePositions.length -
+    positionsWithCost.length;
   const totalValue =
     standaloneAssets.reduce((sum, asset) => sum + asset.value, 0) +
     activePositions.reduce((sum, position) => sum + position.value, 0);
   const totalCost =
-    standaloneAssets.reduce((sum, asset) => sum + asset.cost, 0) +
-    activePositions.reduce((sum, position) => sum + position.purchasePrice, 0);
-  const roi = totalCost ? ((totalValue - totalCost) / totalCost) * 100 : 0;
+    assetsWithCost.reduce((sum, asset) => sum + asset.cost, 0) +
+    positionsWithCost.reduce((sum, position) => sum + position.purchasePrice, 0);
+  const trackedReturn =
+    assetsWithCost.reduce((sum, asset) => sum + asset.value - asset.cost, 0) +
+    positionsWithCost.reduce((sum, position) => sum + position.value - position.purchasePrice, 0);
+  const roi = totalCost ? (trackedReturn / totalCost) * 100 : 0;
   const compositionTotals = new Map<string, number>();
   for (const item of [
     ...standaloneAssets.map((asset) => ({ type: asset.type || 'Other', value: asset.value })),
@@ -2451,7 +2461,10 @@ function AssetsView({
             <span>Total net worth</span>
             <strong>{formatMoney(totalValue)}</strong>
             <small>
-              <ArrowUpRight size={14} /> {roi.toFixed(1)}% return overall
+              <ArrowUpRight size={14} />
+              {totalCost
+                ? `${roi.toFixed(1)}% return on tracked cost`
+                : 'Add purchase cost to track return'}
             </small>
           </div>
           <div
@@ -2473,8 +2486,16 @@ function AssetsView({
             <TrendingUp size={17} />
           </div>
           <span>Portfolio ROI</span>
-          <strong>+{formatMoney(totalValue - totalCost)}</strong>
-          <small>Since you started tracking</small>
+          <strong>
+            {totalCost
+              ? `${trackedReturn >= 0 ? '+' : '−'}${formatMoney(Math.abs(trackedReturn))}`
+              : 'Cost data needed'}
+          </strong>
+          <small className={missingCostCount ? 'asset-cost-warning' : undefined}>
+            {missingCostCount
+              ? `${missingCostCount} item${missingCostCount === 1 ? '' : 's'} missing purchase cost`
+              : 'Return since you started tracking'}
+          </small>
           <label className="asset-history-range">
             <span className="sr-only">Valuation history range</span>
             <select
@@ -2527,6 +2548,19 @@ function AssetsView({
               onDelete={() => onDeleteAsset(asset)}
             />
           ))}
+          {!data.assets.length && !activePositions.length && (
+            <div className="empty-state asset-empty-state">
+              <TrendingUp size={20} />
+              <strong>Start tracking your assets</strong>
+              <span>
+                Purchase cost tracks gains, current value tracks net worth, and target sale price is
+                your estimate.
+              </span>
+              <button className="button button-primary" type="button" onClick={onAddAsset}>
+                <Plus size={14} /> Add your first asset
+              </button>
+            </div>
+          )}
         </div>
       </section>
       <AssetGroupsSection
@@ -2556,8 +2590,9 @@ function AssetRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const returnValue = asset.value - asset.cost;
-  const returnPercentage = asset.cost ? (returnValue / asset.cost) * 100 : 0;
+  const costKnown = asset.costKnown !== false;
+  const returnValue = costKnown ? asset.value - asset.cost : 0;
+  const returnPercentage = costKnown && asset.cost ? (returnValue / asset.cost) * 100 : 0;
   return (
     <article className="asset-row asset-card">
       <span className="asset-mark" style={{ background: asset.color }}>
@@ -2568,6 +2603,7 @@ function AssetRow({
         <span>
           {asset.type}
           {asset.purchaseDate && ` · Purchased ${asset.purchaseDate}`}
+          {` · Value date ${asset.asOf ? formatDate(asset.asOf) : 'not set'}`}
           {asset.targetSalePrice ? ` · Target sale ${formatMoney(asset.targetSalePrice)}` : ''}
         </span>
       </div>
@@ -2576,9 +2612,15 @@ function AssetRow({
       </div>
       <div className="asset-numbers">
         <strong>{formatMoney(asset.value)}</strong>
-        <span className="positive">
-          +{returnPercentage.toFixed(1)}% <small>({formatMoney(returnValue)})</small>
-        </span>
+        {costKnown ? (
+          <span className={returnValue < 0 ? 'negative' : 'positive'}>
+            {returnValue < 0 ? '−' : '+'}
+            {Math.abs(returnPercentage).toFixed(1)}%{' '}
+            <small>({formatMoney(Math.abs(returnValue))})</small>
+          </span>
+        ) : (
+          <span className="asset-cost-missing">Purchase cost not set</span>
+        )}
       </div>
       <span className="row-actions">
         <button className="text-button" type="button" onClick={onHistory}>
@@ -2837,6 +2879,7 @@ function AssetGroupCard({
         purchase_price: Number(purchasePrice),
         target_sale_price: Number(targetSalePrice),
         currency: group.currency || 'USD',
+        as_of: dateKey(new Date()),
       }),
     });
     if (!response.ok) {
@@ -2863,6 +2906,7 @@ function AssetGroupCard({
         value: Number(positionValue),
         purchase_price: Number(positionPurchasePrice),
         target_sale_price: Number(positionTargetSalePrice),
+        as_of: dateKey(new Date()),
       }),
     });
     if (!response.ok) {
@@ -3064,8 +3108,14 @@ function AssetGroupCard({
             <>
               <strong>{position.name}</strong>
               <span>
-                Buy {formatMoney(position.purchasePrice)} · Sell{' '}
+                {position.costKnown === false
+                  ? 'Buy value not set'
+                  : `Buy ${formatMoney(position.purchasePrice)}`}
+                {' · Sell '}
                 {formatMoney(position.targetSalePrice)}
+                {position.asOf
+                  ? ` · Value date ${formatDate(position.asOf)}`
+                  : ' · Value date not set'}
               </span>
               <b>{formatMoney(position.value)}</b>
               <div className="asset-position-actions">
@@ -5961,6 +6011,9 @@ function FinanceComposer({
       budgetRecord?.startDate ??
       new Date().toISOString().slice(0, 10),
   );
+  const [valuationDate, setValuationDate] = useState(
+    asset?.asOf ?? new Date().toISOString().slice(0, 10),
+  );
   const [amount, setAmount] = useState(
     transaction
       ? String(transaction.amount)
@@ -5998,7 +6051,7 @@ function FinanceComposer({
   const [assetName, setAssetName] = useState(asset?.name ?? '');
   const [assetType, setAssetType] = useState(asset?.type ?? 'Other');
   const [purchasePrice, setPurchasePrice] = useState(
-    String(asset?.purchasePrice ?? asset?.cost ?? ''),
+    String(asset?.costKnown === false ? '' : (asset?.purchasePrice ?? asset?.cost ?? '')),
   );
   const [targetSalePrice, setTargetSalePrice] = useState(String(asset?.targetSalePrice ?? ''));
   const [busy, setBusy] = useState(false);
@@ -6078,6 +6131,7 @@ function FinanceComposer({
                   value: numericAmount,
                   purchase_price: Number(purchasePrice) || 0,
                   purchase_date: date,
+                  as_of: valuationDate,
                   purchase_transaction: purchaseTransaction,
                   target_sale_price: Number(targetSalePrice) || 0,
                   currency,
@@ -6305,6 +6359,15 @@ function FinanceComposer({
             <label>
               Purchase date
               <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            </label>
+            <label>
+              Current value date
+              <input
+                required
+                type="date"
+                value={valuationDate}
+                onChange={(event) => setValuationDate(event.target.value)}
+              />
             </label>
             <label>
               Purchase transaction

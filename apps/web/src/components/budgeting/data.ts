@@ -73,8 +73,10 @@ export type Asset = {
   type: string;
   value: number;
   cost: number;
+  costKnown?: boolean;
   color: string;
   purchaseDate?: string;
+  asOf?: string;
   targetSalePrice?: number;
   purchasePrice?: number;
   purchaseTransaction?: string;
@@ -101,6 +103,7 @@ export type AssetPosition = {
   currency?: string;
   purchaseDate?: string;
   purchasePrice: number;
+  costKnown?: boolean;
   targetSalePrice: number;
   asOf?: string;
   notes?: string;
@@ -458,11 +461,11 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       name: textValue(record, 'name', 'title') || 'Unnamed asset',
       type: textValue(record, 'type', 'asset_type') || 'Asset',
       value: numberValue(record, 'value', 'current_value', 'balance'),
-      cost:
-        numberValue(record, 'purchase_price', 'cost', 'basis', 'contributions') ||
-        numberValue(record, 'value', 'current_value'),
+      cost: numberValue(record, 'purchase_price', 'cost', 'basis', 'contributions'),
+      costKnown: numberValue(record, 'purchase_price', 'cost', 'basis', 'contributions') > 0,
       color: ['#5f8d7e', '#be8a54', '#8e82b9', '#6b9ab8'][index % 4],
       purchaseDate: textValue(record, 'purchase_date').slice(0, 10),
+      asOf: optionalDateValue(record, 'as_of'),
       purchasePrice: numberValue(record, 'purchase_price'),
       purchaseTransaction: textValue(record, 'purchase_transaction'),
       targetSalePrice: numberValue(record, 'target_sale_price'),
@@ -487,6 +490,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       currency: textValue(record, 'currency') || undefined,
       purchaseDate: optionalDateValue(record, 'purchase_date'),
       purchasePrice: numberValue(record, 'purchase_price'),
+      costKnown: numberValue(record, 'purchase_price') > 0,
       targetSalePrice: numberValue(record, 'target_sale_price'),
       asOf: optionalDateValue(record, 'as_of'),
       notes: textValue(record, 'notes') || undefined,

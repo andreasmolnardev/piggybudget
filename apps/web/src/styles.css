@@ -1138,6 +1138,13 @@ kbd {
 .positive {
   color: var(--primary);
 }
+.asset-numbers .negative,
+.asset-numbers .asset-cost-missing {
+  color: var(--danger);
+}
+.roi-panel .asset-cost-warning {
+  color: var(--danger);
+}
 .row-menu {
   color: var(--muted);
 }
@@ -1487,6 +1494,12 @@ kbd {
 .empty-state strong {
   color: var(--foreground);
   font-size: 13px;
+}
+.asset-empty-state {
+  grid-column: 1 / -1;
+  padding: 35px 20px;
+  border: 1px dashed var(--border);
+  border-radius: 13px;
 }
 
 /* Budgets */
