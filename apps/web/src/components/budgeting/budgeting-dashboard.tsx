@@ -38,6 +38,7 @@ import type {
   Budget,
   BudgetData,
   Goal,
+  GoalContribution,
   FinanceRecordTarget,
   Transaction,
   TransactionKind,
@@ -1754,11 +1755,24 @@ function AssetGroupCard({
   );
 }
 
-function GoalsView({ data, onRefresh }: { data: BudgetData; onRefresh: () => void }) {
+function GoalsView({
+  data,
+  onRefresh,
+  onOpenTransaction,
+}: {
+  data: BudgetData;
+  onRefresh: () => void;
+  onOpenTransaction: (transaction: Transaction) => void;
+}) {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [composerGoal, setComposerGoal] = useState<Goal | null | undefined>(undefined);
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
+  const [contributionType, setContributionType] = useState<GoalContribution['type'] | null>(null);
   const goals = data.goals.filter((goal) => !goal.archived);
+  useEffect(() => {
+    if (!selectedGoal) return;
+    setSelectedGoal(data.goals.find((goal) => goal.id === selectedGoal.id) ?? null);
+  }, [data.goals, selectedGoal?.id]);
   const saveGoal = async (goal: Goal | null, values: GoalFormValues) => {
     const response = await apiFetch(`/api/finance/goals${goal ? `/${goal.id}` : ''}`, {
       method: goal ? 'PATCH' : 'POST',
@@ -1809,6 +1823,35 @@ function GoalsView({ data, onRefresh }: { data: BudgetData; onRefresh: () => voi
       return;
     }
     setSelectedGoal(null);
+    onRefresh();
+  };
+  const saveContribution = async (
+    goal: Goal,
+    values: {
+      type: GoalContribution['type'];
+      amount: string;
+      date: string;
+      account: string;
+      transaction: string;
+      notes: string;
+    },
+  ) => {
+    const response = await apiFetch(`/api/finance/goals/${goal.id}/contributions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: values.type,
+        amount: Number(values.amount),
+        date: values.date,
+        account: values.account,
+        transaction: values.transaction,
+        notes: values.notes,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Could not save the goal contribution.');
+    }
+    setContributionType(null);
     onRefresh();
   };
   const orderedGoals = [...data.goals].sort((a, b) => {
@@ -1930,6 +1973,24 @@ function GoalsView({ data, onRefresh }: { data: BudgetData; onRefresh: () => voi
               'update',
             )
           }
+          contributions={data.goalContributions.filter((item) => item.goalId === selectedGoal.id)}
+          accounts={data.accounts}
+          transactions={data.transactions}
+          onAddContribution={setContributionType}
+          onOpenTransaction={(transaction) => {
+            setSelectedGoal(null);
+            onOpenTransaction(transaction);
+          }}
+        />
+      )}
+      {contributionType && selectedGoal && (
+        <GoalContributionDialog
+          goal={selectedGoal}
+          type={contributionType}
+          accounts={data.accounts}
+          transactions={data.transactions}
+          onClose={() => setContributionType(null)}
+          onSave={(values) => saveContribution(selectedGoal, values)}
         />
       )}
     </>
@@ -2107,20 +2168,134 @@ function GoalComposer({
   );
 }
 
+function GoalContributionDialog({
+  goal,
+  type,
+  accounts,
+  transactions,
+  onClose,
+  onSave,
+}: {
+  goal: Goal;
+  type: GoalContribution['type'];
+  accounts: Account[];
+  transactions: Transaction[];
+  onClose: () => void;
+  onSave: (values: {
+    type: GoalContribution['type'];
+    amount: string;
+    date: string;
+    account: string;
+    transaction: string;
+    notes: string;
+  }) => Promise<void>;
+}) {
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(dateKey(new Date()));
+  const [account, setAccount] = useState('');
+  const [transaction, setTransaction] = useState('');
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await onSave({ type, amount, date, account, transaction, notes: notes.trim() });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save this entry.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="composer-overlay account-editor-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <form
+        className="composer-card"
+        onSubmit={(event) => void submit(event)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="goal-contribution-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="goal-contribution-title">{type === 'contribution' ? 'Add contribution' : 'Record withdrawal'}</h2>
+            <span>{goal.name}</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <label>
+          Amount
+          <input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        </label>
+        <label>
+          Date
+          <input required type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+        </label>
+        <label>
+          Linked account <small>Optional</small>
+          <select value={account} onChange={(event) => setAccount(event.target.value)}>
+            <option value="">No linked account</option>
+            {accounts.filter((item) => !item.archived).map((item) => (
+              <option key={item.id} value={item.id}>{item.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Linked transaction <small>Optional</small>
+          <select value={transaction} onChange={(event) => setTransaction(event.target.value)}>
+            <option value="">No linked transaction</option>
+            {transactions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.date} · {item.merchant} · {formatMoney(item.amount)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Notes
+          <textarea rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving…' : type === 'contribution' ? 'Save contribution' : 'Save withdrawal'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function GoalDetails({
   goal,
+  contributions,
+  accounts,
+  transactions,
   onClose,
   onEdit,
   onDelete,
   onArchive,
   onPause,
+  onAddContribution,
+  onOpenTransaction,
 }: {
   goal: Goal;
+  contributions: GoalContribution[];
+  accounts: Account[];
+  transactions: Transaction[];
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onArchive: () => void;
   onPause: () => void;
+  onAddContribution: (type: GoalContribution['type']) => void;
+  onOpenTransaction: (transaction: Transaction) => void;
 }) {
   const progress = goal.target > 0 ? Math.min(100, Math.max(0, goal.current / goal.target * 100)) : 0;
   const overdue = goal.deadline !== 'No deadline' && goal.deadline < new Date().toISOString().slice(0, 10) && goal.status !== 'completed';
@@ -2166,6 +2341,48 @@ function GoalDetails({
             : 'You have reached this target.'}
         </p>
         {goal.notes && <p className="goal-detail-notes">{goal.notes}</p>}
+        <section className="goal-contribution-history" aria-label="Contribution history">
+          <div className="goal-history-heading">
+            <strong>Contribution history</strong>
+            {!goal.archived && (
+              <div>
+                <button className="text-button" type="button" onClick={() => onAddContribution('contribution')}>
+                  <Plus size={13} /> Add
+                </button>
+                <button className="text-button" type="button" onClick={() => onAddContribution('withdrawal')}>
+                  Withdraw
+                </button>
+              </div>
+            )}
+          </div>
+          {contributions.length ? (
+            contributions.slice(0, 8).map((entry) => {
+              const linkedTransaction = transactions.find((item) => item.id === entry.transactionId);
+              const linkedAccount = accounts.find((item) => item.id === entry.accountId);
+              return (
+                <div className="goal-history-row" key={entry.id}>
+                  <span>
+                    <strong>{entry.type === 'contribution' ? 'Contribution' : 'Withdrawal'}</strong>
+                    <small>{formatDate(entry.date)}{linkedAccount ? ` · ${linkedAccount.name}` : ''}</small>
+                    {entry.notes && <small>{entry.notes}</small>}
+                  </span>
+                  <div>
+                    <b className={entry.type === 'withdrawal' ? 'is-withdrawal' : ''}>
+                      {entry.type === 'withdrawal' ? '−' : '+'}{formatMoney(entry.amount)}
+                    </b>
+                    {linkedTransaction && (
+                      <button className="text-button" type="button" onClick={() => onOpenTransaction(linkedTransaction)}>
+                        View transaction
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="page-description">No contributions have been recorded yet.</p>
+          )}
+        </section>
         <div className="goal-detail-actions">
           <button className="button button-primary" type="button" onClick={onEdit}>Edit goal</button>
           {!goal.archived && (
@@ -2294,7 +2511,11 @@ export function BudgetingDashboard({
         onDeleteAsset={(asset) => void deleteRecord('assets', asset.id, asset.name)}
       />
     ) : view === 'goals' ? (
-      <GoalsView data={data} onRefresh={onRefresh} />
+      <GoalsView
+        data={data}
+        onRefresh={onRefresh}
+        onOpenTransaction={setViewingTransaction}
+      />
     ) : (
       <SettingsView
         userId={userId}

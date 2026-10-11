@@ -98,6 +98,17 @@ export type Goal = {
   archived?: boolean;
 };
 
+export type GoalContribution = {
+  id: string;
+  goalId: string;
+  date: string;
+  type: 'contribution' | 'withdrawal';
+  amount: number;
+  accountId?: string;
+  transactionId?: string;
+  notes?: string;
+};
+
 export type Reconciliation = {
   amount: number;
   state: 'reconciled' | 'incomplete' | 'invalid';
@@ -115,6 +126,7 @@ export type BudgetData = {
   assetGroups: AssetGroup[];
   assetPositions: AssetPosition[];
   goals: Goal[];
+  goalContributions: GoalContribution[];
   reconciliation: Reconciliation | null;
 };
 
@@ -251,6 +263,7 @@ export const sampleData: BudgetData = {
       color: '#8e82b9',
     },
   ],
+  goalContributions: [],
   reconciliation: {
     amount: 190.12,
     state: 'incomplete',
@@ -316,6 +329,12 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       getRecords('asset-positions'),
       getRecords('goals'),
     ]);
+  const contributionRecords = await Promise.all(
+    goals.map(async (goal) => {
+      const records = await apiRequest<unknown>(`/api/finance/goals/${goal.id}/contributions`);
+      return Array.isArray(records) ? (records as RecordModel[]) : [];
+    }),
+  );
 
   const remoteData: BudgetData = {
     transactions: transactions.map((record) => ({
@@ -406,6 +425,16 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       status: textValue(record, 'status') === 'paused' ? 'paused' : record.completed ? 'completed' : 'active',
       archived: Boolean(record.archived),
     })),
+    goalContributions: contributionRecords.flatMap((records) => records.map((record) => ({
+      id: record.id,
+      goalId: textValue(record, 'goal'),
+      date: dateValue(record),
+      type: textValue(record, 'type') === 'withdrawal' ? 'withdrawal' as const : 'contribution' as const,
+      amount: numberValue(record, 'amount'),
+      accountId: textValue(record, 'account') || undefined,
+      transactionId: textValue(record, 'transaction') || undefined,
+      notes: textValue(record, 'notes') || undefined,
+    }))),
     reconciliation: null,
   };
 

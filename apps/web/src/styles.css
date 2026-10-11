@@ -1764,6 +1764,16 @@ kbd {
 .goal-detail-total strong { font-size: 28px; letter-spacing: -0.05em; }
 .goal-detail-total span, .goal-detail-notes { color: var(--muted); font-size: 12px; }
 .goal-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.goal-contribution-history { display: grid; gap: 10px; margin: 20px 0; }
+.goal-history-heading, .goal-history-heading > div, .goal-history-row, .goal-history-row > div { display: flex; align-items: center; }
+.goal-history-heading, .goal-history-row { justify-content: space-between; gap: 12px; }
+.goal-history-heading > div { gap: 8px; }
+.goal-history-row { padding: 11px 0; border-top: 1px solid var(--line); }
+.goal-history-row > span, .goal-history-row > div { display: grid; gap: 4px; }
+.goal-history-row > div { justify-items: end; }
+.goal-history-row small { color: var(--muted); font-size: 11px; }
+.goal-history-row b { font-size: 13px; }
+.goal-history-row .is-withdrawal { color: var(--danger); }
 .button-danger { color: var(--danger, #a83c32); }
 .goal-amount {
   display: flex;

@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,7 +128,128 @@ func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 	// use for clients that already use /api/{resource} custom endpoints.
 	for _, prefix := range []string{"/api/finance", "/api"} {
 		registerFinanceResourceRoutes(e, prefix, config)
+		registerGoalContributionRoutes(e, prefix)
 	}
+}
+
+func registerGoalContributionRoutes(e *core.ServeEvent, prefix string) {
+	path := prefix + "/goals/{id}/contributions"
+	e.Router.GET(path, listGoalContributionsRoute)
+	e.Router.POST(path, createGoalContributionRoute)
+}
+
+func listGoalContributionsRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	goal, err := event.App.FindRecordById("goals", event.Request.PathValue("id"))
+	if err != nil || !ownership.IsOwner(goal, "owner", user.Id) {
+		return event.NotFoundError("goal not found", nil)
+	}
+	records, err := event.App.FindRecordsByFilter(
+		"goal_contributions",
+		"owner = {:owner} && goal = {:goal}",
+		"-date,-created",
+		0,
+		0,
+		dbx.Params{"owner": user.Id, "goal": goal.Id},
+	)
+	if err != nil {
+		return err
+	}
+	result := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		result = append(result, record.PublicExport())
+	}
+	return event.JSON(http.StatusOK, result)
+}
+
+func createGoalContributionRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	input, err := financeInput(event)
+	if err != nil {
+		return err
+	}
+	amount, err := strconv.ParseFloat(fmt.Sprint(input["amount"]), 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+		return event.BadRequestError("amount must be greater than zero", nil)
+	}
+	kind := stringValue(input["type"])
+	if kind != "contribution" && kind != "withdrawal" {
+		return event.BadRequestError("type must be contribution or withdrawal", nil)
+	}
+	date := time.Now().UTC()
+	if value := stringValue(input["date"]); value != "" {
+		parsed, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			return event.BadRequestError("date must use YYYY-MM-DD", nil)
+		}
+		date = parsed
+	}
+	accountID := stringValue(input["account"])
+	transactionID := stringValue(input["transaction"])
+	goalID := event.Request.PathValue("id")
+	var contribution map[string]any
+	err = event.App.RunInTransaction(func(tx core.App) error {
+		goal, err := tx.FindRecordById("goals", goalID)
+		if err != nil || !ownership.IsOwner(goal, "owner", user.Id) {
+			return event.NotFoundError("goal not found", nil)
+		}
+		if accountID != "" {
+			account, err := tx.FindRecordById("accounts", accountID)
+			if err != nil || !ownership.IsOwner(account, "owner", user.Id) {
+				return event.BadRequestError("account must belong to the current user", nil)
+			}
+		}
+		if transactionID != "" {
+			transaction, err := tx.FindRecordById("transactions", transactionID)
+			if err != nil || !ownership.IsOwner(transaction, "owner", user.Id) {
+				return event.BadRequestError("transaction must belong to the current user", nil)
+			}
+			if accountID != "" && transaction.GetString("account") != accountID {
+				return event.BadRequestError("transaction must use the selected account", nil)
+			}
+		}
+		current := goal.GetFloat("current_amount")
+		if kind == "withdrawal" {
+			if amount > current+0.000001 {
+				return event.BadRequestError("withdrawal cannot exceed the saved goal amount", nil)
+			}
+			current -= amount
+		} else {
+			current += amount
+		}
+		collection, err := tx.FindCollectionByNameOrId("goal_contributions")
+		if err != nil {
+			return err
+		}
+		record := core.NewRecord(collection)
+		record.Set("owner", user.Id)
+		record.Set("goal", goal.Id)
+		record.Set("date", date)
+		record.Set("type", kind)
+		record.Set("amount", amount)
+		record.Set("account", accountID)
+		record.Set("transaction", transactionID)
+		record.Set("notes", stringValue(input["notes"]))
+		if err := tx.Save(record); err != nil {
+			return err
+		}
+		goal.Set("current_amount", current)
+		if err := tx.Save(goal); err != nil {
+			return err
+		}
+		contribution = map[string]any{"contribution": record.PublicExport(), "goal_current": current}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return event.JSON(http.StatusCreated, contribution)
 }
 
 func registerFinanceResourceRoutes(e *core.ServeEvent, prefix string, config Config) {
