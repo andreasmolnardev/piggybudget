@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ArrowRight, Search, X } from 'lucide-react';
 import type { SidebarTab } from '../sidebar';
 import type { BudgetData } from '../budgeting/data';
+import { formatMoney } from '../budgeting/budgeting-dashboard';
 
 type SearchResult = {
   id: string;
@@ -19,35 +20,35 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
     ...data.transactions.map((transaction) => ({
       id: `transaction-${transaction.id}`,
       title: transaction.merchant,
-      detail: `${transaction.category} · ${transaction.account} · ${transaction.date} · ${transaction.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`,
+      detail: `${transaction.category} · ${transaction.account} · ${transaction.date} · ${formatMoney(transaction.amount)}`,
       section: 'Transaction',
       tab: 'transactions' as const,
     })),
     ...data.accounts.map((account) => ({
       id: `account-${account.id}`,
       title: account.name,
-      detail: `${account.type} · ${account.balance.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`,
+      detail: `${account.type} · ${formatMoney(account.balance)}`,
       section: 'Account',
       tab: 'transactions' as const,
     })),
     ...data.budgets.map((budget) => ({
       id: `budget-${budget.id}`,
       title: budget.category,
-      detail: `${budget.spent.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} spent of ${budget.limit.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`,
+      detail: `${formatMoney(budget.spent)} spent of ${formatMoney(budget.limit)}`,
       section: 'Budget',
       tab: 'budgets' as const,
     })),
     ...data.assets.map((asset) => ({
       id: `asset-${asset.id}`,
       title: asset.name,
-      detail: `${asset.type} · ${asset.value.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`,
+      detail: `${asset.type} · ${formatMoney(asset.value)}`,
       section: 'Asset',
       tab: 'assets' as const,
     })),
     ...data.goals.map((goal) => ({
       id: `goal-${goal.id}`,
       title: goal.name,
-      detail: `${goal.current.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} saved of ${goal.target.toLocaleString(undefined, { style: 'currency', currency: 'USD' })} · ${goal.deadline}`,
+      detail: `${formatMoney(goal.current)} saved of ${formatMoney(goal.target)} · ${goal.deadline}`,
       section: 'Goal',
       tab: 'goals' as const,
     })),

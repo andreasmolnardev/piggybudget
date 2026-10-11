@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import type { RecordModel } from 'pocketbase';
+import { useTheme } from 'next-themes';
 import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiFetch } from '../../api/client';
@@ -44,6 +45,52 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export type BudgetView = SidebarTab;
 
+type UserPreferences = {
+  currency: string;
+  weekStart: 'monday' | 'sunday';
+  dateFormat: 'locale' | 'day-first' | 'iso';
+  numberFormat: 'locale' | 'en-US' | 'de-DE';
+  theme: 'system' | 'light' | 'dark';
+  notifications: boolean;
+};
+
+const defaultPreferences: UserPreferences = {
+  currency: 'USD',
+  weekStart: 'monday',
+  dateFormat: 'locale',
+  numberFormat: 'locale',
+  theme: 'system',
+  notifications: true,
+};
+
+function preferencesKey(userId: string) {
+  return `piggybudget:preferences:${userId}`;
+}
+
+function readPreferences(userId = pb.authStore.record?.id ?? ''): UserPreferences {
+  try {
+    const saved = JSON.parse(localStorage.getItem(preferencesKey(userId)) ?? '{}') as Partial<UserPreferences>;
+    return {
+      currency: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'].includes(saved.currency ?? '')
+        ? saved.currency!
+        : defaultPreferences.currency,
+      weekStart: saved.weekStart === 'sunday' ? 'sunday' : 'monday',
+      dateFormat: ['day-first', 'iso'].includes(saved.dateFormat ?? '')
+        ? saved.dateFormat as UserPreferences['dateFormat']
+        : 'locale',
+      numberFormat: ['en-US', 'de-DE'].includes(saved.numberFormat ?? '')
+        ? saved.numberFormat as UserPreferences['numberFormat']
+        : 'locale',
+      theme: ['light', 'dark'].includes(saved.theme ?? '')
+        ? saved.theme as UserPreferences['theme']
+        : 'system',
+      notifications: saved.notifications !== false,
+    };
+  } catch {
+    return defaultPreferences;
+  }
+}
+
 type Props = {
   view: BudgetView;
   userId: string;
@@ -56,16 +103,21 @@ type Props = {
 };
 
 export function formatMoney(value: number, compact = false) {
-  return new Intl.NumberFormat('en-US', {
+  const preferences = readPreferences();
+  const locale = preferences.numberFormat === 'locale' ? undefined : preferences.numberFormat;
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
-    currency: 'USD',
+    currency: preferences.currency,
     notation: compact ? 'compact' : 'standard',
     maximumFractionDigits: compact ? 1 : 2,
   }).format(value);
 }
 
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
+export function formatDate(date: string) {
+  const { dateFormat } = readPreferences();
+  if (dateFormat === 'iso') return date.slice(0, 10);
+  const locale = dateFormat === 'day-first' ? 'en-GB' : undefined;
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(
     new Date(`${date}T12:00:00`),
   );
 }
@@ -303,7 +355,7 @@ function ReconciliationCard({
   );
 }
 
-type DashboardPeriod = 'this-month' | 'last-month' | 'last-7-days' | 'last-30-days';
+type DashboardPeriod = 'this-month' | 'last-month' | 'this-week' | 'last-7-days' | 'last-30-days';
 
 function dateKey(date: Date) {
   return [
@@ -313,7 +365,7 @@ function dateKey(date: Date) {
   ].join('-');
 }
 
-function periodRange(period: DashboardPeriod) {
+function periodRange(period: DashboardPeriod, weekStart: UserPreferences['weekStart']) {
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   const end = new Date(today);
@@ -326,6 +378,10 @@ function periodRange(period: DashboardPeriod) {
   }
   if (period === 'last-7-days') start.setDate(start.getDate() - 6);
   if (period === 'last-30-days') start.setDate(start.getDate() - 29);
+  if (period === 'this-week') {
+    const offset = weekStart === 'monday' ? (today.getDay() + 6) % 7 : today.getDay();
+    start.setDate(start.getDate() - offset);
+  }
   const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
   const previousEnd = new Date(start);
   previousEnd.setDate(previousEnd.getDate() - 1);
@@ -517,7 +573,7 @@ function DashboardView({
 }) {
   const [period, setPeriod] = useState<DashboardPeriod>('this-month');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const range = periodRange(period);
+  const range = periodRange(period, readPreferences().weekStart);
   const currentTransactions = data.transactions.filter(
     (transaction) => transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
   );
@@ -571,6 +627,7 @@ function DashboardView({
               >
                 <option value="this-month">This month</option>
                 <option value="last-month">Last month</option>
+                <option value="this-week">This week</option>
                 <option value="last-7-days">Last 7 days</option>
                 <option value="last-30-days">Last 30 days</option>
               </select>
@@ -2219,6 +2276,7 @@ export function BudgetingDashboard({
       <GoalsView data={data} onRefresh={onRefresh} />
     ) : (
       <SettingsView
+        userId={userId}
         remote={remote}
         onRefresh={onRefresh}
         onStartOnboarding={() => setOnboardingOpen(true)}
@@ -2489,6 +2547,7 @@ function TransactionDetails({
 }
 
 function SettingsView({
+  userId,
   remote,
   onRefresh,
   onStartOnboarding,
@@ -2496,6 +2555,7 @@ function SettingsView({
   settingsMessage,
   profile,
 }: {
+  userId: string;
   remote: boolean;
   onRefresh: () => void;
   onStartOnboarding: () => void;
@@ -2503,6 +2563,19 @@ function SettingsView({
   settingsMessage: string;
   profile: UserProfile;
 }) {
+  const { setTheme } = useTheme();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [preferences, setPreferences] = useState(() => readPreferences(userId));
+  useEffect(() => setPreferences(readPreferences(userId)), [userId]);
+  const savePreferences = (next: UserPreferences) => {
+    localStorage.setItem(preferencesKey(userId), JSON.stringify(next));
+    setPreferences(next);
+    setTheme(next.theme);
+    window.dispatchEvent(new CustomEvent('piggybudget:preferences', { detail: next }));
+    setPreferencesOpen(false);
+    onMessage('Preferences saved.');
+  };
   return (
     <>
       <PageHeader
@@ -2523,7 +2596,7 @@ function SettingsView({
             <button
               className="text-button"
               type="button"
-              onClick={() => onMessage('Profile editing will be available soon.')}
+              onClick={() => setProfileOpen(true)}
             >
               Edit profile <ArrowRight size={14} />
             </button>
@@ -2550,16 +2623,18 @@ function SettingsView({
           <div>
             <h3>Preferences</h3>
             <p>
-              Currency · USD
+              Currency · {preferences.currency}
               <br />
-              Week starts on Monday
+              Week starts on {preferences.weekStart === 'monday' ? 'Monday' : 'Sunday'}
               <br />
-              Notifications · On
+              Date and number format · {preferences.dateFormat} / {preferences.numberFormat}
+              <br />
+              Notifications · {preferences.notifications ? 'On' : 'Off'}
             </p>
             <button
               className="text-button"
               type="button"
-              onClick={() => onMessage('Preferences saved locally.')}
+              onClick={() => setPreferencesOpen(true)}
             >
               Manage preferences <ArrowRight size={14} />
             </button>
@@ -2571,7 +2646,267 @@ function SettingsView({
           </div>
         )}
       </section>
+      {profileOpen && (
+        <ProfileSettingsDialog
+          userId={userId}
+          profile={profile}
+          onClose={() => setProfileOpen(false)}
+          onSaved={(message) => {
+            setProfileOpen(false);
+            onMessage(message);
+          }}
+        />
+      )}
+      {preferencesOpen && (
+        <PreferencesDialog
+          preferences={preferences}
+          onClose={() => setPreferencesOpen(false)}
+          onSave={savePreferences}
+        />
+      )}
     </>
+  );
+}
+
+function ProfileSettingsDialog({
+  userId,
+  profile,
+  onClose,
+  onSaved,
+}: {
+  userId: string;
+  profile: UserProfile;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [name, setName] = useState(profile.name === 'Your profile' ? '' : profile.name);
+  const [email, setEmail] = useState(profile.email);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const requiresCurrentPassword = email.trim() !== profile.email || Boolean(newPassword);
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword && newPassword !== confirmPassword) {
+      setError('The new passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    const updates: Record<string, string> = { display_name: name.trim() };
+    if (email.trim() !== profile.email) updates.email = email.trim();
+    if (requiresCurrentPassword) updates.oldPassword = currentPassword;
+    if (newPassword) {
+      updates.password = newPassword;
+      updates.passwordConfirm = confirmPassword;
+    }
+    try {
+      const record = await pb.collection('users').update(userId, updates);
+      pb.authStore.save(pb.authStore.token, record as RecordModel);
+      const message = email.trim() !== profile.email
+        ? 'Profile saved. Check your email to confirm the address change.'
+        : newPassword
+          ? 'Profile and password saved.'
+          : 'Profile saved.';
+      onSaved(message);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not update your profile.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <form
+        className="composer-card"
+        onSubmit={(event) => void save(event)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-settings-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="profile-settings-title">Profile and security</h2>
+            <span>Update your name, email, or password.</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <label>
+          Display name
+          <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label>
+          Email
+          <input
+            required
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+        {requiresCurrentPassword && (
+          <label>
+            Current password
+            <input
+              required
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          </label>
+        )}
+        <label>
+          New password <small>Leave blank to keep your current password.</small>
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+          />
+        </label>
+        {newPassword && (
+          <label>
+            Confirm new password
+            <input
+              required
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </label>
+        )}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function PreferencesDialog({
+  preferences,
+  onClose,
+  onSave,
+}: {
+  preferences: UserPreferences;
+  onClose: () => void;
+  onSave: (preferences: UserPreferences) => void;
+}) {
+  const [draft, setDraft] = useState(preferences);
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <section
+        className="composer-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="preferences-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="preferences-title">Preferences</h2>
+            <span>These choices are saved in this browser for your account.</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <label>
+          Currency
+          <select
+            value={draft.currency}
+            onChange={(event) => setDraft({ ...draft, currency: event.target.value })}
+          >
+            <option value="USD">USD · US dollar</option>
+            <option value="EUR">EUR · Euro</option>
+            <option value="GBP">GBP · Pound sterling</option>
+            <option value="CAD">CAD · Canadian dollar</option>
+            <option value="AUD">AUD · Australian dollar</option>
+            <option value="JPY">JPY · Japanese yen</option>
+          </select>
+        </label>
+        <label>
+          Week starts on
+          <select
+            value={draft.weekStart}
+            onChange={(event) =>
+              setDraft({ ...draft, weekStart: event.target.value as UserPreferences['weekStart'] })
+            }
+          >
+            <option value="monday">Monday</option>
+            <option value="sunday">Sunday</option>
+          </select>
+        </label>
+        <label>
+          Date format
+          <select
+            value={draft.dateFormat}
+            onChange={(event) =>
+              setDraft({ ...draft, dateFormat: event.target.value as UserPreferences['dateFormat'] })
+            }
+          >
+            <option value="locale">Local format</option>
+            <option value="day-first">Day first</option>
+            <option value="iso">YYYY-MM-DD</option>
+          </select>
+        </label>
+        <label>
+          Number format
+          <select
+            value={draft.numberFormat}
+            onChange={(event) =>
+              setDraft({ ...draft, numberFormat: event.target.value as UserPreferences['numberFormat'] })
+            }
+          >
+            <option value="locale">Use browser locale</option>
+            <option value="en-US">1,234.56</option>
+            <option value="de-DE">1.234,56</option>
+          </select>
+        </label>
+        <label>
+          Theme
+          <select
+            value={draft.theme}
+            onChange={(event) =>
+              setDraft({ ...draft, theme: event.target.value as UserPreferences['theme'] })
+            }
+          >
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+        <label className="transaction-filter-checkbox">
+          <input
+            type="checkbox"
+            checked={draft.notifications}
+            onChange={(event) => setDraft({ ...draft, notifications: event.target.checked })}
+          />
+          Show finance notifications
+        </label>
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button button-primary" type="button" onClick={() => onSave(draft)}>
+            Save preferences
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 

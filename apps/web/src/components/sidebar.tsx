@@ -42,11 +42,35 @@ const items: { id: SidebarTab; label: string; icon: LucideIcon }[] = [
   { id: 'goals', label: 'Goals', icon: Goal },
 ];
 
+function notificationsPreference(userId: string) {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(`piggybudget:preferences:${userId}`) ?? '{}',
+    ) as { notifications?: boolean };
+    return saved.notifications !== false;
+  } catch {
+    return true;
+  }
+}
+
 export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileClosing, setProfileClosing] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() =>
+    notificationsPreference(userId),
+  );
   const { resolvedTheme, setTheme } = useTheme();
   const navigate = useNavigate();
+
+  useEffect(() => setNotificationsEnabled(notificationsPreference(userId)), [userId]);
+  useEffect(() => {
+    const updatePreferences = (event: Event) => {
+      const preferences = (event as CustomEvent<{ notifications?: boolean }>).detail;
+      setNotificationsEnabled(preferences?.notifications !== false);
+    };
+    window.addEventListener('piggybudget:preferences', updatePreferences);
+    return () => window.removeEventListener('piggybudget:preferences', updatePreferences);
+  }, []);
 
   useEffect(() => {
     if (!profileClosing) return;
@@ -115,7 +139,9 @@ export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }
           </kbd>
         </button>
         <div className="sidebar-notifications">
-          <FinanceNotifications key={userId} data={data} userId={userId} onNavigate={onChange} />
+          {notificationsEnabled && (
+            <FinanceNotifications key={userId} data={data} userId={userId} onNavigate={onChange} />
+          )}
         </div>
         <div className="profile-wrap sidebar-profile-wrap">
           <button

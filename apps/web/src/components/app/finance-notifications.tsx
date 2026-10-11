@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Bell, Check, X } from 'lucide-react';
 import type { SidebarTab } from '../sidebar';
 import type { BudgetData } from '../budgeting/data';
+import { formatMoney } from '../budgeting/budgeting-dashboard';
 
 type NotificationState = { read: string[]; dismissed: string[] };
 
@@ -43,7 +44,7 @@ export function FinanceNotifications({
             reconciliation.state === 'invalid'
               ? 'Checkpoint mismatch needs review'
               : 'Checkpoint has an unexplained gap',
-          detail: `${reconciliation.account} · ${reconciliation.from}${reconciliation.to ? ` to ${reconciliation.to}` : ''} · ${reconciliation.amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}`,
+          detail: `${reconciliation.account} · ${reconciliation.from}${reconciliation.to ? ` to ${reconciliation.to}` : ''} · ${formatMoney(reconciliation.amount)}`,
         }
       : null;
   const [state, setState] = useState<NotificationState>(() => readState(userId));
