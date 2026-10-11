@@ -409,13 +409,22 @@ function BudgetLine({
 
 function ReconciliationCard({
   reconciliation,
+  transactions,
+  onOpenTransaction,
+  onAddTransaction,
+  onRecordCheckpoint,
   compact = false,
 }: {
   reconciliation: BudgetData['reconciliation'];
+  transactions: Transaction[];
+  onOpenTransaction: (transaction: Transaction) => void;
+  onAddTransaction: () => void;
+  onRecordCheckpoint: (accountId: string) => void;
   compact?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showDetails, setShowDetails] = useState(false);
   if (!reconciliation) {
     return (
       <article className={`reconciliation-card ${compact ? 'is-compact' : ''} is-good`}>
@@ -439,64 +448,191 @@ function ReconciliationCard({
     : reconciliation.state === 'incomplete'
       ? 'Needs review'
       : 'Reconciled';
+  const windowTransactions = transactions
+    .filter(
+      (transaction) =>
+        transaction.accountId === reconciliation.accountId &&
+        (!reconciliation.from || transaction.date > reconciliation.from) &&
+        (!reconciliation.to || transaction.date <= reconciliation.to),
+    )
+    .sort((left, right) => left.date.localeCompare(right.date));
   return (
-    <article
-      className={`reconciliation-card ${compact ? 'is-compact' : ''} ${isInvalid ? 'is-invalid' : ''}`}
-    >
-      <div className="reconciliation-icon">
-        <CircleAlert size={19} />
-      </div>
-      <div className="reconciliation-copy">
-        <div className="reconciliation-title">
-          <span>{reconciliation.account} checkpoint</span>
-          <span className="status-pill">{status}</span>
+    <>
+      <article
+        className={`reconciliation-card ${compact ? 'is-compact' : ''} ${isInvalid ? 'is-invalid' : ''}`}
+      >
+        <div className="reconciliation-icon">
+          <CircleAlert size={19} />
         </div>
-        <strong>
-          {isInvalid ? 'Checkpoint mismatch' : 'Unknown gap'}{' '}
-          <span>{formatMoney(reconciliation.amount)}</span>
-        </strong>
-        <p>
-          {isInvalid
-            ? 'Recorded transactions conflict with the fixed balance. Review the window before adding more records.'
-            : 'Your checkpoint is fixed, but some money in this window has not been explained yet.'}
-        </p>
-        <button
-          className="text-button"
-          type="button"
-          disabled={busy || !reconciliation.accountId || reconciliation.amount < 0.005}
-          onClick={() => {
-            setBusy(true);
-            setError('');
-            void apiFetch(`/api/finance/accounts/${reconciliation.accountId}/reconcile`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${pb.authStore.token}` },
-            })
-              .then(async (response) => {
-                if (!response.ok)
-                  throw new Error((await response.text()) || 'Could not reconcile gap.');
-                window.dispatchEvent(new Event('piggybudget:refresh'));
-              })
-              .catch((caught: unknown) =>
-                setError(caught instanceof Error ? caught.message : 'Could not reconcile gap.'),
-              )
-              .finally(() => setBusy(false));
-          }}
-        >
-          {busy ? 'Reconciling…' : 'Move gap to Miscellaneous'} <ArrowRight size={14} />
-        </button>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
+        <div className="reconciliation-copy">
+          <div className="reconciliation-title">
+            <span>{reconciliation.account} checkpoint</span>
+            <span className="status-pill">{status}</span>
+          </div>
+          <strong>
+            {isInvalid ? 'Checkpoint mismatch' : 'Unknown gap'}{' '}
+            <span>{formatMoney(reconciliation.amount)}</span>
+          </strong>
+          <p>
+            {isInvalid
+              ? 'Recorded transactions conflict with the fixed balance. Review the window before adding more records.'
+              : 'Your checkpoint is fixed, but some money in this window has not been explained yet.'}
           </p>
+          <button className="text-button" type="button" onClick={() => setShowDetails(true)}>
+            Review checkpoints and transactions <ArrowRight size={14} />
+          </button>
+          <button
+            className="text-button"
+            type="button"
+            disabled={busy || !reconciliation.accountId || reconciliation.amount < 0.005}
+            onClick={() => {
+              setBusy(true);
+              setError('');
+              void apiFetch(`/api/finance/accounts/${reconciliation.accountId}/reconcile`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${pb.authStore.token}` },
+              })
+                .then(async (response) => {
+                  if (!response.ok)
+                    throw new Error((await response.text()) || 'Could not reconcile gap.');
+                  window.dispatchEvent(new Event('piggybudget:refresh'));
+                })
+                .catch((caught: unknown) =>
+                  setError(caught instanceof Error ? caught.message : 'Could not reconcile gap.'),
+                )
+                .finally(() => setBusy(false));
+            }}
+          >
+            {busy ? 'Reconciling…' : 'Move gap to Miscellaneous'} <ArrowRight size={14} />
+          </button>
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+        {!compact && (
+          <div className="checkpoint-ring">
+            <span>
+              {reconciliation.actualDelta === 0
+                ? '—'
+                : `${Math.max(0, Math.min(100, Math.round((Math.abs(reconciliation.transactionDelta) / Math.abs(reconciliation.actualDelta)) * 100)))}%`}
+            </span>
+            <small>checked</small>
+          </div>
         )}
-      </div>
-      {!compact && (
-        <div className="checkpoint-ring">
-          <span>{reconciliation.state === 'reconciled' ? '100%' : '62%'}</span>
-          <small>checked</small>
+      </article>
+      {showDetails && (
+        <div className="composer-overlay">
+          <button
+            className="composer-backdrop"
+            type="button"
+            onClick={() => setShowDetails(false)}
+            aria-label="Close"
+          />
+          <section
+            className="composer-card record-detail"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reconciliation-details-title"
+          >
+            <div className="composer-heading">
+              <div>
+                <h2 id="reconciliation-details-title">{reconciliation.account} reconciliation</h2>
+                <span>
+                  {reconciliation.from ? formatDate(reconciliation.from) : 'Opening balance'} to{' '}
+                  {reconciliation.to ? formatDate(reconciliation.to) : 'latest checkpoint'}
+                </span>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setShowDetails(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <dl className="transaction-detail-list">
+              <DetailRow
+                label="Starting checkpoint balance"
+                value={formatMoney(reconciliation.fromBalance)}
+              />
+              <DetailRow
+                label="Ending checkpoint balance"
+                value={formatMoney(reconciliation.toBalance)}
+              />
+              <DetailRow
+                label="Checkpoint balance change"
+                value={formatMoney(reconciliation.actualDelta)}
+              />
+              <DetailRow
+                label="Recorded transaction change"
+                value={formatMoney(reconciliation.transactionDelta)}
+              />
+              <DetailRow
+                label="Unexplained difference"
+                value={formatMoney(reconciliation.actualDelta - reconciliation.transactionDelta)}
+              />
+            </dl>
+            <h3>Transactions in this window</h3>
+            {windowTransactions.length ? (
+              <div className="record-related-list">
+                {windowTransactions.map((transaction) => (
+                  <button
+                    className="record-related-row"
+                    type="button"
+                    key={transaction.id}
+                    onClick={() => {
+                      setShowDetails(false);
+                      onOpenTransaction(transaction);
+                    }}
+                  >
+                    <span>
+                      {formatDate(transaction.date)} · {transaction.merchant}
+                    </span>
+                    <strong>
+                      {formatMoney(
+                        transaction.signedAmount ??
+                          (transaction.kind === 'income'
+                            ? transaction.amount
+                            : -transaction.amount),
+                      )}
+                    </strong>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="page-description">
+                No transactions were recorded between these checkpoints.
+              </p>
+            )}
+            <div className="composer-actions">
+              <button
+                className="button"
+                type="button"
+                onClick={() => {
+                  setShowDetails(false);
+                  onRecordCheckpoint(reconciliation.accountId);
+                }}
+              >
+                Record checkpoint
+              </button>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => {
+                  setShowDetails(false);
+                  onAddTransaction();
+                }}
+              >
+                Add or correct transaction
+              </button>
+            </div>
+          </section>
         </div>
       )}
-    </article>
+    </>
   );
 }
 
@@ -2113,6 +2249,9 @@ function BudgetsView({
   onArchiveBudget,
   onDeleteBudget,
   onOpenBudget,
+  onOpenTransaction,
+  onAddTransactionForAccount,
+  onRecordCheckpoint,
 }: {
   userId: string;
   data: BudgetData;
@@ -2121,6 +2260,9 @@ function BudgetsView({
   onArchiveBudget: (budget: Budget) => void;
   onDeleteBudget: (budget: Budget) => void;
   onOpenBudget: (budget: Budget) => void;
+  onOpenTransaction: (transaction: Transaction) => void;
+  onAddTransactionForAccount: (accountId: string) => void;
+  onRecordCheckpoint: (accountId: string) => void;
 }) {
   const viewStateKey = `piggybudget:budget-view:${userId}`;
   const [viewState, setViewState] = useState<{
@@ -2269,7 +2411,16 @@ function BudgetsView({
           </button>
         </section>
         <div className="stacked-cards">
-          <ReconciliationCard reconciliation={data.reconciliation} compact />
+          <ReconciliationCard
+            reconciliation={data.reconciliation}
+            transactions={data.transactions}
+            onOpenTransaction={onOpenTransaction}
+            onAddTransaction={() =>
+              onAddTransactionForAccount(data.reconciliation?.accountId ?? '')
+            }
+            onRecordCheckpoint={onRecordCheckpoint}
+            compact
+          />
           <article className="panel unknown-panel">
             <div className="small-panel-icon">
               <CircleHelp size={17} />
@@ -2280,9 +2431,7 @@ function BudgetsView({
                 It is the space between what your accounts say happened and what you have recorded.
                 Resolve it before the month closes.
               </p>
-              <button className="text-button" type="button">
-                Learn about reconciliation <ArrowRight size={14} />
-              </button>
+              <p>Review the checkpoint balances and transactions in the reconciliation card.</p>
             </div>
           </article>
         </div>
@@ -4478,6 +4627,16 @@ export function BudgetingDashboard({
         }}
         onArchiveBudget={(budget) => void archiveBudget(budget)}
         onDeleteBudget={(budget) => void deleteRecord('budgets', budget.id, budget.category)}
+        onOpenTransaction={setViewingTransaction}
+        onAddTransactionForAccount={(accountId) => {
+          setPreferredAccountId(accountId || null);
+          setEditingTransaction(null);
+          setComposer('transaction');
+        }}
+        onRecordCheckpoint={(accountId) => {
+          setPreferredAccountId(accountId);
+          setComposer('checkpoint');
+        }}
         onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
     ) : view === 'assets' ? (

@@ -2921,6 +2921,11 @@ h1 {
 .transaction-detail-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
 .transaction-detail-list dt { color: var(--muted); }
 .transaction-detail-list dd { margin: 0; text-align: right; }
+.record-related-list { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.record-related-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; color: inherit; background: var(--surface); text-align: left; cursor: pointer; }
+.record-related-row:hover { border-color: var(--accent); }
+.record-related-row span { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.record-related-row strong { flex: 0 0 auto; }
 .transaction-detail-receipt { display: grid; gap: 8px; }
 .transaction-detail-receipt img { max-width: 100%; max-height: 360px; object-fit: contain; border-radius: 9px; }
 .transaction-attachments { display: grid; gap: 8px; }

@@ -1031,6 +1031,8 @@ func checkpointWindows(account *core.Record, checkpoints, transactions []*core.R
 		window := map[string]any{
 			"fromCheckpoint":   previousID,
 			"toCheckpoint":     checkpoint.Id,
+			"fromBalance":      previousBalance,
+			"toBalance":        checkpoint.GetFloat("balance"),
 			"actualDelta":      actualDelta,
 			"transactionDelta": transactionDelta,
 			"unexplained":      unexplained,

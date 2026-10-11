@@ -150,6 +150,10 @@ export type RecurringGoalContribution = {
 
 export type Reconciliation = {
   amount: number;
+  actualDelta: number;
+  transactionDelta: number;
+  fromBalance: number;
+  toBalance: number;
   state: 'reconciled' | 'incomplete' | 'invalid';
   account: string;
   accountId: string;
@@ -569,15 +573,21 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     ...budget,
     spent: spentByBudget.get(budget.id) ?? budget.spent,
   }));
-  const firstWindow = accounts.flatMap((record) => {
-    const windows = Array.isArray(record.checkpointWindows) ? record.checkpointWindows : [];
-    return windows.map((window) => ({ record, window }));
-  })[0];
+  const firstWindow = accounts
+    .flatMap((record) => {
+      const windows = Array.isArray(record.checkpointWindows) ? record.checkpointWindows : [];
+      return windows.map((window) => ({ record, window }));
+    })
+    .find(({ window }) => window.state !== 'reconciled');
   if (firstWindow) {
     const window = firstWindow.window as RecordModel;
     const account = remoteData.accounts.find((item) => item.id === firstWindow.record.id);
     remoteData.reconciliation = {
       amount: Math.abs(numberValue(window, 'unexplained')),
+      actualDelta: numberValue(window, 'actualDelta'),
+      transactionDelta: numberValue(window, 'transactionDelta'),
+      fromBalance: numberValue(window, 'fromBalance'),
+      toBalance: numberValue(window, 'toBalance'),
       state: String(window.state ?? 'incomplete') as 'reconciled' | 'incomplete' | 'invalid',
       account: account?.name ?? 'Account',
       accountId: firstWindow.record.id,
