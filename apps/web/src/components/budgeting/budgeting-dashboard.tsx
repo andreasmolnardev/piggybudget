@@ -6,7 +6,6 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
-  ChevronDown,
   CircleAlert,
   CircleHelp,
   Filter,
@@ -1375,9 +1374,51 @@ function MoneyLentPanel({ transactions }: { transactions: Transaction[] }) {
   );
 }
 
+type BudgetPeriod = 'month' | 'quarter' | 'year';
+
+function selectedBudgetRange(monthValue: string, period: BudgetPeriod) {
+  const [year, month] = monthValue.split('-').map(Number);
+  const firstMonth =
+    period === 'year' ? 1 : period === 'quarter' ? Math.floor((month - 1) / 3) * 3 + 1 : month;
+  const lastMonth = period === 'year' ? 12 : period === 'quarter' ? firstMonth + 2 : month;
+  const start = new Date(year, firstMonth - 1, 1);
+  const end = new Date(year, lastMonth, 0);
+  return { start: dateKey(start), end: dateKey(end), year, firstMonth, lastMonth };
+}
+
+function budgetPeriodLabel(range: ReturnType<typeof selectedBudgetRange>, period: BudgetPeriod) {
+  if (period === 'year') return String(range.year);
+  if (period === 'quarter') return `Q${Math.floor((range.firstMonth - 1) / 3) + 1} ${range.year}`;
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(
+    new Date(range.year, range.firstMonth - 1, 1),
+  );
+}
+
 function BudgetsView({ data, onAddBudget }: { data: BudgetData; onAddBudget: () => void }) {
-  const totalSpent = data.budgets.reduce((sum, budget) => sum + budget.spent, 0);
-  const totalLimit = data.budgets.reduce((sum, budget) => sum + budget.limit, 0);
+  const [monthValue, setMonthValue] = useState(dateKey(new Date()).slice(0, 7));
+  const [period, setPeriod] = useState<BudgetPeriod>('month');
+  const range = selectedBudgetRange(monthValue, period);
+  const periodName = budgetPeriodLabel(range, period);
+  const budgets = data.budgets
+    .filter((budget) => !budget.archived)
+    .filter((budget) =>
+      (!budget.startDate || budget.startDate <= range.end) && (!budget.endDate || budget.endDate >= range.start),
+    )
+    .map((budget) => ({
+      ...budget,
+      spent: data.transactions
+        .filter((transaction) => transaction.kind === 'expense')
+        .filter((transaction) => transaction.date >= range.start && transaction.date <= range.end)
+        .filter((transaction) =>
+          transaction.budgetId
+            ? transaction.budgetId === budget.id
+            : transaction.category.toLowerCase() === budget.category.toLowerCase(),
+        )
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+    }));
+  const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
+  const totalLimit = budgets.reduce((sum, budget) => sum + budget.limit, 0);
+  const percentUsed = totalLimit > 0 ? Math.round((totalSpent / totalLimit) * 100) : 0;
   return (
     <>
       <PageHeader
@@ -1393,34 +1434,58 @@ function BudgetsView({ data, onAddBudget }: { data: BudgetData; onAddBudget: () 
         <article className="budget-summary-card">
           <span>Total planned</span>
           <strong>{formatMoney(totalLimit)}</strong>
-          <small>for September</small>
+          <small>for {periodName}</small>
         </article>
         <article className="budget-summary-card is-highlight">
           <span>Spent so far</span>
           <strong>{formatMoney(totalSpent)}</strong>
-          <small>{Math.round((totalSpent / totalLimit) * 100)}% of plan</small>
+          <small>{percentUsed}% of plan</small>
         </article>
         <article className="budget-summary-card">
           <span>Left to spend</span>
           <strong>{formatMoney(totalLimit - totalSpent)}</strong>
-          <small>across {data.budgets.length} categories</small>
+          <small>across {budgets.length} categories</small>
         </article>
       </div>
       <div className="dashboard-grid budgets-layout">
         <section className="panel">
           <SectionHeading
-            title="September budgets"
+            title={`${periodName} budgets`}
             action={
-              <button className="select-button" type="button">
-                Monthly <ChevronDown size={14} />
-              </button>
+              <div className="budget-period-controls">
+                <input
+                  aria-label="Budget month"
+                  type="month"
+                  value={monthValue}
+                  onChange={(event) =>
+                    setMonthValue(event.target.value || dateKey(new Date()).slice(0, 7))
+                  }
+                />
+                <select
+                  className="select-button"
+                  aria-label="Budget period"
+                  value={period}
+                  onChange={(event) => setPeriod(event.target.value as BudgetPeriod)}
+                >
+                  <option value="month">Monthly</option>
+                  <option value="quarter">Quarterly</option>
+                  <option value="year">Yearly</option>
+                </select>
+              </div>
             }
           />
           <div className="budget-list budget-list-large">
-            {data.budgets.map((budget) => (
+            {budgets.map((budget) => (
               <BudgetLine key={budget.id} budget={budget} />
             ))}
           </div>
+          {!budgets.length && (
+            <div className="empty-state">
+              <CalendarDays size={20} />
+              <strong>No budgets for {periodName}</strong>
+              <span>Create a budget for this period to track category spending.</span>
+            </div>
+          )}
           <button className="add-line-button" type="button" onClick={onAddBudget}>
             <Plus size={15} /> Add category
           </button>

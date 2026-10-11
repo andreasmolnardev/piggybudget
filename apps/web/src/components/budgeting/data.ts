@@ -44,6 +44,9 @@ export type Budget = {
   spent: number;
   limit: number;
   color: string;
+  startDate?: string;
+  endDate?: string;
+  archived?: boolean;
 };
 
 export type Asset = {
@@ -374,6 +377,9 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       spent: numberValue(record, 'spent', 'used', 'amount_spent'),
       limit: numberValue(record, 'limit', 'amount', 'target') || 1,
       color: ['#5f8d7e', '#d68b5e', '#a78bca', '#6b9ab8'][index % 4],
+      startDate: optionalDateValue(record, 'start_date') || undefined,
+      endDate: optionalDateValue(record, 'end_date') || undefined,
+      archived: Boolean(record.archived),
     })),
     assets: assets.map((record, index) => ({
       id: record.id,

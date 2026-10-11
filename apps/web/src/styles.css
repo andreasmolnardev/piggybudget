@@ -1144,6 +1144,17 @@ kbd {
   flex-direction: column;
   gap: 17px;
 }
+.budget-period-controls { display: flex; align-items: center; gap: 8px; }
+.budget-period-controls input {
+  width: 130px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 11px;
+}
 .budget-line-heading {
   display: flex;
   align-items: center;
