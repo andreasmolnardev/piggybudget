@@ -28,7 +28,7 @@ import type { RecordModel } from 'pocketbase';
 import { useTheme } from 'next-themes';
 import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
-import { apiFetch } from '../../api/client';
+import { apiBaseUrl, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 import type {
   Account,
@@ -3792,18 +3792,37 @@ function validateTransactionFiles(files: File[]) {
   }
 }
 
-async function uploadTransactionFiles(transactionId: string, files: File[]) {
+async function uploadTransactionFiles(
+  transactionId: string,
+  files: File[],
+  onProgress?: (percent: number) => void,
+) {
   if (!files.length) return;
   validateTransactionFiles(files);
   const body = new FormData();
   files.forEach((file) => body.append('files', file));
-  const response = await apiFetch(`/api/finance/transactions/${transactionId}/attachments`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${pb.authStore.token}` },
-    body,
+  await new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `${apiBaseUrl()}/api/finance/transactions/${transactionId}/attachments`);
+    request.setRequestHeader('Authorization', `Bearer ${pb.authStore.token}`);
+    request.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+    });
+    request.addEventListener('load', () => {
+      if (request.status >= 200 && request.status < 300) {
+        onProgress?.(100);
+        resolve();
+      } else {
+        if (request.status === 401) pb.authStore.clear();
+        reject(new Error(request.responseText || 'Could not upload transaction images.'));
+      }
+    });
+    request.addEventListener('error', () =>
+      reject(new Error('Network error while uploading images.')),
+    );
+    request.addEventListener('abort', () => reject(new Error('Image upload was cancelled.')));
+    request.send(body);
   });
-  if (!response.ok)
-    throw new Error((await response.text()) || 'Could not upload transaction images.');
 }
 
 function TransactionDetails({
@@ -3818,8 +3837,11 @@ function TransactionDetails({
   onEdit: () => void;
 }) {
   const [attachments, setAttachments] = useState<TransactionAttachment[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(remote);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [deletingAttachment, setDeletingAttachment] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [closing, setClosing] = useState(false);
   const closeAction = useRef<(() => void) | null>(null);
@@ -3863,15 +3885,41 @@ function TransactionDetails({
   };
   const upload = async (files: File[]) => {
     if (!files.length) return;
+    try {
+      validateTransactionFiles(files);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not upload transaction images.');
+      return;
+    }
+    setPendingFiles(files);
     setUploading(true);
+    setUploadProgress(0);
     setError('');
     try {
-      await uploadTransactionFiles(transaction.id, files);
+      await uploadTransactionFiles(transaction.id, files, setUploadProgress);
+      setPendingFiles([]);
       await loadAttachments();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not upload transaction images.');
     } finally {
       setUploading(false);
+    }
+  };
+  const removeAttachment = async (attachment: TransactionAttachment) => {
+    setDeletingAttachment(attachment.id);
+    setError('');
+    try {
+      const response = await apiFetch(
+        `/api/finance/transactions/${transaction.id}/attachments/${attachment.id}`,
+        { method: 'DELETE' },
+      );
+      if (!response.ok)
+        throw new Error((await response.text()) || 'Could not remove this picture.');
+      setAttachments((items) => items.filter((item) => item.id !== attachment.id));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not remove this picture.');
+    } finally {
+      setDeletingAttachment(null);
     }
   };
 
@@ -3933,6 +3981,14 @@ function TransactionDetails({
             <img src={transaction.receipt} alt={`Receipt for ${transaction.merchant}`} />
           </div>
         )}
+        {transaction.receipt && !transaction.receipt.startsWith('data:image/') && (
+          <div className="transaction-detail-receipt">
+            <strong>Receipt</strong>
+            <a href={transaction.receipt} download={`receipt-${transaction.id}`}>
+              Download receipt
+            </a>
+          </div>
+        )}
         <section className="transaction-attachments">
           <div className="transaction-attachments-heading">
             <strong>Pictures</strong>
@@ -3959,13 +4015,39 @@ function TransactionDetails({
           ) : attachments.length ? (
             <div className="transaction-attachment-grid">
               {attachments.map((attachment) => (
-                <a href={attachment.url} target="_blank" rel="noreferrer" key={attachment.id}>
-                  <img src={attachment.url} alt={`Attachment for ${transaction.merchant}`} />
-                </a>
+                <div key={attachment.id}>
+                  <a href={attachment.url} download={attachment.file}>
+                    <img src={attachment.url} alt={`Attachment for ${transaction.merchant}`} />
+                  </a>
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={deletingAttachment === attachment.id}
+                    onClick={() => void removeAttachment(attachment)}
+                  >
+                    {deletingAttachment === attachment.id ? 'Removing…' : 'Remove picture'}
+                  </button>
+                </div>
               ))}
             </div>
           ) : (
             <p>No pictures attached.</p>
+          )}
+          {uploading && <p role="status">Uploading pictures: {uploadProgress}%</p>}
+          {!uploading && pendingFiles.length > 0 && (
+            <div className="transaction-upload-retry" role="status">
+              <span>Upload failed. {pendingFiles.length} picture(s) are ready to retry.</span>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => void upload(pendingFiles)}
+              >
+                Retry upload
+              </button>
+              <button className="text-button" type="button" onClick={() => setPendingFiles([])}>
+                Clear
+              </button>
+            </div>
           )}
           {error && (
             <p className="form-error" role="alert">
@@ -5150,6 +5232,7 @@ function FinanceComposer({
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
   const [receiptScanMessage, setReceiptScanMessage] = useState('');
   const [pictureFiles, setPictureFiles] = useState<File[]>([]);
+  const [pictureUploadFailed, setPictureUploadFailed] = useState(false);
   const [savedTransactionId, setSavedTransactionId] = useState<string | null>(
     transaction?.id ?? null,
   );
@@ -5160,6 +5243,7 @@ function FinanceComposer({
   );
   const [targetSalePrice, setTargetSalePrice] = useState(String(asset?.targetSalePrice ?? ''));
   const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [closing, setClosing] = useState(false);
   const closeAction = useRef<(() => void) | null>(null);
@@ -5279,6 +5363,7 @@ function FinanceComposer({
             ...(repeatEndDate ? { end_date: repeatEndDate } : {}),
           }
         : body;
+    let transactionSaved = false;
     try {
       const resource =
         kind === 'account'
@@ -5317,14 +5402,18 @@ function FinanceComposer({
         body: JSON.stringify(recurringBody),
       });
       if (!response.ok) throw new Error((await response.text()) || 'Could not save this record.');
+      transactionSaved = kind === 'transaction';
       if (kind === 'transaction' && pictureFiles.length) {
         const savedRecord = (await response.json()) as { id: string };
         const transactionId = editedId ?? savedRecord.id;
         setSavedTransactionId(transactionId);
-        await uploadTransactionFiles(transactionId, pictureFiles);
+        setUploadProgress(0);
+        await uploadTransactionFiles(transactionId, pictureFiles, setUploadProgress);
+        setPictureUploadFailed(false);
       }
       beginClose(onSaved);
     } catch (caught) {
+      if (transactionSaved && pictureFiles.length) setPictureUploadFailed(true);
       setError(caught instanceof Error ? caught.message : 'Could not save this record.');
     } finally {
       setBusy(false);
@@ -5775,13 +5864,19 @@ function FinanceComposer({
                         type="file"
                         accept="image/jpeg,image/png,image/gif,image/webp"
                         multiple
-                        onChange={(event) => setPictureFiles(Array.from(event.target.files ?? []))}
+                        onChange={(event) => {
+                          setPictureFiles(Array.from(event.target.files ?? []));
+                          setPictureUploadFailed(false);
+                        }}
                       />
                     </label>
                     {pictureFiles.length > 0 && (
-                      <p>
-                        {pictureFiles.length} picture{pictureFiles.length === 1 ? '' : 's'} ready to
-                        upload.
+                      <p role="status">
+                        {pictureUploadFailed
+                          ? 'Picture upload failed. Save again to retry.'
+                          : busy
+                            ? `Uploading pictures: ${uploadProgress}%`
+                            : `${pictureFiles.length} picture${pictureFiles.length === 1 ? '' : 's'} ready to upload.`}
                       </p>
                     )}
                     {receipt && (
@@ -5830,7 +5925,9 @@ function FinanceComposer({
           </button>
           <button className="button button-primary" type="submit" disabled={busy || !canSave}>
             {busy
-              ? 'Saving…'
+              ? pictureFiles.length
+                ? `Uploading ${uploadProgress}%…`
+                : 'Saving…'
               : isAccount
                 ? 'Save account'
                 : isBudget
@@ -5839,9 +5936,11 @@ function FinanceComposer({
                     ? 'Save checkpoint'
                     : isAsset
                       ? 'Save asset'
-                      : transaction
-                        ? 'Save changes'
-                        : 'Save transaction'}
+                      : pictureUploadFailed
+                        ? 'Retry picture upload'
+                        : transaction
+                          ? 'Save changes'
+                          : 'Save transaction'}
           </button>
         </div>
       </form>

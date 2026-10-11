@@ -2914,8 +2914,11 @@ h1 {
 .transaction-upload-button { position: relative; min-height: 32px; cursor: pointer; }
 .transaction-upload-button input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .transaction-attachment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.transaction-attachment-grid > div { display: grid; align-content: start; gap: 4px; }
 .transaction-attachment-grid a { display: block; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
 .transaction-attachment-grid img { width: 100%; height: 110px; display: block; object-fit: cover; }
+.transaction-upload-retry { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
+.transaction-repeat-toggle { display: flex; align-items: center; gap: 8px; }
 .composer-overlay { animation: overlay-in 0.18s ease-out both; }
 .composer-backdrop { animation: backdrop-in 0.18s ease-out both; }
 .composer-card { animation: modal-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
