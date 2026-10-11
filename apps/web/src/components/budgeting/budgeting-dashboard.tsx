@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDownLeft,
   ArrowRight,
+  ArrowRightLeft,
   ArrowUpRight,
   CalendarDays,
   Check,
@@ -71,20 +72,22 @@ function preferencesKey(userId: string) {
 
 function readPreferences(userId = pb.authStore.record?.id ?? ''): UserPreferences {
   try {
-    const saved = JSON.parse(localStorage.getItem(preferencesKey(userId)) ?? '{}') as Partial<UserPreferences>;
+    const saved = JSON.parse(
+      localStorage.getItem(preferencesKey(userId)) ?? '{}',
+    ) as Partial<UserPreferences>;
     return {
       currency: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'].includes(saved.currency ?? '')
         ? saved.currency!
         : defaultPreferences.currency,
       weekStart: saved.weekStart === 'sunday' ? 'sunday' : 'monday',
       dateFormat: ['day-first', 'iso'].includes(saved.dateFormat ?? '')
-        ? saved.dateFormat as UserPreferences['dateFormat']
+        ? (saved.dateFormat as UserPreferences['dateFormat'])
         : 'locale',
       numberFormat: ['en-US', 'de-DE'].includes(saved.numberFormat ?? '')
-        ? saved.numberFormat as UserPreferences['numberFormat']
+        ? (saved.numberFormat as UserPreferences['numberFormat'])
         : 'locale',
       theme: ['light', 'dark'].includes(saved.theme ?? '')
-        ? saved.theme as UserPreferences['theme']
+        ? (saved.theme as UserPreferences['theme'])
         : 'system',
       notifications: saved.notifications !== false,
     };
@@ -158,7 +161,13 @@ function SectionHeading({ title, action }: { title: string; action?: React.React
 function TransactionIcon({ kind }: { kind: TransactionKind }) {
   return (
     <span className={`transaction-icon ${kind}`}>
-      {kind === 'income' ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+      {kind === 'transfer' ? (
+        <ArrowRightLeft size={16} />
+      ) : kind === 'income' ? (
+        <ArrowDownLeft size={16} />
+      ) : (
+        <ArrowUpRight size={16} />
+      )}
     </span>
   );
 }
@@ -200,7 +209,7 @@ function TransactionRow({
       </div>
       <time>{formatDate(transaction.date)}</time>
       <strong className={`transaction-amount ${transaction.kind}`}>
-        {transaction.kind === 'income' ? '+' : '-'}
+        {(transaction.signedAmount ?? (transaction.kind === 'income' ? 1 : -1)) >= 0 ? '+' : '−'}
         {formatMoney(transaction.amount)}
       </strong>
       {onEdit && onDelete && onDuplicate ? (
@@ -557,44 +566,47 @@ function CashFlowChart({
         <span>$0</span>
       </div>
       {days.some((day) => day.income > 0 || day.expenses > 0) ? (
-        <div className="chart-bars" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+        <div
+          className="chart-bars"
+          style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
+        >
           {days.map((day) => (
-          <div className="chart-day" key={day.dateKey}>
-            <div className="chart-bar-wrap">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="chart-income"
-                    style={{ height: `${(day.income / scale) * 100}%` }}
-                    aria-label={`${day.label} income: ${formatMoney(day.income)}`}
-                    onClick={() => onSelectDay(day.dateKey)}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>{`${day.label} income: ${formatMoney(day.income)}`}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="chart-expense"
-                    style={{ height: `${(day.expenses / scale) * 100}%` }}
-                    aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
-                    onClick={() => onSelectDay(day.dateKey)}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>{`${day.label} expenses: ${formatMoney(day.expenses)}`}</TooltipContent>
-              </Tooltip>
+            <div className="chart-day" key={day.dateKey}>
+              <div className="chart-bar-wrap">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="chart-income"
+                      style={{ height: `${(day.income / scale) * 100}%` }}
+                      aria-label={`${day.label} income: ${formatMoney(day.income)}`}
+                      onClick={() => onSelectDay(day.dateKey)}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>{`${day.label} income: ${formatMoney(day.income)}`}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="chart-expense"
+                      style={{ height: `${(day.expenses / scale) * 100}%` }}
+                      aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
+                      onClick={() => onSelectDay(day.dateKey)}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>{`${day.label} expenses: ${formatMoney(day.expenses)}`}</TooltipContent>
+                </Tooltip>
+              </div>
+              <button
+                className="chart-day-label"
+                type="button"
+                onClick={() => onSelectDay(day.dateKey)}
+                aria-label={`Open transactions for ${new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}`}
+              >
+                {day.label}
+              </button>
             </div>
-            <button
-              className="chart-day-label"
-              type="button"
-              onClick={() => onSelectDay(day.dateKey)}
-              aria-label={`Open transactions for ${new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}`}
-            >
-              {day.label}
-            </button>
-          </div>
           ))}
         </div>
       ) : (
@@ -624,7 +636,10 @@ function FinanceHelper({
   }
   const largestCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0];
   const largestExpense = [...expenses].sort((a, b) => b.amount - a.amount)[0];
-  const remainingBudget = data.budgets.reduce((sum, budget) => sum + budget.limit - budget.spent, 0);
+  const remainingBudget = data.budgets.reduce(
+    (sum, budget) => sum + budget.limit - budget.spent,
+    0,
+  );
   return (
     <aside className="helper-panel">
       <div className="helper-heading">
@@ -655,7 +670,11 @@ function FinanceHelper({
             ? `${largestCategory[0]} is your largest expense category at ${formatMoney(largestCategory[1])} across ${expenses.length} loaded expense${expenses.length === 1 ? '' : 's'}.`
             : 'There are no loaded expense transactions to compare yet.'}
           {largestExpense && (
-            <button className="text-button" type="button" onClick={() => onOpenTransaction(largestExpense)}>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => onOpenTransaction(largestExpense)}
+            >
               Open largest expense: {largestExpense.merchant} <ArrowRight size={14} />
             </button>
           )}
@@ -701,7 +720,8 @@ function DashboardView({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const range = periodRange(period, readPreferences().weekStart);
   const currentTransactions = data.transactions.filter(
-    (transaction) => transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
+    (transaction) =>
+      transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
   );
   const previousTransactions = data.transactions.filter(
     (transaction) =>
@@ -714,9 +734,10 @@ function DashboardView({
   const expenses = currentTransactions
     .filter((item) => item.kind === 'expense')
     .reduce((sum, item) => sum + item.amount, 0);
-  const previousNet = previousTransactions
-    .filter((item) => item.kind === 'income')
-    .reduce((sum, item) => sum + item.amount, 0) -
+  const previousNet =
+    previousTransactions
+      .filter((item) => item.kind === 'income')
+      .reduce((sum, item) => sum + item.amount, 0) -
     previousTransactions
       .filter((item) => item.kind === 'expense')
       .reduce((sum, item) => sum + item.amount, 0);
@@ -775,14 +796,35 @@ function DashboardView({
           {selectedDay && (
             <div className="chart-day-transactions">
               <div className="chart-day-transactions-heading">
-                <strong>{new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(`${selectedDay}T12:00:00`))}</strong>
-                <button className="icon-button" type="button" onClick={() => setSelectedDay(null)} aria-label="Close day transactions"><X size={15} /></button>
-              </div>
-              {selectedDayTransactions.length ? selectedDayTransactions.map((transaction) => (
-                <button className="chart-transaction-link" type="button" key={transaction.id} onClick={() => onOpenTransaction(transaction)}>
-                  <span>{transaction.merchant}</span><strong>{formatMoney(transaction.amount)}</strong>
+                <strong>
+                  {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(
+                    new Date(`${selectedDay}T12:00:00`),
+                  )}
+                </strong>
+                <button
+                  className="icon-button"
+                  type="button"
+                  onClick={() => setSelectedDay(null)}
+                  aria-label="Close day transactions"
+                >
+                  <X size={15} />
                 </button>
-              )) : <p>No transactions were recorded on this day.</p>}
+              </div>
+              {selectedDayTransactions.length ? (
+                selectedDayTransactions.map((transaction) => (
+                  <button
+                    className="chart-transaction-link"
+                    type="button"
+                    key={transaction.id}
+                    onClick={() => onOpenTransaction(transaction)}
+                  >
+                    <span>{transaction.merchant}</span>
+                    <strong>{formatMoney(transaction.amount)}</strong>
+                  </button>
+                ))
+              ) : (
+                <p>No transactions were recorded on this day.</p>
+              )}
             </div>
           )}
           <div className="chart-legend">
@@ -904,15 +946,17 @@ function parseCsvRows(source: string) {
 
 function transactionCsv(transactions: Transaction[]) {
   const values = [
-    ['date', 'payee', 'amount', 'type', 'account', 'category', 'notes'],
+    ['date', 'payee', 'amount', 'type', 'account', 'category', 'notes', 'transfer_id'],
     ...transactions.map((transaction) => [
       transaction.date,
       transaction.merchant,
-      transaction.kind === 'expense' ? -transaction.amount : transaction.amount,
+      transaction.signedAmount ??
+        (transaction.kind === 'expense' ? -transaction.amount : transaction.amount),
       transaction.kind,
       transaction.accountId ?? transaction.account,
       transaction.category,
       transaction.note ?? '',
+      transaction.transferId ?? '',
     ]),
   ];
   return values
@@ -958,7 +1002,9 @@ function TransactionsView({
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(emptyTransactionFilters);
-  const [sort, setSort] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>('date-desc');
+  const [sort, setSort] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>(
+    'date-desc',
+  );
   const [page, setPage] = useState(1);
   const [addPopoverOpen, setAddPopoverOpen] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedTransactionView[]>([]);
@@ -998,52 +1044,49 @@ function TransactionsView({
   const clearFilters = () => {
     setFilters(emptyTransactionFilters);
   };
-  const filtered = useMemo(
-    () => {
-      const result = data.transactions.filter((transaction) => {
-        const matchesAccount =
-          filters.account === 'All accounts' || transaction.account === filters.account;
-        const matchesKind = filters.kind === 'all' || transaction.kind === filters.kind;
-        const matchesCategory = filters.uncategorized
-          ? !transaction.category
-          : filters.category === 'All categories' || transaction.category === filters.category;
-        const matchesTag =
-          !filters.tagQuery ||
-          (transaction.tags ?? []).some((tag) =>
-            tag.toLowerCase().includes(filters.tagQuery.toLowerCase()),
-          );
-        const matchesDate =
-          (!filters.fromDate || transaction.date >= filters.fromDate) &&
-          (!filters.toDate || transaction.date <= filters.toDate);
-        const matchesAmount =
-          (!filters.minAmount || transaction.amount >= Number(filters.minAmount)) &&
-          (!filters.maxAmount || transaction.amount <= Number(filters.maxAmount));
-        const matchesCleared =
-          filters.cleared === 'all' ||
-          Boolean(transaction.cleared) === (filters.cleared === 'cleared');
-        const matchesReconciled =
-          filters.reconciled === 'all' ||
-          Boolean(transaction.reconciled) === (filters.reconciled === 'reconciled');
-        return (
-          matchesAccount &&
-          matchesKind &&
-          matchesCategory &&
-          matchesTag &&
-          matchesDate &&
-          matchesAmount &&
-          matchesCleared &&
-          matchesReconciled
+  const filtered = useMemo(() => {
+    const result = data.transactions.filter((transaction) => {
+      const matchesAccount =
+        filters.account === 'All accounts' || transaction.account === filters.account;
+      const matchesKind = filters.kind === 'all' || transaction.kind === filters.kind;
+      const matchesCategory = filters.uncategorized
+        ? !transaction.category
+        : filters.category === 'All categories' || transaction.category === filters.category;
+      const matchesTag =
+        !filters.tagQuery ||
+        (transaction.tags ?? []).some((tag) =>
+          tag.toLowerCase().includes(filters.tagQuery.toLowerCase()),
         );
-      });
-      return result.sort((a, b) => {
-        if (sort === 'date-asc') return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
-        if (sort === 'amount-desc') return b.amount - a.amount || b.date.localeCompare(a.date);
-        if (sort === 'amount-asc') return a.amount - b.amount || b.date.localeCompare(a.date);
-        return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
-      });
-    },
-    [data.transactions, filters, sort],
-  );
+      const matchesDate =
+        (!filters.fromDate || transaction.date >= filters.fromDate) &&
+        (!filters.toDate || transaction.date <= filters.toDate);
+      const matchesAmount =
+        (!filters.minAmount || transaction.amount >= Number(filters.minAmount)) &&
+        (!filters.maxAmount || transaction.amount <= Number(filters.maxAmount));
+      const matchesCleared =
+        filters.cleared === 'all' ||
+        Boolean(transaction.cleared) === (filters.cleared === 'cleared');
+      const matchesReconciled =
+        filters.reconciled === 'all' ||
+        Boolean(transaction.reconciled) === (filters.reconciled === 'reconciled');
+      return (
+        matchesAccount &&
+        matchesKind &&
+        matchesCategory &&
+        matchesTag &&
+        matchesDate &&
+        matchesAmount &&
+        matchesCleared &&
+        matchesReconciled
+      );
+    });
+    return result.sort((a, b) => {
+      if (sort === 'date-asc') return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
+      if (sort === 'amount-desc') return b.amount - a.amount || b.date.localeCompare(a.date);
+      if (sort === 'amount-asc') return a.amount - b.amount || b.date.localeCompare(a.date);
+      return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
+    });
+  }, [data.transactions, filters, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
   const exportCsv = () => {
@@ -1064,22 +1107,87 @@ function TransactionsView({
       const rows = parseCsvRows(await file.text());
       const headers = rows.shift()?.map((header) => header.trim().toLowerCase()) ?? [];
       const column = (name: string) => headers.indexOf(name);
-      if (column('date') < 0 || column('payee') < 0 || column('amount') < 0 || column('account') < 0) {
+      if (
+        column('date') < 0 ||
+        column('payee') < 0 ||
+        column('amount') < 0 ||
+        column('account') < 0
+      ) {
         setCsvMessage('CSV needs date, payee, amount, and account columns.');
         return;
       }
       let imported = 0;
       const failures: string[] = [];
+      const importedTransfers = new Set<string>();
       for (const [index, row] of rows.entries()) {
         const accountValue = row[column('account')]?.trim() ?? '';
         const account = data.accounts.find(
-          (item) => item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
+          (item) =>
+            item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
         );
         const date = row[column('date')]?.trim() ?? '';
         const parsedDate = new Date(`${date}T00:00:00Z`);
         const amount = Number(row[column('amount')]);
         const suppliedType = column('type') >= 0 ? row[column('type')]?.trim().toLowerCase() : '';
         const type = suppliedType || (amount < 0 ? 'expense' : 'income');
+        if (type === 'transfer') {
+          const transferId =
+            column('transfer_id') >= 0 ? (row[column('transfer_id')]?.trim() ?? '') : '';
+          if (importedTransfers.has(transferId)) continue;
+          if (!transferId) {
+            failures.push(String(index + 2));
+            continue;
+          }
+          const peerIndex = rows.findIndex(
+            (candidate) =>
+              candidate !== row && candidate[column('transfer_id')]?.trim() === transferId,
+          );
+          const peer = peerIndex >= 0 ? rows[peerIndex] : undefined;
+          const peerAmount = Number(peer?.[column('amount')]);
+          const peerAccountValue = peer?.[column('account')]?.trim() ?? '';
+          const peerAccount = data.accounts.find(
+            (item) =>
+              item.id === peerAccountValue ||
+              item.name.toLowerCase() === peerAccountValue.toLowerCase(),
+          );
+          if (
+            !account ||
+            !peerAccount ||
+            !peer ||
+            account.id === peerAccount.id ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+            parsedDate.toISOString().slice(0, 10) !== date ||
+            !Number.isFinite(amount) ||
+            !Number.isFinite(peerAmount) ||
+            amount === 0 ||
+            peerAmount === 0 ||
+            Math.sign(amount) === Math.sign(peerAmount)
+          ) {
+            failures.push(String(index + 2));
+            importedTransfers.add(transferId);
+            continue;
+          }
+          const source = amount < 0 ? account : peerAccount;
+          const destination = amount < 0 ? peerAccount : account;
+          const response = await apiFetch('/api/finance/transfers', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              source_account: source.id,
+              destination_account: destination.id,
+              date,
+              amount: Math.abs(amount),
+              notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
+            }),
+          });
+          importedTransfers.add(transferId);
+          if (response.ok) imported += 2;
+          else failures.push(String(index + 2));
+          continue;
+        }
         if (
           !account ||
           !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
@@ -1087,7 +1195,7 @@ function TransactionsView({
           parsedDate.toISOString().slice(0, 10) !== date ||
           !Number.isFinite(amount) ||
           amount === 0 ||
-          !['expense', 'income'].includes(type)
+          !['expense', 'income', 'adjustment'].includes(type)
         ) {
           failures.push(String(index + 2));
           continue;
@@ -1101,11 +1209,11 @@ function TransactionsView({
           body: JSON.stringify({
             account: account.id,
             date,
-            amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
+            amount: type === 'expense' ? -Math.abs(amount) : amount,
             type,
             payee: row[column('payee')]?.trim() || 'Imported transaction',
-            category: column('category') >= 0 ? row[column('category')]?.trim() ?? '' : '',
-            notes: column('notes') >= 0 ? row[column('notes')]?.trim() ?? '' : '',
+            category: column('category') >= 0 ? (row[column('category')]?.trim() ?? '') : '',
+            notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
           }),
         });
         if (response.ok) imported += 1;
@@ -1149,7 +1257,12 @@ function TransactionsView({
       <section className="transactions-section">
         <div className="transaction-toolbar">
           <div className="transaction-toolbar-actions">
-            <button className="button" type="button" onClick={exportCsv} disabled={!remote || !filtered.length}>
+            <button
+              className="button"
+              type="button"
+              onClick={exportCsv}
+              disabled={!remote || !filtered.length}
+            >
               Export CSV
             </button>
             <label className={`button transaction-import-trigger ${remote ? '' : 'is-disabled'}`}>
@@ -1272,9 +1385,7 @@ function TransactionsView({
                     <input
                       type="date"
                       value={filters.fromDate}
-                      onChange={(event) =>
-                        setFilters({ ...filters, fromDate: event.target.value })
-                      }
+                      onChange={(event) => setFilters({ ...filters, fromDate: event.target.value })}
                       aria-label="From date"
                     />
                   </label>
@@ -1283,9 +1394,7 @@ function TransactionsView({
                     <input
                       type="date"
                       value={filters.toDate}
-                      onChange={(event) =>
-                        setFilters({ ...filters, toDate: event.target.value })
-                      }
+                      onChange={(event) => setFilters({ ...filters, toDate: event.target.value })}
                       aria-label="To date"
                     />
                   </label>
@@ -1393,10 +1502,15 @@ function TransactionsView({
           </div>
         </div>
         <p className="transaction-csv-help">
-          CSV columns: date, payee, amount, and account. Optional columns: type, category, and notes.
-          Account can be its name or ID.
+          CSV columns: date, payee, amount, and account. Optional columns: type, category, and
+          notes. Account can be its name or ID. Transfer rows need both entries with the same
+          transfer_id.
         </p>
-        {csvMessage && <p className="page-description csv-import-status" role="status">{csvMessage}</p>}
+        {csvMessage && (
+          <p className="page-description csv-import-status" role="status">
+            {csvMessage}
+          </p>
+        )}
         <div className="table-header">
           <span>Transaction</span>
           <span>Date</span>
@@ -1426,7 +1540,8 @@ function TransactionsView({
           <span>
             {filtered.length
               ? `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filtered.length)}`
-              : 'Showing 0'} of {filtered.length} filtered transactions · {data.transactions.length} total
+              : 'Showing 0'}{' '}
+            of {filtered.length} filtered transactions · {data.transactions.length} total
           </span>
           <div className="transaction-footer-actions">
             <button
@@ -1437,7 +1552,9 @@ function TransactionsView({
             >
               Previous
             </button>
-            <span>Page {page} of {pageCount}</span>
+            <span>
+              Page {page} of {pageCount}
+            </span>
             <button
               className="button button-quiet pagination-button"
               type="button"
@@ -1449,13 +1566,16 @@ function TransactionsView({
             <Popover open={savedViewsOpen} onOpenChange={setSavedViewsOpen}>
               <PopoverTrigger asChild>
                 <button className="text-button" type="button">
-                  <Filter size={14} /> Saved views {savedViews.length ? `(${savedViews.length})` : ''}
+                  <Filter size={14} /> Saved views{' '}
+                  {savedViews.length ? `(${savedViews.length})` : ''}
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="saved-views-popover">
                 <div className="transaction-filter-heading">
                   <strong>Saved views</strong>
-                  <button className="text-button" type="button" onClick={saveView}>Save current</button>
+                  <button className="text-button" type="button" onClick={saveView}>
+                    Save current
+                  </button>
                 </div>
                 {savedViews.length ? (
                   savedViews.map((view) => (
@@ -1526,7 +1646,9 @@ function MoneyLentPanel({
       .map(([person, balance]) => ({
         person,
         balance,
-        transactions: transactions.filter((transaction) => transaction.receivable?.trim() === person),
+        transactions: transactions.filter(
+          (transaction) => transaction.receivable?.trim() === person,
+        ),
       }));
   }, [transactions]);
   const [editingPerson, setEditingPerson] = useState<string | null>(null);
@@ -1654,8 +1776,14 @@ function MoneyLentPanel({
                   value={personName}
                   onChange={(event) => setPersonName(event.target.value)}
                 />
-                <button className="text-button" type="submit">Save name</button>
-                <button className="text-button" type="button" onClick={() => setEditingPerson(null)}>
+                <button className="text-button" type="submit">
+                  Save name
+                </button>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => setEditingPerson(null)}
+                >
                   Cancel
                 </button>
               </form>
@@ -1683,7 +1811,11 @@ function MoneyLentPanel({
                 <button className="text-button" type="submit" disabled={busy}>
                   {busy ? 'Saving…' : 'Save repayment'}
                 </button>
-                <button className="text-button" type="button" onClick={() => setRepaymentPerson(null)}>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => setRepaymentPerson(null)}
+                >
                   Cancel
                 </button>
               </form>
@@ -1697,9 +1829,12 @@ function MoneyLentPanel({
                     key={transaction.id}
                     onClick={() => onOpenTransaction(transaction)}
                   >
-                    <span>{transaction.merchant} · {formatDate(transaction.date)}</span>
+                    <span>
+                      {transaction.merchant} · {formatDate(transaction.date)}
+                    </span>
                     <strong>
-                      {transaction.kind === 'income' ? '−' : '+'}{formatMoney(transaction.amount)}
+                      {transaction.kind === 'income' ? '−' : '+'}
+                      {formatMoney(transaction.amount)}
                     </strong>
                   </button>
                 ))}
@@ -1767,8 +1902,10 @@ function BudgetsView({
   const periodName = budgetPeriodLabel(range, period);
   const budgets = data.budgets
     .filter((budget) => Boolean(budget.archived) === showArchived)
-    .filter((budget) =>
-      (!budget.startDate || budget.startDate <= range.end) && (!budget.endDate || budget.endDate >= range.start),
+    .filter(
+      (budget) =>
+        (!budget.startDate || budget.startDate <= range.end) &&
+        (!budget.endDate || budget.endDate >= range.start),
     )
     .map((budget) => ({
       ...budget,
@@ -2344,7 +2481,11 @@ function AssetGroupCard({
             Delete
           </button>
           {!group.archived && (
-            <button className="text-button" type="button" onClick={() => setAdding((open) => !open)}>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => setAdding((open) => !open)}
+            >
               <Plus size={14} /> Add holding
             </button>
           )}
@@ -2397,8 +2538,14 @@ function AssetGroupCard({
                 value={positionTargetSalePrice}
                 onChange={(event) => setPositionTargetSalePrice(event.target.value)}
               />
-              <button className="text-button" type="submit">Save</button>
-              <button className="text-button" type="button" onClick={() => setEditingPosition(null)}>
+              <button className="text-button" type="submit">
+                Save
+              </button>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setEditingPosition(null)}
+              >
                 Cancel
               </button>
             </form>
@@ -2406,7 +2553,8 @@ function AssetGroupCard({
             <>
               <strong>{position.name}</strong>
               <span>
-                Buy {formatMoney(position.purchasePrice)} · Sell {formatMoney(position.targetSalePrice)}
+                Buy {formatMoney(position.purchasePrice)} · Sell{' '}
+                {formatMoney(position.targetSalePrice)}
               </span>
               <b>{formatMoney(position.value)}</b>
               <div className="asset-position-actions">
@@ -2430,7 +2578,13 @@ function AssetGroupCard({
                 >
                   {position.archived ? 'Restore' : 'Archive'}
                 </button>
-                <button className="text-button button-danger" type="button" onClick={() => void deletePosition(position)}>Delete</button>
+                <button
+                  className="text-button button-danger"
+                  type="button"
+                  onClick={() => void deletePosition(position)}
+                >
+                  Delete
+                </button>
               </div>
             </>
           )}
@@ -2612,8 +2766,8 @@ function GoalsView({
           </span>
           <div>
             <strong>
-              {formatMoney(goals.reduce((sum, goal) => sum + goal.current, 0))} saved toward
-              your goals
+              {formatMoney(goals.reduce((sum, goal) => sum + goal.current, 0))} saved toward your
+              goals
             </strong>
             <p>You are making good progress. Keep the momentum going.</p>
           </div>
@@ -2680,7 +2834,11 @@ function GoalsView({
         </button>
       </div>
       {composerGoal !== undefined && (
-        <GoalComposer goal={composerGoal} onClose={() => setComposerGoal(undefined)} onSave={saveGoal} />
+        <GoalComposer
+          goal={composerGoal}
+          onClose={() => setComposerGoal(undefined)}
+          onSave={saveGoal}
+        />
       )}
       {selectedGoal && (
         <GoalDetails
@@ -2793,7 +2951,9 @@ function GoalComposer({
   const [name, setName] = useState(goal?.name ?? '');
   const [current, setCurrent] = useState(String(goal?.current ?? 0));
   const [target, setTarget] = useState(String(goal?.target ?? ''));
-  const [deadline, setDeadline] = useState(goal?.deadline === 'No deadline' ? '' : goal?.deadline ?? '');
+  const [deadline, setDeadline] = useState(
+    goal?.deadline === 'No deadline' ? '' : (goal?.deadline ?? ''),
+  );
   const [notes, setNotes] = useState(goal?.notes ?? '');
   const [status, setStatus] = useState<GoalFormValues['status']>(goal?.status ?? 'active');
   const [error, setError] = useState('');
@@ -2838,7 +2998,12 @@ function GoalComposer({
         </div>
         <label>
           Goal name
-          <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+          <input
+            required
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </label>
         <div className="form-grid">
           <label>
@@ -2866,7 +3031,11 @@ function GoalComposer({
         </div>
         <label>
           Target date
-          <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
+          <input
+            type="date"
+            value={deadline}
+            onChange={(event) => setDeadline(event.target.value)}
+          />
         </label>
         {goal && (
           <label>
@@ -2883,11 +3052,22 @@ function GoalComposer({
         )}
         <label>
           Notes
-          <textarea rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
+          <textarea
+            rows={3}
+            maxLength={1000}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
         </label>
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="composer-actions">
-          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button" type="button" onClick={onClose}>
+            Cancel
+          </button>
           <button className="button button-primary" type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Save goal'}
           </button>
@@ -2950,7 +3130,9 @@ function GoalContributionDialog({
       >
         <div className="composer-heading">
           <div>
-            <h2 id="goal-contribution-title">{type === 'contribution' ? 'Add contribution' : 'Record withdrawal'}</h2>
+            <h2 id="goal-contribution-title">
+              {type === 'contribution' ? 'Add contribution' : 'Record withdrawal'}
+            </h2>
             <span>{goal.name}</span>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
@@ -2959,19 +3141,35 @@ function GoalContributionDialog({
         </div>
         <label>
           Amount
-          <input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+          <input
+            required
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
         </label>
         <label>
           Date
-          <input required type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <input
+            required
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
         </label>
         <label>
           Linked account <small>Optional</small>
           <select value={account} onChange={(event) => setAccount(event.target.value)}>
             <option value="">No linked account</option>
-            {accounts.filter((item) => !item.archived).map((item) => (
-              <option key={item.id} value={item.id}>{item.name}</option>
-            ))}
+            {accounts
+              .filter((item) => !item.archived)
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
           </select>
         </label>
         <label>
@@ -2987,11 +3185,22 @@ function GoalContributionDialog({
         </label>
         <label>
           Notes
-          <textarea rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
+          <textarea
+            rows={3}
+            maxLength={1000}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
         </label>
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="composer-actions">
-          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button" type="button" onClick={onClose}>
+            Cancel
+          </button>
           <button className="button button-primary" type="submit" disabled={busy}>
             {busy ? 'Saving…' : type === 'contribution' ? 'Save contribution' : 'Save withdrawal'}
           </button>
@@ -3026,8 +3235,12 @@ function GoalDetails({
   onAddContribution: (type: GoalContribution['type']) => void;
   onOpenTransaction: (transaction: Transaction) => void;
 }) {
-  const progress = goal.target > 0 ? Math.min(100, Math.max(0, goal.current / goal.target * 100)) : 0;
-  const overdue = goal.deadline !== 'No deadline' && goal.deadline < new Date().toISOString().slice(0, 10) && goal.status !== 'completed';
+  const progress =
+    goal.target > 0 ? Math.min(100, Math.max(0, (goal.current / goal.target) * 100)) : 0;
+  const overdue =
+    goal.deadline !== 'No deadline' &&
+    goal.deadline < new Date().toISOString().slice(0, 10) &&
+    goal.status !== 'completed';
   return (
     <div className="composer-overlay">
       <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
@@ -3075,10 +3288,18 @@ function GoalDetails({
             <strong>Contribution history</strong>
             {!goal.archived && (
               <div>
-                <button className="text-button" type="button" onClick={() => onAddContribution('contribution')}>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => onAddContribution('contribution')}
+                >
                   <Plus size={13} /> Add
                 </button>
-                <button className="text-button" type="button" onClick={() => onAddContribution('withdrawal')}>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={() => onAddContribution('withdrawal')}
+                >
                   Withdraw
                 </button>
               </div>
@@ -3086,21 +3307,31 @@ function GoalDetails({
           </div>
           {contributions.length ? (
             contributions.slice(0, 8).map((entry) => {
-              const linkedTransaction = transactions.find((item) => item.id === entry.transactionId);
+              const linkedTransaction = transactions.find(
+                (item) => item.id === entry.transactionId,
+              );
               const linkedAccount = accounts.find((item) => item.id === entry.accountId);
               return (
                 <div className="goal-history-row" key={entry.id}>
                   <span>
                     <strong>{entry.type === 'contribution' ? 'Contribution' : 'Withdrawal'}</strong>
-                    <small>{formatDate(entry.date)}{linkedAccount ? ` · ${linkedAccount.name}` : ''}</small>
+                    <small>
+                      {formatDate(entry.date)}
+                      {linkedAccount ? ` · ${linkedAccount.name}` : ''}
+                    </small>
                     {entry.notes && <small>{entry.notes}</small>}
                   </span>
                   <div>
                     <b className={entry.type === 'withdrawal' ? 'is-withdrawal' : ''}>
-                      {entry.type === 'withdrawal' ? '−' : '+'}{formatMoney(entry.amount)}
+                      {entry.type === 'withdrawal' ? '−' : '+'}
+                      {formatMoney(entry.amount)}
                     </b>
                     {linkedTransaction && (
-                      <button className="text-button" type="button" onClick={() => onOpenTransaction(linkedTransaction)}>
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => onOpenTransaction(linkedTransaction)}
+                      >
                         View transaction
                       </button>
                     )}
@@ -3113,7 +3344,9 @@ function GoalDetails({
           )}
         </section>
         <div className="goal-detail-actions">
-          <button className="button button-primary" type="button" onClick={onEdit}>Edit goal</button>
+          <button className="button button-primary" type="button" onClick={onEdit}>
+            Edit goal
+          </button>
           {!goal.archived && (
             <button className="button" type="button" onClick={onPause}>
               {goal.status === 'paused' ? 'Resume' : 'Pause'}
@@ -3122,7 +3355,9 @@ function GoalDetails({
           <button className="button" type="button" onClick={onArchive}>
             {goal.archived ? 'Restore' : 'Archive'}
           </button>
-          <button className="button button-danger" type="button" onClick={onDelete}>Delete</button>
+          <button className="button button-danger" type="button" onClick={onDelete}>
+            Delete
+          </button>
         </div>
       </section>
     </div>
@@ -3218,31 +3453,58 @@ export function BudgetingDashboard({
       body: JSON.stringify({ archived }),
     });
     if (!response.ok) {
-      window.alert((await response.text()) || `Could not ${archived ? 'archive' : 'restore'} this budget.`);
+      window.alert(
+        (await response.text()) || `Could not ${archived ? 'archive' : 'restore'} this budget.`,
+      );
       return;
     }
     onRefresh();
   };
   const duplicateTransaction = async (transaction: Transaction) => {
-    const response = await apiFetch('/api/finance/transactions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${pb.authStore.token}`,
-        'Content-Type': 'application/json',
+    const transferPeer = transaction.transferId
+      ? data.transactions.find(
+          (item) => item.transferId === transaction.transferId && item.id !== transaction.id,
+        )
+      : undefined;
+    if (transaction.kind === 'transfer' && !transferPeer) {
+      window.alert('This transfer is missing its paired account entry. Refresh and try again.');
+      return;
+    }
+    const isSource = transaction.kind !== 'transfer' || (transaction.signedAmount ?? -1) < 0;
+    const response = await apiFetch(
+      transaction.kind === 'transfer' ? '/api/finance/transfers' : '/api/finance/transactions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${pb.authStore.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(
+          transaction.kind === 'transfer'
+            ? {
+                source_account: isSource ? transaction.accountId : transferPeer?.accountId,
+                destination_account: isSource ? transferPeer?.accountId : transaction.accountId,
+                date: transaction.date,
+                amount: transaction.amount,
+                notes: transaction.note ?? transaction.description ?? '',
+              }
+            : {
+                account: transaction.accountId,
+                date: transaction.date,
+                amount:
+                  transaction.signedAmount ??
+                  (transaction.kind === 'expense' ? -transaction.amount : transaction.amount),
+                type: transaction.kind,
+                payee: transaction.merchant,
+                description: transaction.description ?? '',
+                category: transaction.category,
+                budget: transaction.budgetId ?? '',
+                tags: transaction.tags ?? [],
+                notes: transaction.note ?? '',
+              },
+        ),
       },
-      body: JSON.stringify({
-        account: transaction.accountId,
-        date: transaction.date,
-        amount: transaction.kind === 'expense' ? -transaction.amount : transaction.amount,
-        type: transaction.kind,
-        payee: transaction.merchant,
-        description: transaction.description ?? '',
-        category: transaction.category,
-        budget: transaction.budgetId ?? '',
-        tags: transaction.tags ?? [],
-        notes: transaction.note ?? '',
-      }),
-    });
+    );
     if (!response.ok) {
       window.alert((await response.text()) || 'Could not duplicate this transaction.');
       return;
@@ -3251,7 +3513,9 @@ export function BudgetingDashboard({
   };
   const renameReceivable = async (person: string, nextName: string) => {
     if (!nextName.trim() || nextName.trim() === person) return false;
-    const related = data.transactions.filter((transaction) => transaction.receivable?.trim() === person);
+    const related = data.transactions.filter(
+      (transaction) => transaction.receivable?.trim() === person,
+    );
     try {
       const results = await Promise.all(
         related.map((transaction) =>
@@ -3274,7 +3538,9 @@ export function BudgetingDashboard({
       onRefresh();
       return true;
     } catch {
-      window.alert('Could not update every linked transaction. Refresh to check the current names.');
+      window.alert(
+        'Could not update every linked transaction. Refresh to check the current names.',
+      );
       onRefresh();
       return false;
     }
@@ -3342,11 +3608,7 @@ export function BudgetingDashboard({
         onDeleteAsset={(asset) => void deleteRecord('assets', asset.id, asset.name)}
       />
     ) : view === 'goals' ? (
-      <GoalsView
-        data={data}
-        onRefresh={onRefresh}
-        onOpenTransaction={setViewingTransaction}
-      />
+      <GoalsView data={data} onRefresh={onRefresh} onOpenTransaction={setViewingTransaction} />
     ) : (
       <SettingsView
         userId={userId}
@@ -3702,11 +3964,7 @@ function SettingsView({
           <div>
             <h2>{profile.name}</h2>
             <p>{profile.email || 'No email on file'}</p>
-            <button
-              className="text-button"
-              type="button"
-              onClick={() => setProfileOpen(true)}
-            >
+            <button className="text-button" type="button" onClick={() => setProfileOpen(true)}>
               Edit profile <ArrowRight size={14} />
             </button>
           </div>
@@ -3760,11 +4018,7 @@ function SettingsView({
               <br />
               Notifications · {preferences.notifications ? 'On' : 'Off'}
             </p>
-            <button
-              className="text-button"
-              type="button"
-              onClick={() => setPreferencesOpen(true)}
-            >
+            <button className="text-button" type="button" onClick={() => setPreferencesOpen(true)}>
               Manage preferences <ArrowRight size={14} />
             </button>
           </div>
@@ -3816,8 +4070,10 @@ function FinanceRecordDetails({
     target.type === 'account' ? data.accounts.find((item) => item.id === target.id) : undefined;
   const budget =
     target.type === 'budget' ? data.budgets.find((item) => item.id === target.id) : undefined;
-  const asset = target.type === 'asset' ? data.assets.find((item) => item.id === target.id) : undefined;
-  const goal = target.type === 'goal' ? data.goals.find((item) => item.id === target.id) : undefined;
+  const asset =
+    target.type === 'asset' ? data.assets.find((item) => item.id === target.id) : undefined;
+  const goal =
+    target.type === 'goal' ? data.goals.find((item) => item.id === target.id) : undefined;
   const relatedTransactions = transaction
     ? [transaction]
     : account
@@ -3857,7 +4113,10 @@ function FinanceRecordDetails({
         {transaction && (
           <dl className="transaction-detail-list">
             <DetailRow label="Date" value={formatDate(transaction.date)} />
-            <DetailRow label="Amount" value={formatMoney(transaction.amount)} />
+            <DetailRow
+              label="Amount"
+              value={`${(transaction.signedAmount ?? (transaction.kind === 'income' ? 1 : -1)) >= 0 ? '+' : '−'}${formatMoney(transaction.amount)}`}
+            />
             <DetailRow label="Account" value={transaction.account} />
             <DetailRow label="Category" value={transaction.category || 'Uncategorized'} />
             {transaction.note && <DetailRow label="Note" value={transaction.note} />}
@@ -3918,7 +4177,9 @@ function FinanceRecordDetails({
                 key={item.id}
                 onClick={() => onOpenTransaction(item)}
               >
-                <span>{item.merchant} · {formatDate(item.date)}</span>
+                <span>
+                  {item.merchant} · {formatDate(item.date)}
+                </span>
                 <strong>{formatMoney(item.amount)}</strong>
               </button>
             ))}
@@ -3977,7 +4238,8 @@ function AccountsSettingsDialog({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_default: false }),
         });
-        if (!unset.ok) throw new Error((await unset.text()) || 'Could not update the default account.');
+        if (!unset.ok)
+          throw new Error((await unset.text()) || 'Could not update the default account.');
       }
     }
     const response = await apiFetch(`/api/finance/accounts/${account.id}`, {
@@ -3985,7 +4247,8 @@ function AccountsSettingsDialog({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(values),
     });
-    if (!response.ok) throw new Error((await response.text()) || `Could not update ${account.name}.`);
+    if (!response.ok)
+      throw new Error((await response.text()) || `Could not update ${account.name}.`);
     onRefresh();
   };
 
@@ -4001,33 +4264,112 @@ function AccountsSettingsDialog({
   return (
     <div className="composer-overlay">
       <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
-      <section className="composer-card account-manager" role="dialog" aria-modal="true" aria-labelledby="accounts-settings-title">
+      <section
+        className="composer-card account-manager"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="accounts-settings-title"
+      >
         <div className="composer-heading">
-          <div><h2 id="accounts-settings-title">Accounts</h2><span>Manage account details, defaults, balances, and checkpoints.</span></div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+          <div>
+            <h2 id="accounts-settings-title">Accounts</h2>
+            <span>Manage account details, defaults, balances, and checkpoints.</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
         </div>
-        {!remote && <p className="page-description">Saved accounts are unavailable. Refresh after your connection returns to manage them.</p>}
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {!remote && (
+          <p className="page-description">
+            Saved accounts are unavailable. Refresh after your connection returns to manage them.
+          </p>
+        )}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="account-manager-list">
-          {accounts.length ? accounts.map((account) => (
-            <article className={`account-manager-row ${account.archived ? 'is-archived' : ''}`} key={account.id}>
-              <div className="account-manager-copy">
-                <strong>{account.name}{account.isDefault ? ' · Default' : ''}</strong>
-                <span>{account.type} · {account.currency ?? 'USD'}{account.archived ? ' · Archived' : ''}</span>
-                <b>{formatMoney(account.balance)}</b>
-              </div>
-              <div className="account-manager-actions">
-                <button className="text-button" type="button" disabled={!remote} onClick={() => setEditing(account)}>Edit</button>
-                {!account.isDefault && !account.archived && <button className="text-button" type="button" disabled={!remote} onClick={() => void runAccountAction(account, { is_default: true })}>Set default</button>}
-                <button className="text-button" type="button" disabled={!remote} onClick={() => void runAccountAction(account, { archived: !account.archived, ...(account.isDefault ? { is_default: false } : {}) })}>{account.archived ? 'Restore' : 'Archive'}</button>
-                {!account.archived && <button className="text-button" type="button" disabled={!remote} onClick={() => onRecordCheckpoint(account.id)}>Checkpoint</button>}
-              </div>
-            </article>
-          )) : <p className="page-description">Add an account to track its balance and reconcile statements.</p>}
+          {accounts.length ? (
+            accounts.map((account) => (
+              <article
+                className={`account-manager-row ${account.archived ? 'is-archived' : ''}`}
+                key={account.id}
+              >
+                <div className="account-manager-copy">
+                  <strong>
+                    {account.name}
+                    {account.isDefault ? ' · Default' : ''}
+                  </strong>
+                  <span>
+                    {account.type} · {account.currency ?? 'USD'}
+                    {account.archived ? ' · Archived' : ''}
+                  </span>
+                  <b>{formatMoney(account.balance)}</b>
+                </div>
+                <div className="account-manager-actions">
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={!remote}
+                    onClick={() => setEditing(account)}
+                  >
+                    Edit
+                  </button>
+                  {!account.isDefault && !account.archived && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={!remote}
+                      onClick={() => void runAccountAction(account, { is_default: true })}
+                    >
+                      Set default
+                    </button>
+                  )}
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={!remote}
+                    onClick={() =>
+                      void runAccountAction(account, {
+                        archived: !account.archived,
+                        ...(account.isDefault ? { is_default: false } : {}),
+                      })
+                    }
+                  >
+                    {account.archived ? 'Restore' : 'Archive'}
+                  </button>
+                  {!account.archived && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={!remote}
+                      onClick={() => onRecordCheckpoint(account.id)}
+                    >
+                      Checkpoint
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="page-description">
+              Add an account to track its balance and reconcile statements.
+            </p>
+          )}
         </div>
         <div className="composer-actions">
-          <button className="button" type="button" onClick={onClose}>Close</button>
-          <button className="button button-primary" type="button" onClick={onAddAccount} disabled={!remote}>Add account</button>
+          <button className="button" type="button" onClick={onClose}>
+            Close
+          </button>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={onAddAccount}
+            disabled={!remote}
+          >
+            Add account
+          </button>
         </div>
       </section>
       {editing && (
@@ -4108,7 +4450,12 @@ function AccountEditor({
         </div>
         <label>
           Account name
-          <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+          <input
+            required
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </label>
         <label>
           Account type
@@ -4143,7 +4490,12 @@ function AccountEditor({
         </label>
         <label>
           Notes
-          <textarea rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
+          <textarea
+            rows={3}
+            maxLength={1000}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
         </label>
         <label className="transaction-filter-checkbox">
           <input
@@ -4154,8 +4506,19 @@ function AccountEditor({
           />
           Default account
         </label>
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="composer-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save account'}</button></div>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Save account'}
+          </button>
+        </div>
       </form>
     </div>
   );
@@ -4199,11 +4562,12 @@ function ProfileSettingsDialog({
     try {
       const record = await pb.collection('users').update(userId, updates);
       pb.authStore.save(pb.authStore.token, record as RecordModel);
-      const message = email.trim() !== profile.email
-        ? 'Profile saved. Check your email to confirm the address change.'
-        : newPassword
-          ? 'Profile and password saved.'
-          : 'Profile saved.';
+      const message =
+        email.trim() !== profile.email
+          ? 'Profile saved. Check your email to confirm the address change.'
+          : newPassword
+            ? 'Profile and password saved.'
+            : 'Profile saved.';
       onSaved(message);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not update your profile.');
@@ -4233,7 +4597,12 @@ function ProfileSettingsDialog({
         </div>
         <label>
           Display name
-          <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+          <input
+            required
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
         </label>
         <label>
           Email
@@ -4279,9 +4648,15 @@ function ProfileSettingsDialog({
             />
           </label>
         )}
-        {error && <p className="form-error" role="alert">{error}</p>}
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="composer-actions">
-          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button" type="button" onClick={onClose}>
+            Cancel
+          </button>
           <button className="button button-primary" type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Save changes'}
           </button>
@@ -4350,7 +4725,10 @@ function PreferencesDialog({
           <select
             value={draft.dateFormat}
             onChange={(event) =>
-              setDraft({ ...draft, dateFormat: event.target.value as UserPreferences['dateFormat'] })
+              setDraft({
+                ...draft,
+                dateFormat: event.target.value as UserPreferences['dateFormat'],
+              })
             }
           >
             <option value="locale">Local format</option>
@@ -4363,7 +4741,10 @@ function PreferencesDialog({
           <select
             value={draft.numberFormat}
             onChange={(event) =>
-              setDraft({ ...draft, numberFormat: event.target.value as UserPreferences['numberFormat'] })
+              setDraft({
+                ...draft,
+                numberFormat: event.target.value as UserPreferences['numberFormat'],
+              })
             }
           >
             <option value="locale">Use browser locale</option>
@@ -4393,7 +4774,9 @@ function PreferencesDialog({
           Show finance notifications
         </label>
         <div className="composer-actions">
-          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button" type="button" onClick={onClose}>
+            Cancel
+          </button>
           <button className="button button-primary" type="button" onClick={() => onSave(draft)}>
             Save preferences
           </button>
@@ -4629,13 +5012,31 @@ function FinanceComposer({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const transferPeer = transaction?.transferId
+    ? data.transactions.find(
+        (item) => item.transferId === transaction.transferId && item.id !== transaction.id,
+      )
+    : undefined;
+  const transferSourceId =
+    transaction?.kind === 'transfer' && (transaction.signedAmount ?? -1) > 0
+      ? transferPeer?.accountId
+      : transaction?.accountId;
+  const transferDestinationId =
+    transaction?.kind === 'transfer' && (transaction.signedAmount ?? -1) > 0
+      ? transaction.accountId
+      : transferPeer?.accountId;
   const availableAccounts = data.accounts.filter(
-    (item) => !item.archived || item.id === transaction?.accountId,
+    (item) =>
+      !item.archived || item.id === transaction?.accountId || item.id === transferPeer?.accountId,
   );
-  const defaultAccount =
-    availableAccounts.find((item) => item.isDefault) ?? availableAccounts[0];
+  const defaultAccount = availableAccounts.find((item) => item.isDefault) ?? availableAccounts[0];
   const [account, setAccount] = useState(
-    transaction?.accountId ?? preferredAccountId ?? defaultAccount?.id ?? '',
+    transferSourceId ?? preferredAccountId ?? defaultAccount?.id ?? '',
+  );
+  const [destinationAccount, setDestinationAccount] = useState(
+    transferDestinationId ??
+      data.accounts.find((item) => item.id !== transferSourceId && !item.archived)?.id ??
+      '',
   );
   const [accountName, setAccountName] = useState('');
   const [accountType, setAccountType] = useState('Checking');
@@ -4656,8 +5057,9 @@ function FinanceComposer({
           : '',
   );
   const [payee, setPayee] = useState(transaction?.merchant ?? '');
-  const [type, setType] = useState<'expense' | 'income'>(
-    transaction?.kind === 'income' ? 'income' : 'expense',
+  const [type, setType] = useState<TransactionKind>(transaction?.kind ?? 'expense');
+  const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
+    (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
   const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
   const [description, setDescription] = useState(transaction?.description ?? '');
@@ -4706,6 +5108,14 @@ function FinanceComposer({
       setError('A budget already exists for this category and month.');
       return;
     }
+    if (
+      kind === 'transaction' &&
+      type === 'transfer' &&
+      (!destinationAccount || account === destinationAccount)
+    ) {
+      setError('Choose two different accounts for this transfer.');
+      return;
+    }
     setBusy(true);
     setError('');
     const numericAmount = Number(amount);
@@ -4737,23 +5147,35 @@ function FinanceComposer({
                   currency,
                   notes: note,
                 }
-              : {
-                  account,
-                  date,
-                  amount: type === 'expense' ? -Math.abs(numericAmount) : Math.abs(numericAmount),
-                  type,
-                  payee,
-                  description,
-                  receivable,
-                  category,
-                  budget,
-                  tags: tags
-                    .split(',')
-                    .map((tag) => tag.trim())
-                    .filter(Boolean),
-                  receipt,
-                  notes: note,
-                };
+              : type === 'transfer'
+                ? {
+                    source_account: account,
+                    destination_account: destinationAccount,
+                    date,
+                    amount: numericAmount,
+                    notes: note,
+                  }
+                : {
+                    account,
+                    date,
+                    amount:
+                      type === 'expense' ||
+                      (type === 'adjustment' && adjustmentDirection === 'decrease')
+                        ? -Math.abs(numericAmount)
+                        : Math.abs(numericAmount),
+                    type,
+                    payee,
+                    description,
+                    receivable,
+                    category,
+                    budget,
+                    tags: tags
+                      .split(',')
+                      .map((tag) => tag.trim())
+                      .filter(Boolean),
+                    receipt,
+                    notes: note,
+                  };
     try {
       const resource =
         kind === 'account'
@@ -4764,9 +5186,13 @@ function FinanceComposer({
               ? 'checkpoints'
               : kind === 'asset'
                 ? 'assets'
-                : 'transactions';
-      const editedId =
-        kind === 'transaction'
+                : type === 'transfer'
+                  ? 'transfers'
+                  : 'transactions';
+      const isTransfer = kind === 'transaction' && type === 'transfer';
+      const editedId = isTransfer
+        ? transaction?.transferId
+        : kind === 'transaction'
           ? (transaction?.id ?? savedTransactionId ?? undefined)
           : kind === 'asset'
             ? asset?.id
@@ -4807,7 +5233,7 @@ function FinanceComposer({
         : isBudget
           ? Boolean(category.trim())
           : kind === 'transaction'
-            ? Boolean(account)
+            ? Boolean(account && (type !== 'transfer' || destinationAccount !== account))
             : Boolean(account));
   return (
     <div className={`composer-overlay ${closing ? 'is-closing' : ''}`} onAnimationEnd={finishClose}>
@@ -4983,8 +5409,20 @@ function FinanceComposer({
         ) : (
           <>
             <label>
-              Account
-              <select required value={account} onChange={(event) => setAccount(event.target.value)}>
+              {type === 'transfer' ? 'From account' : 'Account'}
+              <select
+                required
+                value={account}
+                onChange={(event) => {
+                  const nextAccount = event.target.value;
+                  setAccount(nextAccount);
+                  if (nextAccount === destinationAccount) {
+                    setDestinationAccount(
+                      availableAccounts.find((item) => item.id !== nextAccount)?.id ?? '',
+                    );
+                  }
+                }}
+              >
                 {availableAccounts.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
@@ -5025,138 +5463,185 @@ function FinanceComposer({
               Type
               <select
                 value={type}
-                onChange={(event) => setType(event.target.value as 'expense' | 'income')}
+                disabled={transaction?.kind === 'transfer'}
+                onChange={(event) => setType(event.target.value as TransactionKind)}
               >
                 <option value="expense">Expense</option>
                 <option value="income">Income</option>
-              </select>
-            </label>
-            <label>
-              Payee or source
-              <input
-                value={payee}
-                onChange={(event) => setPayee(event.target.value)}
-                placeholder="e.g. Grocery store"
-              />
-            </label>
-            <label>
-              Description
-              <input
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Details for receipt matching or later review"
-              />
-            </label>
-            <label>
-              Category
-              <input
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-                placeholder="e.g. Groceries"
-              />
-            </label>
-            <label>
-              Budget bucket
-              <select value={budget} onChange={(event) => setBudget(event.target.value)}>
-                <option value="">No budget</option>
-                {data.budgets.map((item) => (
-                  <option value={item.id} key={item.id}>
-                    {item.category}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Receivable / person
-              <input
-                value={receivable}
-                onChange={(event) => setReceivable(event.target.value)}
-                placeholder="Name to link money lent and repayments"
-              />
-            </label>
-            <label>
-              Tags (comma separated)
-              <input
-                value={tags}
-                onChange={(event) => setTags(event.target.value)}
-                placeholder="work, reimbursable"
-              />
-            </label>
-            <label>
-              Receipt upload
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  setReceiptScanMessage('');
-                  const reader = new FileReader();
-                  reader.onload = () => setReceipt(String(reader.result ?? ''));
-                  reader.readAsDataURL(file);
-                  void scanReceipt(file).then((text) => {
-                    if (!text) {
-                      setReceiptScanMessage(
-                        'Receipt saved. Automatic text scanning is not supported in this browser; enter the details above.',
-                      );
-                      return;
-                    }
-                    const lines = text
-                      .split(/\\n+/)
-                      .map((line) => line.trim())
-                      .filter(Boolean);
-                    const amountMatch = text.match(
-                      /(?:[$€£]\\s*)?([0-9]+[.,][0-9]{2})\\s*(?:[$€£])?/,
-                    );
-                    const dateMatch = text.match(/\\b(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})\\b/);
-                    const merchant = lines.find((line) => !/[0-9]{2,}/.test(line));
-                    if (merchant) setPayee(merchant.slice(0, 120));
-                    if (amountMatch) setAmount(amountMatch[1].replace(',', '.'));
-                    if (dateMatch) {
-                      const [, year, month, day] = dateMatch;
-                      setDate(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
-                    }
-                    setReceiptScanMessage(
-                      amountMatch || merchant
-                        ? 'Text scanned. Check the details before saving.'
-                        : 'Receipt saved, but no transaction details were found. Enter them above.',
-                    );
-                  });
-                }}
-              />
-            </label>
-            {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
-            <label>
-              Transaction pictures
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                multiple
-                onChange={(event) => setPictureFiles(Array.from(event.target.files ?? []))}
-              />
-            </label>
-            {pictureFiles.length > 0 && (
-              <p>
-                {pictureFiles.length} picture{pictureFiles.length === 1 ? '' : 's'} ready to upload.
-              </p>
-            )}
-            {receipt && (
-              <div className="receipt-preview">
-                {receipt.startsWith('data:image/') ? (
-                  <img
-                    src={receipt}
-                    alt="Receipt preview"
-                    style={{ maxWidth: '100%', maxHeight: 220 }}
-                  />
-                ) : (
-                  <a href={receipt} target="_blank" rel="noreferrer">
-                    View saved receipt
-                  </a>
+                <option value="adjustment">Balance adjustment</option>
+                {(!transaction || transaction.kind === 'transfer') && (
+                  <option value="transfer">Transfer</option>
                 )}
-                <button className="text-button" type="button" onClick={() => setReceipt('')}>
-                  Remove receipt
-                </button>
-              </div>
+              </select>
+            </label>
+            {type === 'transfer' ? (
+              <>
+                <label>
+                  To account
+                  <select
+                    required
+                    value={destinationAccount}
+                    onChange={(event) => setDestinationAccount(event.target.value)}
+                  >
+                    <option value="">Choose account</option>
+                    {availableAccounts
+                      .filter((item) => item.id !== account)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <p className="page-description">Both account balances update together.</p>
+              </>
+            ) : (
+              <>
+                {type === 'adjustment' && (
+                  <label>
+                    Adjustment
+                    <select
+                      value={adjustmentDirection}
+                      onChange={(event) =>
+                        setAdjustmentDirection(event.target.value as 'increase' | 'decrease')
+                      }
+                    >
+                      <option value="increase">Increase account balance</option>
+                      <option value="decrease">Decrease account balance</option>
+                    </select>
+                  </label>
+                )}
+                <label>
+                  Payee or source
+                  <input
+                    value={payee}
+                    onChange={(event) => setPayee(event.target.value)}
+                    placeholder="e.g. Grocery store"
+                  />
+                </label>
+                <label>
+                  Description
+                  <input
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="Details for receipt matching or later review"
+                  />
+                </label>
+                <label>
+                  Category
+                  <input
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                    placeholder="e.g. Groceries"
+                  />
+                </label>
+                <label>
+                  Budget bucket
+                  <select value={budget} onChange={(event) => setBudget(event.target.value)}>
+                    <option value="">No budget</option>
+                    {data.budgets.map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.category}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Receivable / person
+                  <input
+                    value={receivable}
+                    onChange={(event) => setReceivable(event.target.value)}
+                    placeholder="Name to link money lent and repayments"
+                  />
+                </label>
+                <label>
+                  Tags (comma separated)
+                  <input
+                    value={tags}
+                    onChange={(event) => setTags(event.target.value)}
+                    placeholder="work, reimbursable"
+                  />
+                </label>
+                <label>
+                  Receipt upload
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      setReceiptScanMessage('');
+                      const reader = new FileReader();
+                      reader.onload = () => setReceipt(String(reader.result ?? ''));
+                      reader.readAsDataURL(file);
+                      void scanReceipt(file).then((text) => {
+                        if (!text) {
+                          setReceiptScanMessage(
+                            'Receipt saved. Automatic text scanning is not supported in this browser; enter the details above.',
+                          );
+                          return;
+                        }
+                        const lines = text
+                          .split(/\\n+/)
+                          .map((line) => line.trim())
+                          .filter(Boolean);
+                        const amountMatch = text.match(
+                          /(?:[$€£]\\s*)?([0-9]+[.,][0-9]{2})\\s*(?:[$€£])?/,
+                        );
+                        const dateMatch = text.match(
+                          /\\b(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})\\b/,
+                        );
+                        const merchant = lines.find((line) => !/[0-9]{2,}/.test(line));
+                        if (merchant) setPayee(merchant.slice(0, 120));
+                        if (amountMatch) setAmount(amountMatch[1].replace(',', '.'));
+                        if (dateMatch) {
+                          const [, year, month, day] = dateMatch;
+                          setDate(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`);
+                        }
+                        setReceiptScanMessage(
+                          amountMatch || merchant
+                            ? 'Text scanned. Check the details before saving.'
+                            : 'Receipt saved, but no transaction details were found. Enter them above.',
+                        );
+                      });
+                    }}
+                  />
+                </label>
+                {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
+                <label>
+                  Transaction pictures
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    multiple
+                    onChange={(event) => setPictureFiles(Array.from(event.target.files ?? []))}
+                  />
+                </label>
+                {pictureFiles.length > 0 && (
+                  <p>
+                    {pictureFiles.length} picture{pictureFiles.length === 1 ? '' : 's'} ready to
+                    upload.
+                  </p>
+                )}
+                {receipt && (
+                  <div className="receipt-preview">
+                    {receipt.startsWith('data:image/') ? (
+                      <img
+                        src={receipt}
+                        alt="Receipt preview"
+                        style={{ maxWidth: '100%', maxHeight: 220 }}
+                      />
+                    ) : (
+                      <a href={receipt} target="_blank" rel="noreferrer">
+                        View saved receipt
+                      </a>
+                    )}
+                    <button className="text-button" type="button" onClick={() => setReceipt('')}>
+                      Remove receipt
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}{' '}

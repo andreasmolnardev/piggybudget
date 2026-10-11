@@ -28,7 +28,7 @@ var financeFields = map[string]map[string]bool{
 	"transactions": {
 		"account": true, "date": true, "amount": true, "type": true, "payee": true, "description": true,
 		"category": true, "budget": true, "tags": true, "attachments": true, "receipt": true,
-		"asset": true, "receivable": true, "notes": true, "transfer_id": true, "cleared": true, "reconciled": true,
+		"asset": true, "receivable": true, "notes": true, "cleared": true, "reconciled": true,
 	},
 	"checkpoints": {
 		"account": true, "date": true, "balance": true, "note": true,
@@ -129,7 +129,180 @@ func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 	for _, prefix := range []string{"/api/finance", "/api"} {
 		registerFinanceResourceRoutes(e, prefix, config)
 		registerGoalContributionRoutes(e, prefix)
+		registerTransferRoutes(e, prefix)
 	}
+}
+
+func registerTransferRoutes(e *core.ServeEvent, prefix string) {
+	e.Router.POST(prefix+"/transfers", createTransferRoute)
+	e.Router.PATCH(prefix+"/transfers/{id}", updateTransferRoute)
+	e.Router.PUT(prefix+"/transfers/{id}", updateTransferRoute)
+}
+
+func createTransferRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	input, err := financeInput(event)
+	if err != nil {
+		return err
+	}
+	fromID := stringValue(input["source_account"])
+	toID := stringValue(input["destination_account"])
+	amount, err := strconv.ParseFloat(fmt.Sprint(input["amount"]), 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+		return event.BadRequestError("amount must be greater than zero", nil)
+	}
+	date, err := transferDate(input["date"])
+	if err != nil {
+		return event.BadRequestError("date must use YYYY-MM-DD", nil)
+	}
+	var source, destination *core.Record
+	err = event.App.RunInTransaction(func(tx core.App) error {
+		from, err := ownedTransferAccount(tx, fromID, user.Id)
+		if err != nil {
+			return event.BadRequestError("source account not found", nil)
+		}
+		to, err := ownedTransferAccount(tx, toID, user.Id)
+		if err != nil {
+			return event.BadRequestError("destination account not found", nil)
+		}
+		if from.Id == to.Id {
+			return event.BadRequestError("source and destination accounts must be different", nil)
+		}
+		collection, err := tx.FindCollectionByNameOrId("transactions")
+		if err != nil {
+			return err
+		}
+		source = core.NewRecord(collection)
+		source.Set("owner", user.Id)
+		source.Set("account", from.Id)
+		source.Set("date", date)
+		source.Set("amount", -amount)
+		source.Set("type", "transfer")
+		source.Set("payee", "Transfer to "+to.GetString("name"))
+		source.Set("description", stringValue(input["notes"]))
+		source.Set("notes", stringValue(input["notes"]))
+		if err := validateTransactionWrite(tx, source, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		if err := tx.Save(source); err != nil {
+			return err
+		}
+		source.Set("transfer_id", source.Id)
+		if err := tx.Save(source); err != nil {
+			return err
+		}
+		destination = core.NewRecord(collection)
+		destination.Set("owner", user.Id)
+		destination.Set("account", to.Id)
+		destination.Set("date", date)
+		destination.Set("amount", amount)
+		destination.Set("type", "transfer")
+		destination.Set("payee", "Transfer from "+from.GetString("name"))
+		destination.Set("description", stringValue(input["notes"]))
+		destination.Set("notes", stringValue(input["notes"]))
+		destination.Set("transfer_id", source.Id)
+		if err := validateTransactionWrite(tx, destination, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		return tx.Save(destination)
+	})
+	if err != nil {
+		return err
+	}
+	logDomainMutation(event, user.Id, "create", "transactions", source.Id, map[string]any{"transfer_id": source.Id})
+	logDomainMutation(event, user.Id, "create", "transactions", destination.Id, map[string]any{"transfer_id": source.Id})
+	return event.JSON(http.StatusCreated, map[string]any{"transfer_id": source.Id, "source": source.PublicExport(), "destination": destination.PublicExport()})
+}
+
+func updateTransferRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	input, err := financeInput(event)
+	if err != nil {
+		return err
+	}
+	transferID := event.Request.PathValue("id")
+	fromID := stringValue(input["source_account"])
+	toID := stringValue(input["destination_account"])
+	amount, err := strconv.ParseFloat(fmt.Sprint(input["amount"]), 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+		return event.BadRequestError("amount must be greater than zero", nil)
+	}
+	date, err := transferDate(input["date"])
+	if err != nil {
+		return event.BadRequestError("date must use YYYY-MM-DD", nil)
+	}
+	var source, destination *core.Record
+	err = event.App.RunInTransaction(func(tx core.App) error {
+		records, err := tx.FindRecordsByFilter("transactions", "owner = {:owner} && transfer_id = {:transfer}", "id", 2, 0, dbx.Params{"owner": user.Id, "transfer": transferID})
+		if err != nil || len(records) != 2 {
+			return event.NotFoundError("transfer not found", nil)
+		}
+		if records[0].GetFloat("amount") < 0 {
+			source, destination = records[0], records[1]
+		} else {
+			source, destination = records[1], records[0]
+		}
+		from, err := ownedTransferAccount(tx, fromID, user.Id)
+		if err != nil {
+			return event.BadRequestError("source account not found", nil)
+		}
+		to, err := ownedTransferAccount(tx, toID, user.Id)
+		if err != nil {
+			return event.BadRequestError("destination account not found", nil)
+		}
+		if from.Id == to.Id {
+			return event.BadRequestError("source and destination accounts must be different", nil)
+		}
+		source.Set("account", from.Id)
+		source.Set("date", date)
+		source.Set("amount", -amount)
+		source.Set("payee", "Transfer to "+to.GetString("name"))
+		source.Set("description", stringValue(input["notes"]))
+		source.Set("notes", stringValue(input["notes"]))
+		destination.Set("account", to.Id)
+		destination.Set("date", date)
+		destination.Set("amount", amount)
+		destination.Set("payee", "Transfer from "+from.GetString("name"))
+		destination.Set("description", stringValue(input["notes"]))
+		destination.Set("notes", stringValue(input["notes"]))
+		if err := validateTransactionWrite(tx, source, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		if err := validateTransactionWrite(tx, destination, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		if err := tx.Save(source); err != nil {
+			return err
+		}
+		return tx.Save(destination)
+	})
+	if err != nil {
+		return err
+	}
+	logDomainMutation(event, user.Id, "update", "transactions", source.Id, map[string]any{"transfer_id": transferID})
+	logDomainMutation(event, user.Id, "update", "transactions", destination.Id, map[string]any{"transfer_id": transferID})
+	return event.JSON(http.StatusOK, map[string]any{"transfer_id": transferID, "source": source.PublicExport(), "destination": destination.PublicExport()})
+}
+
+func transferDate(value any) (time.Time, error) {
+	if date := stringValue(value); date != "" {
+		return time.Parse("2006-01-02", date)
+	}
+	return time.Now().UTC(), nil
+}
+
+func ownedTransferAccount(app core.App, id, owner string) (*core.Record, error) {
+	account, err := app.FindRecordById("accounts", id)
+	if err != nil || !ownership.IsOwner(account, "owner", owner) || account.GetBool("archived") {
+		return nil, fmt.Errorf("account not found")
+	}
+	return account, nil
 }
 
 func registerGoalContributionRoutes(e *core.ServeEvent, prefix string) {
@@ -348,6 +521,9 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err != nil {
 		return err
 	}
+	if collection == "transactions" && stringValue(input["type"]) == "transfer" {
+		return event.BadRequestError("use the transfers endpoint to create a paired transfer", nil)
+	}
 	if err := validateFinanceLinks(event, collection, input, nil, user.Id); err != nil {
 		return event.BadRequestError(err.Error(), nil)
 	}
@@ -386,6 +562,9 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 	if err != nil {
 		return err
 	}
+	if collection == "transactions" && record.GetString("transfer_id") != "" {
+		return event.BadRequestError("use the transfers endpoint to update both sides of a transfer", nil)
+	}
 	input, err := financeInput(event)
 	if err != nil {
 		return err
@@ -422,6 +601,34 @@ func deleteFinanceRecord(event *core.RequestEvent, collection string) error {
 	record, err := ownedFinanceRecord(event, collection, user.Id)
 	if err != nil {
 		return err
+	}
+	if collection == "transactions" && record.GetString("transfer_id") != "" {
+		transferID := record.GetString("transfer_id")
+		records, err := event.App.FindRecordsByFilter(
+			"transactions",
+			"owner = {:owner} && transfer_id = {:transfer}",
+			"id",
+			2,
+			0,
+			dbx.Params{"owner": user.Id, "transfer": transferID},
+		)
+		if err != nil || len(records) != 2 {
+			return event.BadRequestError("transfer pair is incomplete; refresh before deleting", err)
+		}
+		if err := event.App.RunInTransaction(func(tx core.App) error {
+			for _, item := range records {
+				if err := tx.Delete(item); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, item := range records {
+			logDomainMutation(event, user.Id, "delete", collection, item.Id, map[string]any{"transfer_id": transferID})
+		}
+		return event.NoContent(http.StatusNoContent)
 	}
 	if err := event.App.Delete(record); err != nil {
 		return err

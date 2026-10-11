@@ -12,7 +12,9 @@ export type Transaction = {
   account: string;
   accountId?: string;
   amount: number;
+  signedAmount?: number;
   kind: TransactionKind;
+  transferId?: string;
   date: string;
   budgetId?: string;
   note?: string;
@@ -347,7 +349,9 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       category: textValue(record, 'category', 'budget'),
       account: textValue(record, 'account') || 'Unassigned account',
       amount: Math.abs(numberValue(record, 'amount', 'value')),
+      signedAmount: numberValue(record, 'amount', 'value'),
       kind: transactionKind(record),
+      transferId: textValue(record, 'transfer_id') || undefined,
       date: dateValue(record),
       budgetId: textValue(record, 'budget'),
       note: textValue(record, 'notes', 'note', 'memo'),
@@ -430,19 +434,29 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       deadline: optionalDateValue(record, 'target_date', 'deadline') || 'No deadline',
       color: ['#5f8d7e', '#d68b5e', '#8e82b9', '#6b9ab8'][index % 4],
       notes: textValue(record, 'notes') || undefined,
-      status: textValue(record, 'status') === 'paused' ? 'paused' : record.completed ? 'completed' : 'active',
+      status:
+        textValue(record, 'status') === 'paused'
+          ? 'paused'
+          : record.completed
+            ? 'completed'
+            : 'active',
       archived: Boolean(record.archived),
     })),
-    goalContributions: contributionRecords.flatMap((records) => records.map((record) => ({
-      id: record.id,
-      goalId: textValue(record, 'goal'),
-      date: dateValue(record),
-      type: textValue(record, 'type') === 'withdrawal' ? 'withdrawal' as const : 'contribution' as const,
-      amount: numberValue(record, 'amount'),
-      accountId: textValue(record, 'account') || undefined,
-      transactionId: textValue(record, 'transaction') || undefined,
-      notes: textValue(record, 'notes') || undefined,
-    }))),
+    goalContributions: contributionRecords.flatMap((records) =>
+      records.map((record) => ({
+        id: record.id,
+        goalId: textValue(record, 'goal'),
+        date: dateValue(record),
+        type:
+          textValue(record, 'type') === 'withdrawal'
+            ? ('withdrawal' as const)
+            : ('contribution' as const),
+        amount: numberValue(record, 'amount'),
+        accountId: textValue(record, 'account') || undefined,
+        transactionId: textValue(record, 'transaction') || undefined,
+        notes: textValue(record, 'notes') || undefined,
+      })),
+    ),
     reconciliation: null,
   };
 
