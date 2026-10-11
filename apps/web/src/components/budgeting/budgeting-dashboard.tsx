@@ -31,6 +31,7 @@ import type { UserProfile } from '../../profile';
 import { apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 import type {
+  Account,
   Asset,
   AssetGroup,
   AssetPosition,
@@ -2191,6 +2192,8 @@ export function BudgetingDashboard({
 }: Props) {
   const [settingsMessage, setSettingsMessage] = useState('');
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [accountManagerOpen, setAccountManagerOpen] = useState(false);
+  const [preferredAccountId, setPreferredAccountId] = useState<string | null>(null);
   const [composer, setComposer] = useState<
     'account' | 'transaction' | 'checkpoint' | 'asset' | 'budget' | null
   >(null);
@@ -2217,6 +2220,7 @@ export function BudgetingDashboard({
     setComposer(null);
     setEditingTransaction(null);
     setEditingAsset(null);
+    setPreferredAccountId(null);
   };
   const saved = () => {
     closeComposer();
@@ -2277,12 +2281,14 @@ export function BudgetingDashboard({
     ) : (
       <SettingsView
         userId={userId}
+        data={data}
         remote={remote}
         onRefresh={onRefresh}
         onStartOnboarding={() => setOnboardingOpen(true)}
         onMessage={setSettingsMessage}
         settingsMessage={settingsMessage}
         profile={profile}
+        onManageAccounts={() => setAccountManagerOpen(true)}
       />
     );
   return (
@@ -2295,6 +2301,7 @@ export function BudgetingDashboard({
           remote={remote}
           transaction={editingTransaction}
           asset={editingAsset}
+          preferredAccountId={preferredAccountId}
           onClose={closeComposer}
           onSaved={saved}
         />
@@ -2308,6 +2315,23 @@ export function BudgetingDashboard({
             setEditingTransaction(viewingTransaction);
             setViewingTransaction(null);
             setComposer('transaction');
+          }}
+        />
+      )}
+      {accountManagerOpen && (
+        <AccountsSettingsDialog
+          accounts={data.accounts}
+          remote={remote}
+          onClose={() => setAccountManagerOpen(false)}
+          onRefresh={onRefresh}
+          onAddAccount={() => {
+            setAccountManagerOpen(false);
+            setComposer('account');
+          }}
+          onRecordCheckpoint={(accountId) => {
+            setAccountManagerOpen(false);
+            setPreferredAccountId(accountId);
+            setComposer('checkpoint');
           }}
         />
       )}
@@ -2548,20 +2572,24 @@ function TransactionDetails({
 
 function SettingsView({
   userId,
+  data,
   remote,
   onRefresh,
   onStartOnboarding,
   onMessage,
   settingsMessage,
   profile,
+  onManageAccounts,
 }: {
   userId: string;
+  data: BudgetData;
   remote: boolean;
   onRefresh: () => void;
   onStartOnboarding: () => void;
   onMessage: (message: string) => void;
   settingsMessage: string;
   profile: UserProfile;
+  onManageAccounts: () => void;
 }) {
   const { setTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -2599,6 +2627,26 @@ function SettingsView({
               onClick={() => setProfileOpen(true)}
             >
               Edit profile <ArrowRight size={14} />
+            </button>
+          </div>
+        </article>
+        <article className="panel settings-card">
+          <div className="small-panel-icon">
+            <Landmark size={17} />
+          </div>
+          <div>
+            <h3>Accounts</h3>
+            <p>
+              {data.accounts.length} account{data.accounts.length === 1 ? '' : 's'} ·{' '}
+              {formatMoney(
+                data.accounts
+                  .filter((account) => !account.archived)
+                  .reduce((sum, account) => sum + account.balance, 0),
+              )}{' '}
+              total balance
+            </p>
+            <button className="text-button" type="button" onClick={onManageAccounts}>
+              Manage accounts <ArrowRight size={14} />
             </button>
           </div>
         </article>
@@ -2665,6 +2713,217 @@ function SettingsView({
         />
       )}
     </>
+  );
+}
+
+function AccountsSettingsDialog({
+  accounts,
+  remote,
+  onClose,
+  onRefresh,
+  onAddAccount,
+  onRecordCheckpoint,
+}: {
+  accounts: Account[];
+  remote: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+  onAddAccount: () => void;
+  onRecordCheckpoint: (accountId: string) => void;
+}) {
+  const [editing, setEditing] = useState<Account | null>(null);
+  const [error, setError] = useState('');
+
+  const patchAccount = async (account: Account, values: Record<string, unknown>) => {
+    if (values.is_default === true) {
+      for (const current of accounts) {
+        if (!current.isDefault || current.id === account.id) continue;
+        const unset = await apiFetch(`/api/finance/accounts/${current.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_default: false }),
+        });
+        if (!unset.ok) throw new Error((await unset.text()) || 'Could not update the default account.');
+      }
+    }
+    const response = await apiFetch(`/api/finance/accounts/${account.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(values),
+    });
+    if (!response.ok) throw new Error((await response.text()) || `Could not update ${account.name}.`);
+    onRefresh();
+  };
+
+  const runAccountAction = async (account: Account, values: Record<string, unknown>) => {
+    setError('');
+    try {
+      await patchAccount(account, values);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Could not update ${account.name}.`);
+    }
+  };
+
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <section className="composer-card account-manager" role="dialog" aria-modal="true" aria-labelledby="accounts-settings-title">
+        <div className="composer-heading">
+          <div><h2 id="accounts-settings-title">Accounts</h2><span>Manage account details, defaults, balances, and checkpoints.</span></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        {!remote && <p className="page-description">Saved accounts are unavailable. Refresh after your connection returns to manage them.</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="account-manager-list">
+          {accounts.length ? accounts.map((account) => (
+            <article className={`account-manager-row ${account.archived ? 'is-archived' : ''}`} key={account.id}>
+              <div className="account-manager-copy">
+                <strong>{account.name}{account.isDefault ? ' · Default' : ''}</strong>
+                <span>{account.type} · {account.currency ?? 'USD'}{account.archived ? ' · Archived' : ''}</span>
+                <b>{formatMoney(account.balance)}</b>
+              </div>
+              <div className="account-manager-actions">
+                <button className="text-button" type="button" disabled={!remote} onClick={() => setEditing(account)}>Edit</button>
+                {!account.isDefault && !account.archived && <button className="text-button" type="button" disabled={!remote} onClick={() => void runAccountAction(account, { is_default: true })}>Set default</button>}
+                <button className="text-button" type="button" disabled={!remote} onClick={() => void runAccountAction(account, { archived: !account.archived, ...(account.isDefault ? { is_default: false } : {}) })}>{account.archived ? 'Restore' : 'Archive'}</button>
+                {!account.archived && <button className="text-button" type="button" disabled={!remote} onClick={() => onRecordCheckpoint(account.id)}>Checkpoint</button>}
+              </div>
+            </article>
+          )) : <p className="page-description">Add an account to track its balance and reconcile statements.</p>}
+        </div>
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>Close</button>
+          <button className="button button-primary" type="button" onClick={onAddAccount} disabled={!remote}>Add account</button>
+        </div>
+      </section>
+      {editing && (
+        <AccountEditor
+          account={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (values) => {
+            await patchAccount(editing, values);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AccountEditor({
+  account,
+  onClose,
+  onSave,
+}: {
+  account: Account;
+  onClose: () => void;
+  onSave: (values: Record<string, unknown>) => Promise<void>;
+}) {
+  const [name, setName] = useState(account.name);
+  const normalizedType = account.type.toLowerCase();
+  const [type, setType] = useState(
+    normalizedType.includes('credit')
+      ? 'credit'
+      : ['cash', 'savings', 'checking'].includes(normalizedType)
+        ? normalizedType
+        : 'other',
+  );
+  const [currency, setCurrency] = useState(account.currency ?? 'USD');
+  const [openingBalance, setOpeningBalance] = useState(String(account.openingBalance ?? 0));
+  const [notes, setNotes] = useState(account.notes ?? '');
+  const [isDefault, setIsDefault] = useState(Boolean(account.isDefault && !account.archived));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await onSave({
+        name: name.trim(),
+        type,
+        currency: currency.trim().toUpperCase(),
+        opening_balance: Number(openingBalance),
+        notes: notes.trim(),
+        is_default: !account.archived && isDefault,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : `Could not update ${account.name}.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="composer-overlay account-editor-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <form
+        className="composer-card"
+        onSubmit={(event) => void submit(event)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-editor-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="account-editor-title">Edit account</h2>
+            <span>Update its name, starting balance, or status.</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <label>
+          Account name
+          <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label>
+          Account type
+          <select value={type} onChange={(event) => setType(event.target.value)}>
+            <option value="checking">Checking</option>
+            <option value="cash">Cash</option>
+            <option value="savings">Savings</option>
+            <option value="credit">Credit card</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>
+          Currency
+          <input
+            required
+            maxLength={3}
+            minLength={3}
+            pattern="[A-Za-z]{3}"
+            value={currency}
+            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+          />
+        </label>
+        <label>
+          Opening balance
+          <input
+            required
+            type="number"
+            step="0.01"
+            value={openingBalance}
+            onChange={(event) => setOpeningBalance(event.target.value)}
+          />
+        </label>
+        <label>
+          Notes
+          <textarea rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        <label className="transaction-filter-checkbox">
+          <input
+            type="checkbox"
+            checked={isDefault}
+            disabled={account.archived}
+            onChange={(event) => setIsDefault(event.target.checked)}
+          />
+          Default account
+        </label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="composer-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save account'}</button></div>
+      </form>
+    </div>
   );
 }
 
@@ -2919,7 +3178,9 @@ function WelcomeWalkthrough({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const defaultAccount = accounts.find((account) => account.isDefault) ?? accounts[0];
+  const defaultAccount =
+    accounts.find((account) => account.isDefault && !account.archived) ??
+    accounts.find((account) => !account.archived);
   const [step, setStep] = useState<'welcome' | 'account' | 'complete'>('welcome');
   const [name, setName] = useState(defaultAccount?.name ?? 'Everyday checking');
   const [type, setType] = useState(defaultAccount?.type.toLowerCase() ?? 'checking');
@@ -3119,6 +3380,7 @@ function FinanceComposer({
   remote,
   transaction,
   asset,
+  preferredAccountId,
   onClose,
   onSaved,
 }: {
@@ -3127,14 +3389,21 @@ function FinanceComposer({
   remote: boolean;
   transaction: Transaction | null;
   asset: Asset | null;
+  preferredAccountId: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const defaultAccount = data.accounts.find((item) => item.isDefault) ?? data.accounts[0];
-  const [account, setAccount] = useState(transaction?.accountId ?? defaultAccount?.id ?? '');
+  const availableAccounts = data.accounts.filter(
+    (item) => !item.archived || item.id === transaction?.accountId,
+  );
+  const defaultAccount =
+    availableAccounts.find((item) => item.isDefault) ?? availableAccounts[0];
+  const [account, setAccount] = useState(
+    transaction?.accountId ?? preferredAccountId ?? defaultAccount?.id ?? '',
+  );
   const [accountName, setAccountName] = useState('');
   const [accountType, setAccountType] = useState('Checking');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState(readPreferences().currency);
   const [date, setDate] = useState(
     transaction?.date ?? asset?.purchaseDate ?? new Date().toISOString().slice(0, 10),
   );
@@ -3451,7 +3720,7 @@ function FinanceComposer({
             <label>
               Account
               <select required value={account} onChange={(event) => setAccount(event.target.value)}>
-                {data.accounts.map((item) => (
+                {availableAccounts.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>

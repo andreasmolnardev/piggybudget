@@ -30,6 +30,8 @@ export type Account = {
   balance: number;
   openingBalance?: number;
   isDefault?: boolean;
+  archived?: boolean;
+  notes?: string;
   latestCheckpoint?: number;
   unexplained?: number;
 };
@@ -340,6 +342,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       balance: numberValue(record, 'balance', 'current_balance', 'opening_balance'),
       openingBalance: numberValue(record, 'opening_balance'),
       isDefault: Boolean(record.is_default),
+      archived: Boolean(record.archived),
+      notes: textValue(record, 'notes') || undefined,
       latestCheckpoint: numberValue(record.lastCheckpoint as RecordModel | undefined, 'balance'),
       unexplained: numberValue(record, 'reconciliationDifference'),
     })),
