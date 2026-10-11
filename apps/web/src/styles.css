@@ -1257,6 +1257,11 @@ kbd {
   align-items: center;
   gap: 9px;
 }
+.transaction-import-trigger { position: relative; overflow: hidden; cursor: pointer; }
+.transaction-import-trigger input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.transaction-import-trigger.is-disabled { opacity: 0.55; pointer-events: none; }
+.transaction-csv-help { margin: 2px 0 12px; color: var(--muted); font-size: 10px; }
+.csv-import-status { margin: 0 0 10px; }
 .transaction-sort-control {
   display: inline-flex;
   align-items: center;

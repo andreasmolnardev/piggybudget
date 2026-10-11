@@ -866,6 +866,60 @@ type TransactionFilters = {
 
 type SavedTransactionView = { id: string; name: string; filters: TransactionFilters };
 
+function parseCsvRows(source: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (quoted) {
+      if (character === '"' && source[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else if (character === '"') {
+        quoted = false;
+      } else {
+        field += character;
+      }
+    } else if (character === '"') {
+      quoted = true;
+    } else if (character === ',') {
+      row.push(field);
+      field = '';
+    } else if (character === '\n' || character === '\r') {
+      if (character === '\r' && source[index + 1] === '\n') index += 1;
+      row.push(field);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += character;
+    }
+  }
+  row.push(field);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
+function transactionCsv(transactions: Transaction[]) {
+  const values = [
+    ['date', 'payee', 'amount', 'type', 'account', 'category', 'notes'],
+    ...transactions.map((transaction) => [
+      transaction.date,
+      transaction.merchant,
+      transaction.kind === 'expense' ? -transaction.amount : transaction.amount,
+      transaction.kind,
+      transaction.accountId ?? transaction.account,
+      transaction.category,
+      transaction.note ?? '',
+    ]),
+  ];
+  return values
+    .map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))
+    .join('\r\n');
+}
+
 const emptyTransactionFilters: TransactionFilters = {
   account: 'All accounts',
   kind: 'all',
@@ -883,6 +937,7 @@ const emptyTransactionFilters: TransactionFilters = {
 function TransactionsView({
   data,
   userId,
+  remote,
   onAddTransaction,
   onAddCheckpoint,
   onAddAccount,
@@ -893,6 +948,7 @@ function TransactionsView({
 }: {
   data: BudgetData;
   userId: string;
+  remote: boolean;
   onAddTransaction: () => void;
   onAddCheckpoint: () => void;
   onAddAccount: () => void;
@@ -908,6 +964,8 @@ function TransactionsView({
   const [savedViews, setSavedViews] = useState<SavedTransactionView[]>([]);
   const [loadedViewsKey, setLoadedViewsKey] = useState('');
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [csvMessage, setCsvMessage] = useState('');
   const pageSize = 25;
   const savedViewsKey = `piggybudget:transaction-views:${userId}`;
   useEffect(() => {
@@ -988,6 +1046,81 @@ function TransactionsView({
   );
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const exportCsv = () => {
+    const blob = new Blob([transactionCsv(filtered)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'piggybudget-transactions.csv';
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const importCsv = async (file: File) => {
+    setImportingCsv(true);
+    setCsvMessage('');
+    try {
+      const rows = parseCsvRows(await file.text());
+      const headers = rows.shift()?.map((header) => header.trim().toLowerCase()) ?? [];
+      const column = (name: string) => headers.indexOf(name);
+      if (column('date') < 0 || column('payee') < 0 || column('amount') < 0 || column('account') < 0) {
+        setCsvMessage('CSV needs date, payee, amount, and account columns.');
+        return;
+      }
+      let imported = 0;
+      const failures: string[] = [];
+      for (const [index, row] of rows.entries()) {
+        const accountValue = row[column('account')]?.trim() ?? '';
+        const account = data.accounts.find(
+          (item) => item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
+        );
+        const date = row[column('date')]?.trim() ?? '';
+        const parsedDate = new Date(`${date}T00:00:00Z`);
+        const amount = Number(row[column('amount')]);
+        const suppliedType = column('type') >= 0 ? row[column('type')]?.trim().toLowerCase() : '';
+        const type = suppliedType || (amount < 0 ? 'expense' : 'income');
+        if (
+          !account ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          Number.isNaN(parsedDate.getTime()) ||
+          parsedDate.toISOString().slice(0, 10) !== date ||
+          !Number.isFinite(amount) ||
+          amount === 0 ||
+          !['expense', 'income'].includes(type)
+        ) {
+          failures.push(String(index + 2));
+          continue;
+        }
+        const response = await apiFetch('/api/finance/transactions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            account: account.id,
+            date,
+            amount: type === 'expense' ? -Math.abs(amount) : Math.abs(amount),
+            type,
+            payee: row[column('payee')]?.trim() || 'Imported transaction',
+            category: column('category') >= 0 ? row[column('category')]?.trim() ?? '' : '',
+            notes: column('notes') >= 0 ? row[column('notes')]?.trim() ?? '' : '',
+          }),
+        });
+        if (response.ok) imported += 1;
+        else failures.push(String(index + 2));
+      }
+      setCsvMessage(
+        failures.length
+          ? `Imported ${imported}; skipped or failed rows ${failures.slice(0, 8).join(', ')}${failures.length > 8 ? ', …' : ''}.`
+          : `Imported ${imported} transactions.`,
+      );
+      if (imported) window.dispatchEvent(new Event('piggybudget:refresh'));
+    } catch {
+      setCsvMessage('Could not read this CSV file. Check the file and try again.');
+    } finally {
+      setImportingCsv(false);
+    }
+  };
   const saveView = () => {
     const name = window.prompt('Name this saved view');
     if (!name?.trim()) return;
@@ -1014,6 +1147,23 @@ function TransactionsView({
       <section className="transactions-section">
         <div className="transaction-toolbar">
           <div className="transaction-toolbar-actions">
+            <button className="button" type="button" onClick={exportCsv} disabled={!remote || !filtered.length}>
+              Export CSV
+            </button>
+            <label className={`button transaction-import-trigger ${remote ? '' : 'is-disabled'}`}>
+              {importingCsv ? 'Importing…' : 'Import CSV'}
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                aria-label="Import transactions from CSV"
+                disabled={!remote || importingCsv}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void importCsv(file);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
             <label className="transaction-sort-control">
               Sort
               <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
@@ -1240,6 +1390,11 @@ function TransactionsView({
             </Popover>
           </div>
         </div>
+        <p className="transaction-csv-help">
+          CSV columns: date, payee, amount, and account. Optional columns: type, category, and notes.
+          Account can be its name or ID.
+        </p>
+        {csvMessage && <p className="page-description csv-import-status" role="status">{csvMessage}</p>}
         <div className="table-header">
           <span>Transaction</span>
           <span>Date</span>
@@ -3144,6 +3299,7 @@ export function BudgetingDashboard({
       <TransactionsView
         data={data}
         userId={userId}
+        remote={remote}
         onAddTransaction={() => setComposer('transaction')}
         onAddCheckpoint={() => setComposer('checkpoint')}
         onAddAccount={() => setComposer('account')}
