@@ -1277,6 +1277,7 @@ function TransactionsView({
       <PageHeader title="Transactions" />
       <MoneyLentPanel
         transactions={data.transactions}
+        userId={userId}
         onOpenTransaction={onOpenTransaction}
         onRenamePerson={onRenameReceivable}
       />
@@ -1698,10 +1699,12 @@ function TransactionsView({
 
 function MoneyLentPanel({
   transactions,
+  userId,
   onOpenTransaction,
   onRenamePerson,
 }: {
   transactions: Transaction[];
+  userId: string;
   onOpenTransaction: (transaction: Transaction) => void;
   onRenamePerson: (person: string, nextName: string) => Promise<boolean>;
 }) {
@@ -1729,18 +1732,69 @@ function MoneyLentPanel({
   const [repaymentPerson, setRepaymentPerson] = useState<string | null>(null);
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const reminderStorageKey = `piggybudget-receivable-reminders:${pb.authStore.record?.id ?? 'guest'}`;
-  const [reminders, setReminders] = useState<Record<string, string>>(() => {
+  const [reminders, setReminders] = useState<Record<string, string>>({});
+  const [reminderBusy, setReminderBusy] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch('/api/finance/receivable-reminders')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not load repayment reminders.');
+        const records = (await response.json()) as Array<{ person: string; due_date: string }>;
+        if (cancelled) return;
+        const loaded = Object.fromEntries(
+          records.map((record) => [record.person, record.due_date.slice(0, 10)]),
+        ) as Record<string, string>;
+        const legacyKey = `piggybudget-receivable-reminders:${userId}`;
+        let legacy: Record<string, string> = {};
+        try {
+          legacy = JSON.parse(localStorage.getItem(legacyKey) ?? '{}') as Record<string, string>;
+        } catch {
+          legacy = {};
+        }
+        let migrated = true;
+        for (const [person, date] of Object.entries(legacy)) {
+          const alreadySaved = Object.keys(loaded).some(
+            (savedPerson) => savedPerson.toLowerCase() === person.toLowerCase(),
+          );
+          if (alreadySaved || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+          const saveResponse = await apiFetch('/api/finance/receivable-reminders', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ person, dueDate: date }),
+          });
+          if (saveResponse.ok) loaded[person] = date;
+          else migrated = false;
+        }
+        if (migrated) localStorage.removeItem(legacyKey);
+        if (!cancelled) setReminders(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setReminders({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+  const setReminder = async (person: string, date: string) => {
+    setReminderBusy(person);
     try {
-      return JSON.parse(localStorage.getItem(reminderStorageKey) ?? '{}') as Record<string, string>;
-    } catch {
-      return {};
+      const response = await apiFetch('/api/finance/receivable-reminders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person, dueDate: date }),
+      });
+      if (!response.ok) throw new Error((await response.text()) || 'Could not save reminder.');
+      setReminders((current) => {
+        const next = { ...current };
+        if (date) next[person] = date;
+        else delete next[person];
+        return next;
+      });
+    } catch (caught) {
+      window.alert(caught instanceof Error ? caught.message : 'Could not save reminder.');
+    } finally {
+      setReminderBusy(null);
     }
-  });
-  const setReminder = (person: string, date: string) => {
-    const next = { ...reminders, [person]: date };
-    setReminders(next);
-    localStorage.setItem(reminderStorageKey, JSON.stringify(next));
   };
   const recordRepayment = async (person: string, balance: number, related: Transaction[]) => {
     const account = related.find((transaction) => transaction.accountId)?.accountId;
@@ -1912,16 +1966,32 @@ function MoneyLentPanel({
                 ))}
               </div>
             )}
-            <label>
-              Remind me
-              <input
-                aria-label={`Reminder date for ${person}`}
-                type="date"
-                min={new Date().toISOString().slice(0, 10)}
-                value={reminders[person] ?? ''}
-                onChange={(event) => setReminder(person, event.target.value)}
-              />
-            </label>
+            <div className="money-lent-reminder">
+              <label>
+                Remind me
+                <input
+                  aria-label={`Reminder date for ${person}`}
+                  type="date"
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={reminders[person] ?? ''}
+                  disabled={reminderBusy === person}
+                  onChange={(event) => void setReminder(person, event.target.value)}
+                />
+              </label>
+              {reminders[person] && (
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={reminderBusy === person}
+                  onClick={() => void setReminder(person, '')}
+                >
+                  Clear reminder
+                </button>
+              )}
+            </div>
+            <small className="page-description">
+              Saved to your account; a notification appears when due.
+            </small>
             {reminders[person] && reminders[person] <= new Date().toISOString().slice(0, 10) && (
               <span role="status">Reminder due</span>
             )}

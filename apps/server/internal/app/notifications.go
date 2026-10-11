@@ -2,10 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/andreasmolnardev/slopstack/go/ownership"
@@ -17,8 +21,9 @@ import (
 )
 
 const (
-	notificationCollection = "notifications"
-	reminderCollection     = "reminders"
+	notificationCollection    = "notifications"
+	reminderCollection        = "reminders"
+	financeReminderCollection = "finance_reminders"
 )
 
 // EnsureNotificationCollections creates or repairs the persistence used by the
@@ -74,6 +79,20 @@ func EnsureNotificationCollections(app core.App) error {
 				unique        bool
 			}{{"idx_reminders_key", "key", true}, {"idx_reminders_due", "status, next_attempt_at", false}, {"idx_reminders_owner", "owner", false}},
 		},
+		{
+			name: financeReminderCollection,
+			fields: []core.Field{
+				&core.TextField{Name: "owner", Required: true},
+				&core.TextField{Name: "person", Required: true},
+				&core.TextField{Name: "person_key", Required: true},
+				&core.DateField{Name: "due_date", Required: true},
+				&core.DateField{Name: "notified_at"},
+			},
+			indexes: []struct {
+				name, columns string
+				unique        bool
+			}{{"idx_finance_reminders_owner_person", "owner, person_key", true}, {"idx_finance_reminders_due", "notified_at, due_date", false}},
+		},
 	}
 
 	for _, definition := range definitions {
@@ -124,6 +143,9 @@ func registerNotificationRoutes(e *core.ServeEvent) {
 	e.Router.POST("/api/notifications/{id}/dismiss", dismissNotificationRoute)
 	e.Router.POST("/api/notifications/read-all", readAllNotificationsRoute)
 	e.Router.POST("/api/reminders", createReminderRoute)
+	e.Router.GET("/api/finance/receivable-reminders", listReceivableRemindersRoute)
+	e.Router.PUT("/api/finance/receivable-reminders", saveReceivableReminderRoute)
+	e.Router.DELETE("/api/finance/receivable-reminders/{id}", deleteReceivableReminderRoute)
 }
 
 func listNotificationsRoute(event *core.RequestEvent) error {
@@ -261,6 +283,223 @@ func createReminderRoute(event *core.RequestEvent) error {
 		return err
 	}
 	return event.JSON(http.StatusCreated, map[string]any{"key": reminder.Key, "dueAt": reminder.DueAt})
+}
+
+func listReceivableRemindersRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	records, err := event.App.FindRecordsByFilter(
+		financeReminderCollection,
+		"owner = {:owner}",
+		"person",
+		0,
+		0,
+		dbx.Params{"owner": user.Id},
+	)
+	if err != nil {
+		return err
+	}
+	items := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		items = append(items, record.PublicExport())
+	}
+	return event.JSON(http.StatusOK, items)
+}
+
+func saveReceivableReminderRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	var input struct {
+		Person  string `json:"person"`
+		DueDate string `json:"dueDate"`
+	}
+	if err := json.NewDecoder(event.Request.Body).Decode(&input); err != nil {
+		return event.BadRequestError("person and dueDate are required", err)
+	}
+	person := strings.TrimSpace(input.Person)
+	if person == "" {
+		return event.BadRequestError("person is required", nil)
+	}
+	personKey := financeReminderPersonKey(person)
+	records, err := event.App.FindRecordsByFilter(
+		financeReminderCollection,
+		"owner = {:owner} && person_key = {:person_key}",
+		"id",
+		1,
+		0,
+		dbx.Params{"owner": user.Id, "person_key": personKey},
+	)
+	if err != nil {
+		return err
+	}
+	if input.DueDate == "" {
+		if len(records) > 0 {
+			if err := dismissReceivableNotifications(event.App, user.Id, personKey, time.Now().UTC()); err != nil {
+				return err
+			}
+			if err := event.App.Delete(records[0]); err != nil {
+				return err
+			}
+		}
+		return event.NoContent(http.StatusNoContent)
+	}
+	dueDate, err := time.Parse("2006-01-02", input.DueDate)
+	if err != nil {
+		return event.BadRequestError("dueDate must use YYYY-MM-DD", err)
+	}
+	var record *core.Record
+	if len(records) > 0 {
+		record = records[0]
+		previousDate := record.GetDateTime("due_date").Time().Format("2006-01-02")
+		if previousDate != dueDate.Format("2006-01-02") {
+			if err := dismissReceivableNotifications(event.App, user.Id, personKey, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+	} else {
+		collection, err := event.App.FindCollectionByNameOrId(financeReminderCollection)
+		if err != nil {
+			return err
+		}
+		record = core.NewRecord(collection)
+		record.Set("owner", user.Id)
+		record.Set("person_key", personKey)
+	}
+	record.Set("person", person)
+	record.Set("due_date", dueDate)
+	record.Set("notified_at", "")
+	if err := event.App.Save(record); err != nil {
+		return err
+	}
+	return event.JSON(http.StatusOK, record.PublicExport())
+}
+
+func deleteReceivableReminderRoute(event *core.RequestEvent) error {
+	user, err := CurrentUser(event)
+	if err != nil {
+		return err
+	}
+	record, err := event.App.FindRecordById(financeReminderCollection, event.Request.PathValue("id"))
+	if err != nil || !ownership.IsOwner(record, "owner", user.Id) {
+		return event.NotFoundError("reminder not found", nil)
+	}
+	if err := event.App.Delete(record); err != nil {
+		return err
+	}
+	return event.NoContent(http.StatusNoContent)
+}
+
+func financeReminderPersonKey(person string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(person))))
+	return hex.EncodeToString(sum[:])
+}
+
+func dismissReceivableNotifications(app core.App, owner, personKey string, now time.Time) error {
+	records, err := app.FindRecordsByFilter(
+		notificationCollection,
+		"owner = {:owner} && target_kind = 'receivable' && target_id = {:target} && dismissed_at = ''",
+		"",
+		0,
+		0,
+		dbx.Params{"owner": owner, "target": personKey},
+	)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		record.Set("dismissed_at", now.UTC())
+		if err := app.Save(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func registerFinanceReminderScheduler(app core.App) {
+	app.Cron().MustAdd("finance-receivable-reminders", "* * * * *", func() {
+		if err := notifyDueReceivableReminders(app, time.Now().UTC()); err != nil {
+			app.Logger().Error("deliver receivable reminders", "error", err)
+		}
+	})
+}
+
+func notifyDueReceivableReminders(app core.App, now time.Time) error {
+	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 23, 59, 59, 0, time.UTC)
+	records, err := app.FindRecordsByFilter(
+		financeReminderCollection,
+		"notified_at = '' && due_date <= {:today}",
+		"due_date,id",
+		100,
+		0,
+		dbx.Params{"today": today},
+	)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range records {
+		if err := app.RunInTransaction(func(tx core.App) error {
+			reminder, err := tx.FindRecordById(financeReminderCollection, candidate.Id)
+			if err != nil || !reminder.GetDateTime("notified_at").Time().IsZero() {
+				return nil
+			}
+			dueDate := reminder.GetDateTime("due_date").Time()
+			if dueDate.After(today) {
+				return nil
+			}
+			transactions, err := tx.FindRecordsByFilter(
+				"transactions",
+				"owner = {:owner} && receivable = {:person}",
+				"",
+				0,
+				0,
+				dbx.Params{"owner": reminder.GetString("owner"), "person": reminder.GetString("person")},
+			)
+			if err != nil {
+				return err
+			}
+			owed := 0.0
+			for _, transaction := range transactions {
+				if transaction.GetString("type") == "expense" {
+					owed += math.Abs(transaction.GetFloat("amount"))
+				} else if transaction.GetString("type") == "income" {
+					owed -= math.Abs(transaction.GetFloat("amount"))
+				}
+			}
+			if owed <= 0.005 {
+				return tx.Delete(reminder)
+			}
+			key := "receivable-" + reminder.Id + "-" + dueDate.Format("2006-01-02")
+			matches, err := tx.FindRecordsByFilter(notificationCollection, "reminder_key = {:key}", "", 1, 0, dbx.Params{"key": key})
+			if err != nil {
+				return err
+			}
+			if len(matches) == 0 {
+				collection, err := tx.FindCollectionByNameOrId(notificationCollection)
+				if err != nil {
+					return err
+				}
+				notification := core.NewRecord(collection)
+				notification.Set("owner", reminder.GetString("owner"))
+				notification.Set("title", "Money lent reminder")
+				notification.Set("body", "Follow up with "+reminder.GetString("person")+" about the money owed.")
+				notification.Set("target_kind", "receivable")
+				notification.Set("target_id", reminder.GetString("person_key"))
+				notification.Set("reminder_key", key)
+				if err := tx.Save(notification); err != nil {
+					return err
+				}
+			}
+			reminder.Set("notified_at", now)
+			return tx.Save(reminder)
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func readAllNotificationsRoute(event *core.RequestEvent) error {
