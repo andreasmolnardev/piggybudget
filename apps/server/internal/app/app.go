@@ -34,6 +34,11 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 		if err := EnsureCollections(e.App); err != nil {
 			return err
 		}
+		if config.Development {
+			if err := EnsureDevSampleSeedField(e.App); err != nil {
+				return err
+			}
+		}
 		if err := EnsureAssetGroupCollections(e.App); err != nil {
 			return err
 		}
@@ -201,7 +206,7 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 	registerCalDAVRoutes(e)
 	registerCardDAVRoutes(e)
 	registerSearchRoutes(e)
-	registerFinanceRoutes(e)
+	registerFinanceRoutes(e, config)
 	RegisterAssetGroupRoutes(e)
 	RegisterTransactionAttachmentRoutes(e)
 	publicDir := os.Getenv("PIGGYBUDGET_PUBLIC_DIR")

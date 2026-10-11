@@ -836,11 +836,18 @@ kbd {
   align-items: end;
   gap: 3px;
 }
-.chart-bar-wrap span {
+.chart-bar-wrap button {
   display: block;
   flex: 1;
   min-height: 3px;
+  padding: 0;
+  border: 0;
   border-radius: 5px 5px 0 0;
+  cursor: pointer;
+}
+.chart-bar-wrap button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 .chart-income {
   background: #9ac4ad;

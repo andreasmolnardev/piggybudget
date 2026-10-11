@@ -53,6 +53,13 @@ pnpm test
 go test ./...
 ```
 
+The Docker development stack seeds sample finance records once for a new, empty
+user. “Everyday checking” is the default account for new transactions. The seed
+is stored in PocketBase and can be edited or deleted without being restored on
+restart. If there is no account, Piggybudget opens a welcome walkthrough to
+configure one. In Vite development mode, Settings also has a Developer settings
+section that can reopen the walkthrough.
+
 The Go module is `github.com/piggybudget/piggybudget`; the web package is `@piggybudget/web`. Runtime settings use the `PIGGYBUDGET_*` prefix. Existing deployments can keep using `SLOPSTACK_*` settings during migration; the new names take precedence when both are set. The default PocketBase data path remains `pb_data`.
 
 See [`PATCH.md`](./PATCH.md), [`ROADMAP.md`](./ROADMAP.md), and [`docs/`](./docs/) for the implementation status and engineering notes.

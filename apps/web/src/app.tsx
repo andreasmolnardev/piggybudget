@@ -90,9 +90,10 @@ export function App() {
   const data = budgetQuery.data?.data ?? sampleData;
   const remote = budgetQuery.data?.remote ?? false;
   const loading = budgetQuery.isLoading;
-  const dataError = budgetQuery.isError && !dataErrorDismissed
-    ? 'Could not reach your saved data. Showing the local sample instead.'
-    : '';
+  const dataError =
+    budgetQuery.isError && !dataErrorDismissed
+      ? 'Could not reach your saved data. Showing the local sample instead.'
+      : '';
   const activeTab = tabForPath(pathname);
 
   useEffect(
@@ -197,6 +198,7 @@ export function App() {
           <div className="tab-page-transition">
             <BudgetingDashboard
               view={activeTab}
+              userId={userId}
               data={data}
               remote={remote}
               loading={loading}

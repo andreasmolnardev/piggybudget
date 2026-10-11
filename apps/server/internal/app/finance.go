@@ -22,7 +22,7 @@ var financeCollections = []string{"accounts", "transactions", "checkpoints", "bu
 var financeFields = map[string]map[string]bool{
 	"accounts": {
 		"name": true, "type": true, "currency": true, "opening_balance": true,
-		"opening_balance_date": true, "notes": true, "archived": true,
+		"opening_balance_date": true, "notes": true, "archived": true, "is_default": true,
 	},
 	"transactions": {
 		"account": true, "date": true, "amount": true, "type": true, "payee": true, "description": true,
@@ -122,20 +122,20 @@ func checkpointConfirmationPresent(request *http.Request) bool {
 	return present
 }
 
-func registerFinanceRoutes(e *core.ServeEvent) {
+func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 	// /api/finance is the documented path. The short paths keep the API easy to
 	// use for clients that already use /api/{resource} custom endpoints.
 	for _, prefix := range []string{"/api/finance", "/api"} {
-		registerFinanceResourceRoutes(e, prefix)
+		registerFinanceResourceRoutes(e, prefix, config)
 	}
 }
 
-func registerFinanceResourceRoutes(e *core.ServeEvent, prefix string) {
+func registerFinanceResourceRoutes(e *core.ServeEvent, prefix string, config Config) {
 	for _, collection := range financeCollections {
 		name := collection
 		path := prefix + "/" + name
 		e.Router.GET(path, func(event *core.RequestEvent) error {
-			return listFinanceRecords(event, name)
+			return listFinanceRecords(event, name, config.Development)
 		})
 		e.Router.POST(path, func(event *core.RequestEvent) error {
 			return createFinanceRecord(event, name)
@@ -158,10 +158,15 @@ func registerFinanceResourceRoutes(e *core.ServeEvent, prefix string) {
 	e.Router.POST(prefix+"/accounts/{id}/reconcile", reconcileAccountRoute)
 }
 
-func listFinanceRecords(event *core.RequestEvent, collection string) error {
+func listFinanceRecords(event *core.RequestEvent, collection string, development bool) error {
 	user, err := CurrentUser(event)
 	if err != nil {
 		return err
+	}
+	if development {
+		if err := ensureDevSampleData(event.App, user.Id); err != nil {
+			return err
+		}
 	}
 	result, err := listFinanceData(event.App, collection, user.Id, event.Request.URL.Query().Get("account"))
 	if err != nil {

@@ -24,7 +24,10 @@ export type Account = {
   id: string;
   name: string;
   type: string;
+  currency?: string;
   balance: number;
+  openingBalance?: number;
+  isDefault?: boolean;
   latestCheckpoint?: number;
   unexplained?: number;
 };
@@ -283,12 +286,8 @@ function optionalDateValue(record: RecordModel, ...keys: string[]) {
 }
 
 async function getRecords(collection: string): Promise<RecordModel[]> {
-  try {
-    const records = await apiRequest<unknown>(`/api/finance/${collection}`);
-    return Array.isArray(records) ? (records as RecordModel[]) : [];
-  } catch {
-    return [];
-  }
+  const records = await apiRequest<unknown>(`/api/finance/${collection}`);
+  return Array.isArray(records) ? (records as RecordModel[]) : [];
 }
 
 function transactionKind(record: RecordModel): TransactionKind {
@@ -330,7 +329,10 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       id: record.id,
       name: textValue(record, 'name', 'title') || 'Unnamed account',
       type: textValue(record, 'type', 'account_type') || 'Account',
+      currency: textValue(record, 'currency') || 'USD',
       balance: numberValue(record, 'balance', 'current_balance', 'opening_balance'),
+      openingBalance: numberValue(record, 'opening_balance'),
+      isDefault: Boolean(record.is_default),
       latestCheckpoint: numberValue(record.lastCheckpoint as RecordModel | undefined, 'balance'),
       unexplained: numberValue(record, 'reconciliationDifference'),
     })),
@@ -425,23 +427,5 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       to: textValue(window, 'to', 'endDate').slice(0, 10),
     };
   }
-  const hasRemoteData = Object.values(remoteData).some(
-    (items) => Array.isArray(items) && items.length > 0,
-  );
-  if (!hasRemoteData) return { data: sampleData, remote: false };
-  return {
-    data: {
-      transactions: remoteData.transactions.length
-        ? remoteData.transactions
-        : sampleData.transactions,
-      accounts: remoteData.accounts.length ? remoteData.accounts : sampleData.accounts,
-      budgets: remoteData.budgets.length ? remoteData.budgets : sampleData.budgets,
-      assets: remoteData.assets.length ? remoteData.assets : sampleData.assets,
-      assetGroups: remoteData.assetGroups,
-      assetPositions: remoteData.assetPositions,
-      goals: remoteData.goals.length ? remoteData.goals : sampleData.goals,
-      reconciliation: remoteData.reconciliation ?? sampleData.reconciliation,
-    },
-    remote: true,
-  };
+  return { data: remoteData, remote: true };
 }

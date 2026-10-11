@@ -36,6 +36,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.DateField{Name: "opening_balance_date"},
 				&core.TextField{Name: "notes"},
 				&core.BoolField{Name: "archived"},
+				&core.BoolField{Name: "is_default"},
 			},
 			indexes: []financeIndex{{"idx_accounts_owner", "owner", false}},
 		},

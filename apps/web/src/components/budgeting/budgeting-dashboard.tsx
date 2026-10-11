@@ -40,11 +40,13 @@ import type {
   TransactionKind,
 } from './data';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export type BudgetView = SidebarTab;
 
 type Props = {
   view: BudgetView;
+  userId: string;
   data: BudgetData;
   remote: boolean;
   loading: boolean;
@@ -301,24 +303,68 @@ function ReconciliationCard({
   );
 }
 
-function CashFlowChart() {
-  const bars = [42, 61, 34, 76, 55, 88, 67];
-  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function CashFlowChart({ transactions }: { transactions: Transaction[] }) {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today);
+    date.setDate(today.getDate() - (6 - index));
+    const dateKey = [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0'),
+    ].join('-');
+    const matchingTransactions = transactions.filter((transaction) => transaction.date === dateKey);
+    return {
+      dateKey,
+      label: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date),
+      income: matchingTransactions
+        .filter((transaction) => transaction.kind === 'income')
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+      expenses: matchingTransactions
+        .filter((transaction) => transaction.kind === 'expense')
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+    };
+  });
+  const scale = Math.max(
+    2000,
+    Math.ceil(Math.max(...days.flatMap((day) => [day.income, day.expenses])) / 1000) * 1000,
+  );
   return (
     <div className="cashflow-chart" aria-label="Cash flow over the last seven days">
       <div className="chart-y-labels">
-        <span>$2k</span>
-        <span>$1k</span>
+        <span>{formatMoney(scale, true)}</span>
+        <span>{formatMoney(scale / 2, true)}</span>
         <span>$0</span>
       </div>
       <div className="chart-bars">
-        {bars.map((height, index) => (
-          <div className="chart-day" key={labels[index]}>
+        {days.map((day) => (
+          <div className="chart-day" key={day.dateKey}>
             <div className="chart-bar-wrap">
-              <span className="chart-income" style={{ height: `${Math.min(98, height + 16)}%` }} />
-              <span className="chart-expense" style={{ height: `${height / 2}%` }} />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="chart-income"
+                    style={{ height: `${(day.income / scale) * 100}%` }}
+                    aria-label={`${day.label} income: ${formatMoney(day.income)}`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>{`${day.label} income: ${formatMoney(day.income)}`}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="chart-expense"
+                    style={{ height: `${(day.expenses / scale) * 100}%` }}
+                    aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>{`${day.label} expenses: ${formatMoney(day.expenses)}`}</TooltipContent>
+              </Tooltip>
             </div>
-            <small>{labels[index]}</small>
+            <small>{day.label}</small>
           </div>
         ))}
       </div>
@@ -400,7 +446,7 @@ function DashboardView({
               <ArrowUpRight size={14} /> $320 more than last month
             </span>
           </div>
-          <CashFlowChart />
+          <CashFlowChart transactions={data.transactions} />
           <div className="chart-legend">
             <span>
               <i className="legend-dot income" />
@@ -1296,6 +1342,7 @@ function GoalCard({ goal }: { goal: Goal }) {
 
 export function BudgetingDashboard({
   view,
+  userId,
   data,
   remote,
   loading,
@@ -1304,12 +1351,19 @@ export function BudgetingDashboard({
   profile,
 }: Props) {
   const [settingsMessage, setSettingsMessage] = useState('');
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [composer, setComposer] = useState<
     'account' | 'transaction' | 'checkpoint' | 'asset' | 'budget' | null
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  useEffect(() => {
+    if (!userId || !remote || data.accounts.length > 0) return;
+    if (localStorage.getItem(onboardingStorageKey(userId)) !== 'complete') {
+      setOnboardingOpen(true);
+    }
+  }, [data.accounts.length, remote, userId]);
   if (loading)
     return (
       <div className="loading-state">
@@ -1382,6 +1436,7 @@ export function BudgetingDashboard({
       <SettingsView
         remote={remote}
         onRefresh={onRefresh}
+        onStartOnboarding={() => setOnboardingOpen(true)}
         onMessage={setSettingsMessage}
         settingsMessage={settingsMessage}
         profile={profile}
@@ -1413,8 +1468,24 @@ export function BudgetingDashboard({
           }}
         />
       )}
+      {onboardingOpen && (
+        <WelcomeWalkthrough
+          accounts={data.accounts}
+          onClose={() => {
+            localStorage.setItem(onboardingStorageKey(userId), 'complete');
+            setOnboardingOpen(false);
+          }}
+          onSaved={() => {
+            onRefresh();
+          }}
+        />
+      )}
     </>
   );
+}
+
+function onboardingStorageKey(userId: string) {
+  return `piggybudget:onboarding:${userId}`;
 }
 
 type TransactionAttachment = {
@@ -1635,12 +1706,14 @@ function TransactionDetails({
 function SettingsView({
   remote,
   onRefresh,
+  onStartOnboarding,
   onMessage,
   settingsMessage,
   profile,
 }: {
   remote: boolean;
   onRefresh: () => void;
+  onStartOnboarding: () => void;
   onMessage: (message: string) => void;
   settingsMessage: string;
   profile: UserProfile;
@@ -1671,6 +1744,20 @@ function SettingsView({
             </button>
           </div>
         </article>
+        {import.meta.env.DEV && (
+          <article className="panel settings-card">
+            <div className="small-panel-icon">
+              <Landmark size={17} />
+            </div>
+            <div>
+              <h3>Developer settings</h3>
+              <p>Restart the welcome walkthrough and configure the default account.</p>
+              <button className="text-button" type="button" onClick={onStartOnboarding}>
+                Start onboarding <ArrowRight size={14} />
+              </button>
+            </div>
+          </article>
+        )}
         <article className="panel settings-card">
           <div className="small-panel-icon">
             <SlidersHorizontal size={17} />
@@ -1700,6 +1787,186 @@ function SettingsView({
         )}
       </section>
     </>
+  );
+}
+
+function WelcomeWalkthrough({
+  accounts,
+  onClose,
+  onSaved,
+}: {
+  accounts: BudgetData['accounts'];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const defaultAccount = accounts.find((account) => account.isDefault) ?? accounts[0];
+  const [step, setStep] = useState<'welcome' | 'account' | 'complete'>('welcome');
+  const [name, setName] = useState(defaultAccount?.name ?? 'Everyday checking');
+  const [type, setType] = useState(defaultAccount?.type.toLowerCase() ?? 'checking');
+  const [currency, setCurrency] = useState(defaultAccount?.currency ?? 'USD');
+  const [openingBalance, setOpeningBalance] = useState(String(defaultAccount?.openingBalance ?? 0));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const saveDefaultAccount = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch(
+        `/api/finance/accounts${defaultAccount ? `/${defaultAccount.id}` : ''}`,
+        {
+          method: defaultAccount ? 'PATCH' : 'POST',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: name.trim(),
+            type,
+            currency: currency.trim().toUpperCase(),
+            opening_balance: Number(openingBalance),
+            is_default: true,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error((await response.text()) || 'Could not save the account.');
+      for (const account of accounts) {
+        if (account.id === defaultAccount?.id || !account.isDefault) continue;
+        const unsetResponse = await apiFetch(`/api/finance/accounts/${account.id}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ is_default: false }),
+        });
+        if (!unsetResponse.ok) {
+          throw new Error((await unsetResponse.text()) || 'Could not update the default account.');
+        }
+      }
+      onSaved();
+      setStep('complete');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save the account.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <section
+        className="composer-card welcome-walkthrough"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="welcome-walkthrough-title"
+      >
+        {step === 'welcome' ? (
+          <>
+            <div className="composer-heading">
+              <div>
+                <h2 id="welcome-walkthrough-title">Welcome to Piggybudget</h2>
+                <span>Set up the account you use most.</span>
+              </div>
+              <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="page-description">
+              Your default account is selected automatically when you add a transaction. You can
+              change this setup any time in Developer settings.
+            </p>
+            <div className="composer-actions">
+              <button className="button" type="button" onClick={onClose}>
+                Later
+              </button>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => setStep('account')}
+              >
+                Configure account <ArrowRight size={14} />
+              </button>
+            </div>
+          </>
+        ) : step === 'complete' ? (
+          <>
+            <div className="composer-heading">
+              <div>
+                <h2 id="welcome-walkthrough-title">You’re ready</h2>
+                <span>{name} is now your default account.</span>
+              </div>
+              <CheckCircle2 size={20} />
+            </div>
+            <div className="composer-actions">
+              <button className="button button-primary" type="button" onClick={onClose}>
+                Open Piggybudget
+              </button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={(event) => void saveDefaultAccount(event)}>
+            <div className="composer-heading">
+              <div>
+                <h2 id="welcome-walkthrough-title">Configure your default account</h2>
+                <span>This account will be preselected for new transactions.</span>
+              </div>
+              <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <label>
+              Account name
+              <input required value={name} onChange={(event) => setName(event.target.value)} />
+            </label>
+            <label>
+              Account type
+              <select value={type} onChange={(event) => setType(event.target.value)}>
+                <option value="checking">Checking</option>
+                <option value="cash">Cash</option>
+                <option value="savings">Savings</option>
+                <option value="credit">Credit card</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
+              Currency
+              <input
+                required
+                maxLength={3}
+                value={currency}
+                onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+              />
+            </label>
+            <label>
+              Starting balance
+              <input
+                required
+                step="0.01"
+                type="number"
+                value={openingBalance}
+                onChange={(event) => setOpeningBalance(event.target.value)}
+              />
+            </label>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="composer-actions">
+              <button className="button" type="button" onClick={() => setStep('welcome')}>
+                Back
+              </button>
+              <button className="button button-primary" type="submit" disabled={busy}>
+                {busy ? 'Saving…' : 'Save default account'}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -1743,7 +2010,8 @@ function FinanceComposer({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [account, setAccount] = useState(transaction?.accountId ?? data.accounts[0]?.id ?? '');
+  const defaultAccount = data.accounts.find((item) => item.isDefault) ?? data.accounts[0];
+  const [account, setAccount] = useState(transaction?.accountId ?? defaultAccount?.id ?? '');
   const [accountName, setAccountName] = useState('');
   const [accountType, setAccountType] = useState('Checking');
   const [currency, setCurrency] = useState('USD');
