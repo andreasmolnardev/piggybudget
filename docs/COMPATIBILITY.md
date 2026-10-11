@@ -1,15 +1,22 @@
 # Piggybudget Compatibility Baseline
 
-## Synthetic legacy-schema regression
+## Historical migration backup-upgrade regression
 
-`go test ./apps/server -run TestSyntheticLegacyFinanceSchemaUpgradePreservesRecords -count=1`
-uses `tests.NewTestApp()` to create a disposable database, seeds an existing user,
-account, and transaction using an older finance schema, and runs the registered
-app migrations plus the current bootstrap schema repairs twice. It asserts that
-collection IDs, record IDs, and representative values survive and that newer
-fields are added. This is synthetic legacy-schema coverage; it does not replace
-the Phase 7 requirement to test disposable copies of populated real-schema
-databases from older releases, including restore.
+`go test ./apps/server -run TestHistoricalFinanceBackupUpgradePreservesRecords -count=1`
+creates a disposable database with only the historical
+`20260920000000_add_finance_collections.go` app migration registered, adds a
+synthetic user, account, and transaction, creates a PocketBase backup, extracts
+it into a temporary directory, then boots that copy with the current migration
+registry. It verifies that collection and record IDs and values survive, and
+that current attachment and asset-group collections are added. The fixture's
+schema is produced by the app-owned historical migration rather than manually
+recreated in test code.
+
+This is useful isolated migration/backup coverage, but it does not replace the
+Phase 7 acceptance test against disposable copies of populated real-schema
+databases from older deployed releases. It also does not exercise the CLI
+restore's process-restart behavior; that remains covered only by the separate
+empty-database compatibility smoke test.
 
 Everything a later migration phase must preserve. All values verified on the commit
 recorded in `docs/baseline.json` (Phase 0, `docs/architecture` commit `0eb63ad`).
@@ -28,8 +35,33 @@ see `docs/IDENTITY-MIGRATION.md` for the current names.
 | Node | `v22.23.2` | `node -v` |
 | pnpm | `11.8.0` | `pnpm -v` |
 
-`package.json:5` declares `"packageManager": "pnpm@11.8.0"`. CI currently pins
-pnpm `11` / node `24` / go `stable` — see `.github/workflows/ci.yml`.
+`package.json:5` declares `"packageManager": "pnpm@11.8.0"`. CI pins pnpm
+`11.8.0`, Node `22.23.2`, and Go `1.27.1` — see `.github/workflows/ci.yml`.
+
+## Shared-runtime adoption status
+
+Piggybudget uses shared auth context, configuration lookup, authorization
+evaluation, HTTP static serving, backup CLI, PocketBase archive adapter, and
+backup encryption from `github.com/andreasmolnardev/slopstack`. The backup CLI
+keeps Piggybudget's positional recovery-key import, key-init guidance, and
+current and legacy restore-restart guards through shared command options.
+Project identity, config prefix, data path, and existing Compose volume are
+documented in `IDENTITY-MIGRATION.md`.
+
+The checked-in `replace` temporarily points at the sibling Slopstack checkout
+because these command options are part of the pending v0.2.0 runtime release.
+After v0.2.0 is published, remove the `replace`, update the module requirement
+to v0.2.0, and run `go mod tidy` before hosted CI.
+
+## Deployment and release status
+
+The local `pnpm deploy --dry-run` workflow builds for configured platforms and
+`pnpm deploy --push` publishes to the configured registry. The current
+`slopstack.yaml` image repository is still the placeholder
+`ghcr.io/your-org/piggybudget`, so publication is not ready. The tag-triggered
+GitHub Actions release workflow currently builds with `push: false`; it does
+not publish an image. `pnpm release --apply` prepares version/tag config only
+and does not create a Git tag or hosted release.
 
 ## 2. Baseline command results
 
@@ -329,19 +361,27 @@ built-in cron.
 
 ### 6.2 CLI
 
-`NewBackupCommand` (`backup_command.go:34`) is registered in `main.go:33`, giving
-`piggybudget backup create|list|restore`.
+Piggybudget registers the shared Slopstack backup command with app-specific
+options in `backup_command.go`. It keeps positional recovery-key import,
+Piggybudget's key-init guidance, and both current and legacy restore restart
+guards. The PocketBase adapter retains the configured local or S3 backup store.
 
-- `create` → `pb.CreateBackup` with name `manual_<UTC 20060102_150405_000000000>.zip`.
-- `list` → enumerates the backups filesystem, newest first, tab-separated
-  `NAME  SIZE  MODIFIED` (RFC3339).
-- `restore <exact-name>` → **requires `--confirm`**. Name is validated against
-  `^@?[a-z0-9_-]+\.zip$` and length ≤ 150 (`backup_command.go:18,137`).
-  Uses the `PIGGYBUDGET_BACKUP_RESTORE_RESTARTED=1` env guard to prevent a restore
-  loop.
+- `create` → plain by default, named
+  `manual_<UTC 20060102_150405_000000000>.zip`; `--encrypt` stores the same
+  PocketBase ZIP inside the shared SLBK1 envelope.
+- `key-import <recovery-key>` remains positional for CLI compatibility.
+- `list` → enumerates the configured backups filesystem, newest first,
+  tab-separated `NAME  SIZE  MODIFIED` (RFC3339).
+- `restore <exact-name>` → **requires `--confirm`**. Names accept plain and
+  encrypted PocketBase archives, including automatic `@` names, and are limited
+  to 150 characters. Both `PIGGYBUDGET_BACKUP_RESTORE_RESTARTED` and the legacy
+  `SLOPSTACK_BACKUP_RESTORE_RESTARTED` prevent a restore loop.
+- Encrypted restores use local transient archives named with
+  `piggybudget_restore_`; bootstrap cleanup also removes older Slopstack-prefixed
+  transient archives left by a process restart.
 
-Taskboard's version additionally accepts `.zip.enc` and exposes JSON export;
-Piggybudget's does not. `scripts/backup-restore-smoke-test.sh` exercises the CLI.
+Taskboard additionally exposes JSON export. `scripts/backup-restore-smoke-test.sh`
+exercises the Piggybudget CLI against disposable local data directories.
 
 ## 7. Test coverage gap
 

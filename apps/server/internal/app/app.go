@@ -8,11 +8,12 @@ import (
 	"os"
 	"strings"
 
+	"github.com/andreasmolnardev/slopstack/go/backup"
+	"github.com/andreasmolnardev/slopstack/go/httpapi"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/andreasmolnardev/slopstack/go/httpapi"
 )
 
 func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
@@ -22,7 +23,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		if err := cleanupTransientBackupArchives(e.App.DataDir()); err != nil {
+		if err := backup.CleanupRestoreArchives(e.App.DataDir(), "piggybudget_restore_", "slopstack_restore_"); err != nil {
 			return fmt.Errorf("clean up temporary restore archives: %w", err)
 		}
 		if err := e.App.RunAppMigrations(); err != nil {
