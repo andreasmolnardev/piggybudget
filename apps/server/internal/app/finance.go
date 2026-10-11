@@ -43,7 +43,7 @@ var financeFields = map[string]map[string]bool{
 	},
 	"goals": {
 		"name": true, "target_amount": true, "current_amount": true, "target_date": true,
-		"account": true, "notes": true, "completed": true,
+		"account": true, "notes": true, "completed": true, "archived": true, "status": true,
 	},
 }
 

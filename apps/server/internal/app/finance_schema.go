@@ -123,6 +123,8 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.TextField{Name: "account"},
 				&core.TextField{Name: "notes"},
 				&core.BoolField{Name: "completed"},
+				&core.BoolField{Name: "archived"},
+				&core.TextField{Name: "status"},
 			},
 			indexes: []financeIndex{{"idx_goals_owner", "owner", false}},
 		},

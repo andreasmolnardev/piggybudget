@@ -1611,6 +1611,41 @@ kbd {
   margin-bottom: 17px;
   font-size: 14px;
 }
+.goal-name-button {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.goal-name-button:hover { color: var(--primary); }
+.goal-timeline {
+  margin-bottom: 16px;
+  padding: 18px;
+}
+.goal-timeline-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px minmax(100px, 1fr) minmax(100px, auto) 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 2px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  color: var(--foreground);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.goal-timeline-row > span:nth-of-type(2) { color: var(--muted); font-size: 11px; }
+.goal-timeline-mark { width: 9px; height: 9px; border-radius: 50%; }
+.goal-detail-total { display: flex; align-items: baseline; gap: 7px; }
+.goal-detail-total strong { font-size: 28px; letter-spacing: -0.05em; }
+.goal-detail-total span, .goal-detail-notes { color: var(--muted); font-size: 12px; }
+.goal-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.button-danger { color: var(--danger, #a83c32); }
 .goal-amount {
   display: flex;
   align-items: baseline;

@@ -1264,14 +1264,81 @@ function AssetGroupCard({
   );
 }
 
-function GoalsView({ data }: { data: BudgetData }) {
+function GoalsView({ data, onRefresh }: { data: BudgetData; onRefresh: () => void }) {
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [composerGoal, setComposerGoal] = useState<Goal | null | undefined>(undefined);
+  const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
+  const goals = data.goals.filter((goal) => !goal.archived);
+  const saveGoal = async (goal: Goal | null, values: GoalFormValues) => {
+    const response = await apiFetch(`/api/finance/goals${goal ? `/${goal.id}` : ''}`, {
+      method: goal ? 'PATCH' : 'POST',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: values.name,
+        target_amount: Number(values.target),
+        current_amount: Number(values.current),
+        target_date: values.deadline,
+        notes: values.notes,
+        status: values.status,
+        completed: values.status === 'completed',
+      }),
+    });
+    if (!response.ok) throw new Error((await response.text()) || 'Could not save this goal.');
+    setComposerGoal(undefined);
+    setSelectedGoal(null);
+    onRefresh();
+  };
+  const updateGoal = async (goal: Goal, values: Record<string, unknown>, action: string) => {
+    const response = await apiFetch(`/api/finance/goals/${goal.id}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${pb.authStore.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(values),
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || `Could not ${action} ${goal.name}.`);
+      return false;
+    }
+    setSelectedGoal(null);
+    onRefresh();
+    return true;
+  };
+  const deleteGoal = async (goal: Goal) => {
+    if (!window.confirm(`Delete ${goal.name}? This cannot be undone.`)) return;
+    const response = await apiFetch(`/api/finance/goals/${goal.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${pb.authStore.token}` },
+    });
+    if (!response.ok) {
+      window.alert((await response.text()) || `Could not delete ${goal.name}.`);
+      return;
+    }
+    setSelectedGoal(null);
+    onRefresh();
+  };
+  const orderedGoals = [...data.goals].sort((a, b) => {
+    if (a.status === 'completed' && b.status !== 'completed') return 1;
+    if (b.status === 'completed' && a.status !== 'completed') return -1;
+    if (!a.deadline || a.deadline === 'No deadline') return 1;
+    if (!b.deadline || b.deadline === 'No deadline') return -1;
+    return a.deadline.localeCompare(b.deadline);
+  });
   return (
     <>
       <PageHeader
         title="Goals"
         description="Small, steady progress adds up to a life you choose."
         action={
-          <button className="button button-primary">
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={() => setComposerGoal(null)}
+          >
             <Plus size={16} /> New goal
           </button>
         }
@@ -1283,21 +1350,66 @@ function GoalsView({ data }: { data: BudgetData }) {
           </span>
           <div>
             <strong>
-              {formatMoney(data.goals.reduce((sum, goal) => sum + goal.current, 0))} saved toward
+              {formatMoney(goals.reduce((sum, goal) => sum + goal.current, 0))} saved toward
               your goals
             </strong>
             <p>You are making good progress. Keep the momentum going.</p>
           </div>
         </div>
-        <button className="button button-quiet">
+        <button
+          className="button button-quiet"
+          type="button"
+          onClick={() => setTimelineOpen((open) => !open)}
+          aria-expanded={timelineOpen}
+        >
           <CalendarDays size={15} /> View timeline
         </button>
       </section>
+      {timelineOpen && (
+        <section className="panel goal-timeline" aria-label="Goal timeline">
+          <SectionHeading title="Goal timeline" />
+          {orderedGoals.length ? (
+            orderedGoals.map((goal) => {
+              const overdue =
+                goal.deadline !== 'No deadline' &&
+                goal.deadline < new Date().toISOString().slice(0, 10) &&
+                goal.status !== 'completed';
+              const state = goal.archived
+                ? 'Archived'
+                : goal.status === 'paused'
+                  ? 'Paused'
+                  : goal.status === 'completed'
+                    ? 'Completed'
+                    : overdue
+                      ? 'Overdue'
+                      : 'Upcoming';
+              return (
+                <button
+                  className="goal-timeline-row"
+                  type="button"
+                  key={goal.id}
+                  onClick={() => setSelectedGoal(goal)}
+                >
+                  <span className="goal-timeline-mark" style={{ background: goal.color }} />
+                  <strong>{goal.name}</strong>
+                  <span>
+                    {state}
+                    {goal.deadline !== 'No deadline' ? ` · ${goal.deadline}` : ''}
+                  </span>
+                  <ArrowRight size={14} />
+                </button>
+              );
+            })
+          ) : (
+            <p className="page-description">Create a goal to see it on your timeline.</p>
+          )}
+        </section>
+      )}
       <div className="goal-grid">
-        {data.goals.map((goal) => (
-          <GoalCard key={goal.id} goal={goal} />
+        {goals.map((goal) => (
+          <GoalCard key={goal.id} goal={goal} onOpen={() => setSelectedGoal(goal)} />
         ))}
-        <button className="goal-add-card" type="button">
+        <button className="goal-add-card" type="button" onClick={() => setComposerGoal(null)}>
           <span>
             <Plus size={20} />
           </span>
@@ -1305,11 +1417,36 @@ function GoalsView({ data }: { data: BudgetData }) {
           <small>Trips, projects, or peace of mind</small>
         </button>
       </div>
+      {composerGoal !== undefined && (
+        <GoalComposer goal={composerGoal} onClose={() => setComposerGoal(undefined)} onSave={saveGoal} />
+      )}
+      {selectedGoal && (
+        <GoalDetails
+          goal={selectedGoal}
+          onClose={() => setSelectedGoal(null)}
+          onEdit={() => setComposerGoal(selectedGoal)}
+          onDelete={() => void deleteGoal(selectedGoal)}
+          onArchive={() =>
+            void updateGoal(
+              selectedGoal,
+              { archived: !selectedGoal.archived },
+              selectedGoal.archived ? 'restore' : 'archive',
+            )
+          }
+          onPause={() =>
+            void updateGoal(
+              selectedGoal,
+              { status: selectedGoal.status === 'paused' ? 'active' : 'paused' },
+              'update',
+            )
+          }
+        />
+      )}
     </>
   );
 }
 
-function GoalCard({ goal }: { goal: Goal }) {
+function GoalCard({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
   const progress = goal.target ? (goal.current / goal.target) * 100 : 0;
   return (
     <article className="goal-card">
@@ -1317,11 +1454,20 @@ function GoalCard({ goal }: { goal: Goal }) {
         <span className="goal-mark" style={{ background: goal.color }}>
           <Target size={17} />
         </span>
-        <button className="icon-button" aria-label={`More options for ${goal.name}`} type="button">
+        <button
+          className="icon-button"
+          aria-label={`Open goal actions for ${goal.name}`}
+          type="button"
+          onClick={onOpen}
+        >
           <MoreHorizontal size={17} />
         </button>
       </div>
-      <h3>{goal.name}</h3>
+      <h3>
+        <button className="goal-name-button" type="button" onClick={onOpen}>
+          {goal.name}
+        </button>
+      </h3>
       <div className="goal-amount">
         <strong>{formatMoney(goal.current)}</strong>
         <span>of {formatMoney(goal.target)}</span>
@@ -1329,7 +1475,13 @@ function GoalCard({ goal }: { goal: Goal }) {
       <ProgressBar value={progress} color={goal.color} />
       <div className="goal-card-footer">
         <span>{Math.round(progress)}% complete</span>
-        <span>Target {goal.deadline}</span>
+        <span>
+          {goal.status === 'paused'
+            ? 'Paused'
+            : goal.deadline === 'No deadline'
+              ? 'No target date'
+              : `Target ${goal.deadline}`}
+        </span>
       </div>
       {progress >= 50 && (
         <div className="goal-note">
@@ -1337,6 +1489,207 @@ function GoalCard({ goal }: { goal: Goal }) {
         </div>
       )}
     </article>
+  );
+}
+
+type GoalFormValues = {
+  name: string;
+  current: string;
+  target: string;
+  deadline: string;
+  notes: string;
+  status: 'active' | 'paused' | 'completed';
+};
+
+function GoalComposer({
+  goal,
+  onClose,
+  onSave,
+}: {
+  goal: Goal | null;
+  onClose: () => void;
+  onSave: (goal: Goal | null, values: GoalFormValues) => Promise<void>;
+}) {
+  const [name, setName] = useState(goal?.name ?? '');
+  const [current, setCurrent] = useState(String(goal?.current ?? 0));
+  const [target, setTarget] = useState(String(goal?.target ?? ''));
+  const [deadline, setDeadline] = useState(goal?.deadline === 'No deadline' ? '' : goal?.deadline ?? '');
+  const [notes, setNotes] = useState(goal?.notes ?? '');
+  const [status, setStatus] = useState<GoalFormValues['status']>(goal?.status ?? 'active');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(goal, {
+        name: name.trim(),
+        current,
+        target,
+        deadline,
+        notes: notes.trim(),
+        status,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save this goal.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <form
+        className="composer-card goal-composer"
+        onSubmit={(event) => void submit(event)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="goal-composer-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="goal-composer-title">{goal ? 'Edit goal' : 'Create a goal'}</h2>
+            <span>Track a target and when you hope to reach it.</span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <label>
+          Goal name
+          <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <div className="form-grid">
+          <label>
+            Saved so far
+            <input
+              required
+              type="number"
+              min="0"
+              step="0.01"
+              value={current}
+              onChange={(event) => setCurrent(event.target.value)}
+            />
+          </label>
+          <label>
+            Target amount
+            <input
+              required
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={target}
+              onChange={(event) => setTarget(event.target.value)}
+            />
+          </label>
+        </div>
+        <label>
+          Target date
+          <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
+        </label>
+        {goal && (
+          <label>
+            Status
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as GoalFormValues['status'])}
+            >
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="completed">Completed</option>
+            </select>
+          </label>
+        )}
+        <label>
+          Notes
+          <textarea rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="composer-actions">
+          <button className="button" type="button" onClick={onClose}>Cancel</button>
+          <button className="button button-primary" type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Save goal'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function GoalDetails({
+  goal,
+  onClose,
+  onEdit,
+  onDelete,
+  onArchive,
+  onPause,
+}: {
+  goal: Goal;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onArchive: () => void;
+  onPause: () => void;
+}) {
+  const progress = goal.target > 0 ? Math.min(100, Math.max(0, goal.current / goal.target * 100)) : 0;
+  const overdue = goal.deadline !== 'No deadline' && goal.deadline < new Date().toISOString().slice(0, 10) && goal.status !== 'completed';
+  return (
+    <div className="composer-overlay">
+      <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
+      <section
+        className="composer-card goal-detail"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="goal-detail-title"
+      >
+        <div className="composer-heading">
+          <div>
+            <h2 id="goal-detail-title">{goal.name}</h2>
+            <span>
+              {goal.archived
+                ? 'Archived'
+                : overdue
+                  ? 'Overdue'
+                  : goal.status === 'paused'
+                    ? 'Paused'
+                    : goal.status === 'completed'
+                      ? 'Completed'
+                      : goal.deadline === 'No deadline'
+                        ? 'No target date'
+                        : `Target ${goal.deadline}`}
+            </span>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="goal-detail-total">
+          <strong>{formatMoney(goal.current)}</strong>
+          <span> saved of {formatMoney(goal.target)}</span>
+        </div>
+        <ProgressBar value={progress} color={goal.color} />
+        <p className="page-description">
+          Progress is saved amount ÷ target amount, capped at 100%.{' '}
+          {Math.max(0, goal.target - goal.current) > 0
+            ? `${formatMoney(Math.max(0, goal.target - goal.current))} left to reach your target.`
+            : 'You have reached this target.'}
+        </p>
+        {goal.notes && <p className="goal-detail-notes">{goal.notes}</p>}
+        <div className="goal-detail-actions">
+          <button className="button button-primary" type="button" onClick={onEdit}>Edit goal</button>
+          {!goal.archived && (
+            <button className="button" type="button" onClick={onPause}>
+              {goal.status === 'paused' ? 'Resume' : 'Pause'}
+            </button>
+          )}
+          <button className="button" type="button" onClick={onArchive}>
+            {goal.archived ? 'Restore' : 'Archive'}
+          </button>
+          <button className="button button-danger" type="button" onClick={onDelete}>Delete</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1431,7 +1784,7 @@ export function BudgetingDashboard({
         onDeleteAsset={(asset) => void deleteRecord('assets', asset.id, asset.name)}
       />
     ) : view === 'goals' ? (
-      <GoalsView data={data} />
+      <GoalsView data={data} onRefresh={onRefresh} />
     ) : (
       <SettingsView
         remote={remote}

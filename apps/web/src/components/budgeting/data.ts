@@ -87,6 +87,9 @@ export type Goal = {
   target: number;
   deadline: string;
   color: string;
+  notes?: string;
+  status?: 'active' | 'paused' | 'completed';
+  archived?: boolean;
 };
 
 export type Reconciliation = {
@@ -387,8 +390,11 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       name: textValue(record, 'name', 'title') || 'Unnamed goal',
       current: numberValue(record, 'current_amount', 'current', 'saved', 'balance'),
       target: numberValue(record, 'target_amount', 'target', 'goal', 'amount') || 1,
-      deadline: textValue(record, 'target_date', 'deadline') || 'No deadline',
+      deadline: optionalDateValue(record, 'target_date', 'deadline') || 'No deadline',
       color: ['#5f8d7e', '#d68b5e', '#8e82b9', '#6b9ab8'][index % 4],
+      notes: textValue(record, 'notes') || undefined,
+      status: textValue(record, 'status') === 'paused' ? 'paused' : record.completed ? 'completed' : 'active',
+      archived: Boolean(record.archived),
     })),
     reconciliation: null,
   };
