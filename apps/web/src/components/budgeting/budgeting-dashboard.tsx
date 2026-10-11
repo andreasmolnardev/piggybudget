@@ -1052,7 +1052,9 @@ function TransactionsView({
     const link = document.createElement('a');
     link.href = url;
     link.download = 'piggybudget-transactions.csv';
+    document.body.append(link);
     link.click();
+    link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
   const importCsv = async (file: File) => {
@@ -4875,14 +4877,6 @@ function FinanceComposer({
                 type="number"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-              />
-            </label>
-            <label>
-              Month
-              <input
-                type="month"
-                value={date.slice(0, 7)}
-                onChange={(event) => setDate(`${event.target.value}-01`)}
               />
             </label>
           </>
