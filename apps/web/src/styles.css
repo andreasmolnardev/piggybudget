@@ -2333,6 +2333,20 @@ kbd {
 .sidebar-link.is-active::before {
   display: none;
 }
+.mobile-more-trigger {
+  display: none;
+}
+.mobile-more-menu {
+  width: 180px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.mobile-more-menu [role='menuitem'] {
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
 .sidebar-label {
   display: block;
   font-size: 10px;
@@ -2581,6 +2595,14 @@ h1 {
     width: 42px;
     height: 42px;
   }
+  .sidebar-link-transactions,
+  .sidebar-settings {
+    display: none;
+  }
+  .mobile-more-trigger {
+    display: grid;
+    place-items: center;
+  }
   .sidebar-link.is-active::before {
     width: 19px;
     height: 3px;
@@ -2824,38 +2846,38 @@ h1 {
     flex-direction: row;
     gap: 2px;
   }
-  .sidebar-footer > .sidebar-link {
-    display: none;
-  }
   .sidebar-footer > .sidebar-search {
-    width: 32px;
-    display: grid;
-    min-height: 38px;
-    padding: 2px;
+    display: none;
   }
   .sidebar-notifications,
   .sidebar-profile-wrap {
-    width: 32px;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    display: block;
+    width: 0;
+    height: 0;
   }
-  .sidebar-footer .topbar-icon,
+  .sidebar-notifications .topbar-icon,
   .sidebar-profile-button {
-    width: 32px;
-    height: 38px;
-    padding: 2px;
-    border-radius: 8px;
-  }
-  .sidebar-profile-button span {
-    width: 26px;
-    height: 26px;
+    display: none;
   }
   .sidebar-footer .topbar-popover {
+    position: fixed;
     top: auto;
-    right: -6px;
-    bottom: calc(100% + 12px);
+    right: 12px;
+    bottom: 84px;
     left: auto;
   }
   .sidebar-notifications .topbar-popover {
-    right: -42px;
+    right: 12px;
+  }
+  .sidebar-profile-wrap .sidebar-profile-popover {
+    position: fixed;
+    top: auto;
+    right: 12px;
+    bottom: 84px;
+    left: auto;
   }
   .sidebar-search-shortcut {
     display: none;

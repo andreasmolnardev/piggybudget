@@ -2,22 +2,31 @@ import { useEffect, useState } from 'react';
 import {
   BarChart3,
   Banknote,
+  Bell,
   ChevronDown,
   CircleDollarSign,
   Command,
   Goal,
   LayoutDashboard,
   LogOut,
+  MoreHorizontal,
   Moon,
   Search,
   Settings,
   Settings2,
   Sun,
+  UserRound,
   WalletCards,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useTheme } from 'next-themes';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { FinanceNotifications } from './app/finance-notifications';
 import type { BudgetData } from './budgeting/data';
 import { pb } from '../api/pocketbase';
@@ -56,6 +65,7 @@ function notificationsPreference(userId: string) {
 export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileClosing, setProfileClosing] = useState(false);
+  const [notificationOpenRequest, setNotificationOpenRequest] = useState(0);
   const [notificationsEnabled, setNotificationsEnabled] = useState(() =>
     notificationsPreference(userId),
   );
@@ -103,7 +113,7 @@ export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }
         {items.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            className={`sidebar-link ${activeTab === id ? 'is-active' : ''}`}
+            className={`sidebar-link sidebar-link-${id} ${activeTab === id ? 'is-active' : ''}`}
             type="button"
             onClick={() => onChange(id)}
             aria-label={label}
@@ -113,9 +123,39 @@ export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }
             <span className="sidebar-label">{label}</span>
           </button>
         ))}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="sidebar-link mobile-more-trigger" type="button" aria-label="More">
+              <MoreHorizontal size={19} strokeWidth={2} />
+              <span className="sidebar-label">More</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="mobile-more-menu" side="top" align="end" sideOffset={10}>
+            <DropdownMenuItem onSelect={() => onChange('settings')}>
+              <Settings size={16} /> Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onSearch}>
+              <Search size={16} /> Search
+            </DropdownMenuItem>
+            {notificationsEnabled && (
+              <DropdownMenuItem onSelect={() => setNotificationOpenRequest((value) => value + 1)}>
+                <Bell size={16} />
+                Notifications
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onSelect={() => {
+                setProfileClosing(false);
+                setProfileOpen(true);
+              }}
+            >
+              <UserRound size={16} /> Profile
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </nav>
       <button
-        className={`sidebar-link ${activeTab === 'settings' ? 'is-active' : ''}`}
+        className={`sidebar-link sidebar-settings ${activeTab === 'settings' ? 'is-active' : ''}`}
         type="button"
         onClick={() => onChange('settings')}
         aria-label="Settings"
@@ -140,7 +180,13 @@ export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }
         </button>
         <div className="sidebar-notifications">
           {notificationsEnabled && (
-            <FinanceNotifications key={userId} data={data} userId={userId} onNavigate={onChange} />
+            <FinanceNotifications
+              key={userId}
+              data={data}
+              userId={userId}
+              onNavigate={onChange}
+              openRequest={notificationOpenRequest}
+            />
           )}
         </div>
         <div className="profile-wrap sidebar-profile-wrap">

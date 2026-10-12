@@ -40,10 +40,12 @@ export function FinanceNotifications({
   data,
   userId,
   onNavigate,
+  openRequest = 0,
 }: {
   data: BudgetData;
   userId: string;
   onNavigate: (tab: SidebarTab) => void;
+  openRequest?: number;
 }) {
   const reconciliation = data.reconciliation;
   const issue =
@@ -63,6 +65,11 @@ export function FinanceNotifications({
   const [closing, setClosing] = useState(false);
 
   useEffect(() => setState(readState(userId)), [userId]);
+  useEffect(() => {
+    if (!openRequest) return;
+    setClosing(false);
+    setOpen(true);
+  }, [openRequest]);
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
