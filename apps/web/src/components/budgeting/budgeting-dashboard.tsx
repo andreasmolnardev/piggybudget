@@ -55,6 +55,15 @@ import type {
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { AppSelect } from '../ui/app-select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 
 export type BudgetView = SidebarTab;
 
@@ -73,6 +82,10 @@ type PendingDeletion = {
   timer: number;
   execute: () => Promise<void>;
 };
+
+type RecurringDeletePrompt =
+  | { kind: 'occurrence'; transaction: Transaction }
+  | { kind: 'schedule'; rule: RecurringTransaction };
 
 const defaultPreferences: UserPreferences = {
   currency: 'USD',
@@ -98,6 +111,29 @@ function recurringCadence(rule: Pick<RecurringTransaction, 'frequency' | 'interv
   const plural = rule.interval > 1 ? 's' : '';
 
   return `Every ${interval}${unit}${plural}`;
+}
+
+function nextRecurringOccurrence(rule: RecurringTransaction) {
+  const current = new Date(`${rule.nextDate}T00:00:00.000Z`);
+  if (!Number.isFinite(current.getTime())) return undefined;
+
+  const interval = Math.max(1, rule.interval);
+  if (rule.frequency === 'daily' || rule.frequency === 'weekly') {
+    current.setUTCDate(current.getUTCDate() + interval * (rule.frequency === 'weekly' ? 7 : 1));
+    return current.toISOString().slice(0, 10);
+  }
+
+  const anchor = new Date(`${rule.startDate || rule.nextDate}T00:00:00.000Z`);
+  const anchorDay = Number.isFinite(anchor.getTime()) ? anchor.getUTCDate() : current.getUTCDate();
+  const months = interval * (rule.frequency === 'yearly' ? 12 : 1);
+  const firstOfMonth = new Date(
+    Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + months, 1),
+  );
+  const lastDay = new Date(
+    Date.UTC(firstOfMonth.getUTCFullYear(), firstOfMonth.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  firstOfMonth.setUTCDate(Math.min(anchorDay, lastDay));
+  return firstOfMonth.toISOString().slice(0, 10);
 }
 
 function readPreferences(userId = pb.authStore.record?.id ?? ''): UserPreferences {
@@ -2087,6 +2123,7 @@ function TransactionsView({
   onOpenTransaction,
   onRenameReceivable,
   onDeleteTransactionsBatch,
+  onDeleteRecurringRule,
   onRefresh,
 }: {
   data: BudgetData;
@@ -2101,6 +2138,7 @@ function TransactionsView({
   onOpenTransaction: (transaction: Transaction) => void;
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
   onDeleteTransactionsBatch: (transactions: Transaction[]) => void;
+  onDeleteRecurringRule: (rule: RecurringTransaction) => void;
   onRefresh: () => void;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(
@@ -2143,20 +2181,14 @@ function TransactionsView({
       // Keep filtering usable when browser storage is unavailable.
     }
   }, [filters, sort, stateUserId, userId]);
-  const changeRecurringRule = async (rule: RecurringTransaction, active?: boolean) => {
-    if (
-      active === undefined &&
-      !window.confirm(`Delete recurring transaction “${rule.merchant}”?`)
-    ) {
-      return;
-    }
+  const changeRecurringRule = async (rule: RecurringTransaction, active: boolean) => {
     const response = await apiFetch(`/api/finance/recurring_transactions/${rule.id}`, {
-      method: active === undefined ? 'DELETE' : 'PATCH',
+      method: 'PATCH',
       headers: {
         Authorization: `Bearer ${pb.authStore.token}`,
         'Content-Type': 'application/json',
       },
-      ...(active === undefined ? {} : { body: JSON.stringify({ active }) }),
+      body: JSON.stringify({ active }),
     });
     if (!response.ok) {
       setRecurringMessage((await response.text()) || 'Could not update recurring transaction.');
@@ -2690,7 +2722,7 @@ function TransactionsView({
                           role="menuitem"
                           onClick={() => {
                             setOpenRecurringMenu(null);
-                            void changeRecurringRule(rule);
+                            onDeleteRecurringRule(rule);
                           }}
                         >
                           Delete
@@ -5766,6 +5798,9 @@ export function BudgetingDashboard({
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [recordDetailsTarget, setRecordDetailsTarget] = useState<FinanceRecordTarget | null>(null);
   const [pendingDeletions, setPendingDeletions] = useState<PendingDeletion[]>([]);
+  const [recurringDeletePrompt, setRecurringDeletePrompt] =
+    useState<RecurringDeletePrompt | null>(null);
+  const [recurringDeleteBusy, setRecurringDeleteBusy] = useState(false);
   useEffect(() => {
     if (!userId || !remote || data.accounts.length > 0) return;
     if (localStorage.getItem(onboardingStorageKey(userId)) !== 'complete') {
@@ -5857,6 +5892,10 @@ export function BudgetingDashboard({
     onRefresh();
   };
   const deleteTransaction = async (transaction: Transaction) => {
+    if (transaction.recurringRuleId) {
+      setRecurringDeletePrompt({ kind: 'occurrence', transaction });
+      return;
+    }
     if (!transaction.splitGroup) {
       await deleteRecord('transactions', transaction.id, transaction.merchant);
       return;
@@ -5882,6 +5921,120 @@ export function BudgetingDashboard({
       }
       onRefresh();
     });
+  };
+  const finishRecurringDeletePrompt = () => {
+    setRecurringDeletePrompt(null);
+    setRecurringDeleteBusy(false);
+  };
+  const skipNextRecurringOccurrence = async (rule: RecurringTransaction) => {
+    const nextDate = nextRecurringOccurrence(rule);
+    if (!nextDate) {
+      window.alert('Could not determine the next occurrence date.');
+      finishRecurringDeletePrompt();
+      return;
+    }
+    setRecurringDeleteBusy(true);
+    try {
+      const response = await apiFetch(`/api/finance/recurring_transactions/${rule.id}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${pb.authStore.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          next_date: nextDate,
+          active: rule.active && (!rule.endDate || nextDate <= rule.endDate),
+        }),
+      });
+      if (!response.ok) {
+        window.alert((await response.text()) || 'Could not skip the next occurrence.');
+        return;
+      }
+      onRefresh();
+    } catch {
+      window.alert('Could not skip the next occurrence. Check your connection and try again.');
+    } finally {
+      finishRecurringDeletePrompt();
+    }
+  };
+  const deleteRecurringSchedule = async (rule: RecurringTransaction) => {
+    setRecurringDeleteBusy(true);
+    try {
+      const response = await apiFetch(`/api/finance/recurring_transactions/${rule.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+      });
+      if (!response.ok) {
+        window.alert((await response.text()) || 'Could not delete the recurring schedule.');
+        return;
+      }
+      onRefresh();
+    } catch {
+      window.alert('Could not delete the recurring schedule. Check your connection and try again.');
+    } finally {
+      finishRecurringDeletePrompt();
+    }
+  };
+  const deleteRecurringOccurrence = (
+    transaction: Transaction,
+    stopFutureOccurrences: boolean,
+  ) => {
+    if (!transaction.recurringRuleId) return;
+    scheduleDeletion(
+      stopFutureOccurrences
+        ? `${transaction.merchant} and its future repeats`
+        : transaction.merchant,
+      async () => {
+      if (stopFutureOccurrences) {
+        const stopResponse = await apiFetch(
+          `/api/finance/recurring_transactions/${transaction.recurringRuleId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ active: false }),
+          },
+        );
+        if (!stopResponse.ok) {
+          window.alert((await stopResponse.text()) || 'Could not stop future occurrences.');
+          return;
+        }
+      }
+      const response = await apiFetch(`/api/finance/transactions/${transaction.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+      });
+      if (!response.ok) {
+        if (stopFutureOccurrences) {
+          await apiFetch(`/api/finance/recurring_transactions/${transaction.recurringRuleId}`, {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ active: true }),
+          });
+        }
+        window.alert((await response.text()) || `Could not delete ${transaction.merchant}.`);
+        return;
+      }
+      if (stopFutureOccurrences) {
+        const ruleResponse = await apiFetch(
+          `/api/finance/recurring_transactions/${transaction.recurringRuleId}`,
+          { method: 'DELETE', headers: { Authorization: `Bearer ${pb.authStore.token}` } },
+        );
+        if (!ruleResponse.ok) {
+          window.alert(
+            'This transaction was deleted and future occurrences were stopped, but the paused schedule could not be removed.',
+          );
+        }
+      }
+      onRefresh();
+      },
+    );
+    finishRecurringDeletePrompt();
   };
   const deleteTransactionsBatch = (transactions: Transaction[]) => {
     const splitGroups = new Set<string>();
@@ -6099,6 +6252,7 @@ export function BudgetingDashboard({
         onOpenTransaction={setViewingTransaction}
         onRenameReceivable={renameReceivable}
         onDeleteTransactionsBatch={deleteTransactionsBatch}
+        onDeleteRecurringRule={(rule) => setRecurringDeletePrompt({ kind: 'schedule', rule })}
         onRefresh={onRefresh}
       />
     ) : view === 'budgets' ? (
@@ -6158,6 +6312,65 @@ export function BudgetingDashboard({
   return (
     <>
       {content}
+      <AlertDialog
+        open={recurringDeletePrompt !== null}
+        onOpenChange={(open) => {
+          if (!open && !recurringDeleteBusy) finishRecurringDeletePrompt();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete recurring transaction?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {recurringDeletePrompt?.kind === 'schedule'
+                ? `Delete only the next occurrence of ${recurringDeletePrompt.rule.merchant} on ${formatDate(recurringDeletePrompt.rule.nextDate)}, or stop this and all future occurrences? Existing transactions stay in your history.`
+                : `Delete only ${recurringDeletePrompt?.kind === 'occurrence' ? recurringDeletePrompt.transaction.merchant : 'this transaction'}, or delete it and stop all future occurrences?`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={recurringDeleteBusy}>Cancel</AlertDialogCancel>
+            {recurringDeletePrompt?.kind === 'schedule' ? (
+              <>
+                <button
+                  className="button button-quiet"
+                  type="button"
+                  disabled={recurringDeleteBusy}
+                  onClick={() => void skipNextRecurringOccurrence(recurringDeletePrompt.rule)}
+                >
+                  Delete next occurrence
+                </button>
+                <button
+                  className="button button-danger"
+                  type="button"
+                  disabled={recurringDeleteBusy}
+                  onClick={() => void deleteRecurringSchedule(recurringDeletePrompt.rule)}
+                >
+                  Delete all from now on
+                </button>
+              </>
+            ) : recurringDeletePrompt?.kind === 'occurrence' ? (
+              <>
+                <button
+                  className="button button-quiet"
+                  type="button"
+                  disabled={recurringDeleteBusy}
+                  onClick={() => deleteRecurringOccurrence(recurringDeletePrompt.transaction, false)}
+                >
+                  Delete this one
+                </button>
+                <button
+                  className="button button-danger"
+                  type="button"
+                  disabled={recurringDeleteBusy}
+                  onClick={() => deleteRecurringOccurrence(recurringDeletePrompt.transaction, true)}
+                >
+                  Delete all from now on
+                </button>
+              </>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {pendingDeletions.length > 0 && (
         <div className="delete-undo-region" aria-live="polite">
           {pendingDeletions.map((pending) => (

@@ -15,6 +15,7 @@ export type Transaction = {
   signedAmount?: number;
   kind: TransactionKind;
   transferId?: string;
+  recurringRuleId?: string;
   splitGroup?: string;
   parentTransactionId?: string;
   subtransactions?: Transaction[];
@@ -62,6 +63,7 @@ export type RecurringTransaction = {
   kind: 'expense' | 'income' | 'adjustment';
   frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
   interval: number;
+  startDate?: string;
   nextDate: string;
   endDate?: string;
   active: boolean;
@@ -314,6 +316,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     signedAmount: numberValue(record, 'amount', 'value'),
     kind: transactionKind(record),
     transferId: textValue(record, 'transfer_id') || undefined,
+    recurringRuleId: textValue(record, 'recurring_rule') || undefined,
     splitGroup: textValue(record, 'split_group') || undefined,
     parentTransactionId: textValue(record, 'parent_transaction') || undefined,
     date: dateValue(record),
@@ -344,6 +347,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       kind: (textValue(record, 'type') || 'expense') as RecurringTransaction['kind'],
       frequency: textValue(record, 'frequency') as RecurringTransaction['frequency'],
       interval: numberValue(record, 'interval') || 1,
+      startDate: optionalDateValue(record, 'start_date') || undefined,
       nextDate: optionalDateValue(record, 'next_date') ?? '',
       endDate: optionalDateValue(record, 'end_date') || undefined,
       active: Boolean(record.active),
