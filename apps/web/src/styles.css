@@ -1649,35 +1649,37 @@ kbd {
   grid-template-columns: 32px minmax(0, 1fr) auto 21px;
 }
 .transaction-row.dashboard-recent-transaction {
-  grid-template-columns: 32px minmax(0, 1fr) auto 21px;
+  grid-template-columns: 32px minmax(0, 1fr) max-content 21px;
   grid-template-rows: auto auto;
+  grid-template-areas:
+    'icon title title menu'
+    '. details amount .';
   column-gap: 11px;
   row-gap: 10px;
   padding: 15px;
 }
 .dashboard-recent-transaction > .transaction-icon {
-  grid-column: 1;
-  grid-row: 1;
+  grid-area: icon;
   align-self: start;
 }
 .dashboard-recent-transaction > .transaction-main {
   display: contents;
 }
 .dashboard-recent-transaction > .transaction-main > strong {
-  grid-column: 2 / 4;
-  grid-row: 1;
+  grid-area: title;
+  min-width: 0;
 }
 .dashboard-recent-transaction > .transaction-main > span {
-  grid-column: 2;
-  grid-row: 2;
+  grid-area: details;
+  min-width: 0;
 }
 .dashboard-recent-transaction > .transaction-amount {
-  grid-column: 3;
-  grid-row: 2;
+  grid-area: amount;
+  justify-self: end;
 }
 .dashboard-recent-transaction > .transaction-row-menu-wrap {
-  grid-column: 4;
-  grid-row: 1;
+  grid-area: menu;
+  justify-self: end;
   align-self: start;
 }
 .transaction-cards {
