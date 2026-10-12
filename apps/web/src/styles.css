@@ -737,6 +737,18 @@ kbd {
   color: var(--foreground);
   background: var(--soft);
 }
+.dashboard-diagram-select {
+  padding-left: 0;
+  border-color: transparent;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.dashboard-diagram-select:hover {
+  border-color: var(--border);
+  color: var(--foreground);
+}
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -943,6 +955,61 @@ kbd {
   place-items: center;
   color: var(--muted);
   font-size: 11px;
+}
+.dashboard-metric-bars {
+  min-height: 166px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 13px;
+  padding: 4px 0;
+}
+.dashboard-metric-row {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.dashboard-metric-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.dashboard-metric-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dashboard-metric-label strong {
+  flex: 0 0 auto;
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 650;
+}
+.dashboard-metric-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--soft);
+}
+.dashboard-metric-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 220ms ease;
+}
+.dashboard-metric-fill.income {
+  background: #9ac4ad;
+}
+.dashboard-metric-fill.expense {
+  background: #d78b62;
+}
+.dashboard-metric-fill.balance {
+  background: var(--primary);
+}
+.dashboard-metric-fill.balance.is-negative {
+  background: var(--danger);
 }
 .chart-day-transactions {
   display: grid;

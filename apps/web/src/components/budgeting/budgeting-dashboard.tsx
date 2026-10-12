@@ -173,7 +173,7 @@ function PageHeader({
   );
 }
 
-function SectionHeading({ title, action }: { title: string; action?: React.ReactNode }) {
+function SectionHeading({ title, action }: { title: ReactNode; action?: React.ReactNode }) {
   return (
     <div className="section-heading">
       <h2>{title}</h2>
@@ -670,6 +670,24 @@ function ReconciliationCard({
 }
 
 type DashboardPeriod = 'this-month' | 'last-month' | 'this-week' | 'last-7-days' | 'last-30-days';
+type DashboardDiagram = 'cash-flow' | 'spending-category' | 'income-expenses' | 'account-balances';
+
+function readDashboardDiagram(userId: string): DashboardDiagram {
+  try {
+    const saved = localStorage.getItem(`piggybudget:dashboard-diagram:${userId}`);
+    if (
+      saved === 'cash-flow' ||
+      saved === 'spending-category' ||
+      saved === 'income-expenses' ||
+      saved === 'account-balances'
+    ) {
+      return saved;
+    }
+  } catch {
+    // Keep the dashboard usable when browser storage is unavailable.
+  }
+  return 'cash-flow';
+}
 
 function dateKey(date: Date) {
   return [
@@ -849,6 +867,103 @@ function CashFlowChart({
   );
 }
 
+function DashboardMetricBars({
+  items,
+  tone,
+  emptyMessage,
+}: {
+  items: Array<{ label: string; value: number; tone?: 'income' | 'expense' | 'balance' }>;
+  tone: 'income' | 'expense' | 'balance';
+  emptyMessage: string;
+}) {
+  if (!items.length) return <div className="chart-empty">{emptyMessage}</div>;
+
+  const maxValue = Math.max(1, ...items.map((item) => Math.abs(item.value)));
+  return (
+    <div className="dashboard-metric-bars">
+      {items.map((item) => {
+        const itemTone = item.tone ?? tone;
+        return (
+          <div className="dashboard-metric-row" key={item.label}>
+            <div className="dashboard-metric-label">
+              <span>{item.label}</span>
+              <strong>{formatMoney(item.value)}</strong>
+            </div>
+            <div className="dashboard-metric-track" aria-hidden="true">
+              <span
+                className={`dashboard-metric-fill ${itemTone}${
+                  itemTone === 'balance' && item.value < 0 ? ' is-negative' : ''
+                }`}
+                style={{ width: `${(Math.abs(item.value) / maxValue) * 100}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SpendingByCategoryChart({ transactions }: { transactions: Transaction[] }) {
+  const categoryTotals = new Map<string, number>();
+  transactions
+    .filter((transaction) => transaction.kind === 'expense')
+    .forEach((transaction) => {
+      const category = transaction.category || 'Uncategorized';
+      categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + transaction.amount);
+    });
+
+  const sorted = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
+  const items = sorted.slice(0, 5).map(([label, value]) => ({ label, value }));
+  if (sorted.length > 5) {
+    items.push({
+      label: 'Other',
+      value: sorted.slice(5).reduce((sum, [, amount]) => sum + amount, 0),
+    });
+  }
+
+  return (
+    <DashboardMetricBars
+      items={items}
+      tone="expense"
+      emptyMessage="No expenses in this date range."
+    />
+  );
+}
+
+function IncomeExpensesChart({ income, expenses }: { income: number; expenses: number }) {
+  if (!income && !expenses) {
+    return <div className="chart-empty">No income or expenses in this date range.</div>;
+  }
+
+  return (
+    <DashboardMetricBars
+      items={[
+        { label: 'Income', value: income, tone: 'income' },
+        { label: 'Expenses', value: expenses, tone: 'expense' },
+      ]}
+      tone="income"
+      emptyMessage="No income or expenses in this date range."
+    />
+  );
+}
+
+function AccountBalancesChart({ accounts }: { accounts: Account[] }) {
+  const items = accounts
+    .filter((account) => !account.archived)
+    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
+    .slice(0, 6)
+    .map((account) => ({ label: account.name, value: account.balance }));
+
+  return (
+    <DashboardMetricBars
+      items={items}
+      tone="balance"
+      emptyMessage="Add an account to see its balance here."
+    />
+  );
+}
+
 function FinanceHelper({
   data,
   reconciliation,
@@ -930,6 +1045,7 @@ function FinanceHelper({
 
 function DashboardView({
   data,
+  userId,
   profile,
   onNavigate,
   onAddTransaction,
@@ -943,6 +1059,7 @@ function DashboardView({
   onOpenBudget,
 }: {
   data: BudgetData;
+  userId: string;
   profile: UserProfile;
   onNavigate: (view: BudgetView) => void;
   onAddTransaction: () => void;
@@ -955,6 +1072,14 @@ function DashboardView({
   onToggleCleared: (transaction: Transaction) => void;
   onOpenBudget: (budget: Budget) => void;
 }) {
+  const [diagram, setDiagram] = useState<DashboardDiagram>(() => readDashboardDiagram(userId));
+  useEffect(() => {
+    try {
+      localStorage.setItem(`piggybudget:dashboard-diagram:${userId}`, diagram);
+    } catch {
+      // Keep the dashboard usable when browser storage is unavailable.
+    }
+  }, [diagram, userId]);
   const dashboardPeriodKey = `piggybudget:dashboard-period:${pb.authStore.record?.id ?? ''}`;
   const [period, setPeriod] = useState<DashboardPeriod>(() => {
     try {
@@ -1028,36 +1153,63 @@ function DashboardView({
       <div className="dashboard-grid dashboard-primary-grid">
         <section className="panel cashflow-panel">
           <SectionHeading
-            title="Cash flow"
-            action={
+            title={
               <select
-                className="select-button"
-                aria-label="Cash flow date range"
-                value={period}
-                onChange={(event) => setPeriod(event.target.value as DashboardPeriod)}
+                className="select-button dashboard-diagram-select"
+                aria-label="Dashboard diagram"
+                value={diagram}
+                onChange={(event) => {
+                  setDiagram(event.target.value as DashboardDiagram);
+                  setSelectedDay(null);
+                }}
               >
-                <option value="this-month">This month</option>
-                <option value="last-month">Last month</option>
-                <option value="this-week">This week</option>
-                <option value="last-7-days">Last 7 days</option>
-                <option value="last-30-days">Last 30 days</option>
+                <option value="cash-flow">Cash flow</option>
+                <option value="spending-category">Spending by category</option>
+                <option value="income-expenses">Income vs expenses</option>
+                <option value="account-balances">Account balances</option>
               </select>
             }
+            action={
+              diagram !== 'account-balances' ? (
+                <select
+                  className="select-button"
+                  aria-label="Chart date range"
+                  value={period}
+                  onChange={(event) => setPeriod(event.target.value as DashboardPeriod)}
+                >
+                  <option value="this-month">This month</option>
+                  <option value="last-month">Last month</option>
+                  <option value="this-week">This week</option>
+                  <option value="last-7-days">Last 7 days</option>
+                  <option value="last-30-days">Last 30 days</option>
+                </select>
+              ) : undefined
+            }
           />
-          <div className="cashflow-total">
-            <strong>{formatMoney(income - expenses)}</strong>
-            <span className={netChange < 0 ? 'cashflow-change is-down' : 'cashflow-change'}>
-              <ArrowUpRight size={14} /> {formatMoney(Math.abs(netChange))}{' '}
-              {netChange < 0 ? 'less' : 'more'} than the previous period
-            </span>
-          </div>
-          <CashFlowChart
-            transactions={currentTransactions}
-            start={range.start}
-            end={range.end}
-            onSelectDay={setSelectedDay}
-          />
-          {selectedDay && (
+          {diagram === 'cash-flow' ? (
+            <>
+              <div className="cashflow-total">
+                <strong>{formatMoney(income - expenses)}</strong>
+                <span className={netChange < 0 ? 'cashflow-change is-down' : 'cashflow-change'}>
+                  <ArrowUpRight size={14} /> {formatMoney(Math.abs(netChange))}{' '}
+                  {netChange < 0 ? 'less' : 'more'} than the previous period
+                </span>
+              </div>
+              <CashFlowChart
+                transactions={currentTransactions}
+                start={range.start}
+                end={range.end}
+                onSelectDay={setSelectedDay}
+              />
+            </>
+          ) : diagram === 'spending-category' ? (
+            <SpendingByCategoryChart transactions={currentTransactions} />
+          ) : diagram === 'income-expenses' ? (
+            <IncomeExpensesChart income={income} expenses={expenses} />
+          ) : (
+            <AccountBalancesChart accounts={data.accounts} />
+          )}
+          {diagram === 'cash-flow' && selectedDay && (
             <div className="chart-day-transactions">
               <div className="chart-day-transactions-heading">
                 <strong>
@@ -1091,16 +1243,18 @@ function DashboardView({
               )}
             </div>
           )}
-          <div className="chart-legend">
-            <span>
-              <i className="legend-dot income" />
-              Income
-            </span>
-            <span>
-              <i className="legend-dot expense" />
-              Expenses
-            </span>
-          </div>
+          {diagram === 'cash-flow' && (
+            <div className="chart-legend">
+              <span>
+                <i className="legend-dot income" />
+                Income
+              </span>
+              <span>
+                <i className="legend-dot expense" />
+                Expenses
+              </span>
+            </div>
+          )}
         </section>
         <FinanceHelper
           data={{ ...data, transactions: currentTransactions }}
@@ -4601,7 +4755,9 @@ export function BudgetingDashboard({
   const content =
     view === 'dashboard' ? (
       <DashboardView
+        key={userId}
         data={data}
+        userId={userId}
         profile={profile}
         onNavigate={onNavigate}
         onAddTransaction={() => setComposer('transaction')}
