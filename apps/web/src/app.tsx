@@ -42,11 +42,13 @@ function tabForPath(pathname: string): SidebarTab {
 
 function Header({
   activeTab,
+  profileName,
   remote,
   refreshing,
   onRefresh,
 }: {
   activeTab: SidebarTab;
+  profileName: string;
   remote: boolean;
   refreshing: boolean;
   onRefresh: () => void;
@@ -54,7 +56,8 @@ function Header({
   return (
     <header className="topbar">
       <div className="topbar-context">
-        <span className="mobile-brand">Piggybudget</span>
+        <span className="mobile-brand">{profileName}'s finances</span>
+        <strong className="topbar-owner">{profileName}'s finances</strong>
         <span className="topbar-slash">/</span>
         <strong>{pageLabels[activeTab]}</strong>
         <span className={`data-status ${remote ? 'is-synced' : ''}`}>
@@ -198,6 +201,7 @@ export function App() {
       <main className="main-content">
         <Header
           activeTab={activeTab}
+          profileName={profile.name}
           remote={remote}
           refreshing={budgetQuery.isFetching}
           onRefresh={refresh}
