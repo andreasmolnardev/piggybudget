@@ -395,17 +395,12 @@ h3 {
   font-weight: 750;
   letter-spacing: -0.03em;
 }
-.data-status-icon {
-  display: inline-grid;
-  place-items: center;
-  margin-left: 12px;
+.topbar-sync-icon {
   color: var(--muted);
-  cursor: help;
-  outline-offset: 4px;
 }
-.data-status-icon.is-syncing { color: var(--primary); }
-.data-status-icon.is-synced { color: #53a87d; }
-.data-status-icon.is-error { color: #c9685a; }
+.topbar-sync-icon.is-syncing { color: var(--primary); }
+.topbar-sync-icon.is-synced { color: #53a87d; }
+.topbar-sync-icon.is-error { color: #c9685a; }
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -448,6 +443,16 @@ kbd {
 .topbar-icon.is-active {
   color: var(--primary);
   background: var(--soft);
+}
+.app-tooltip-content {
+  color: var(--background);
+  background-color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--background) 16%, transparent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.app-tooltip-arrow {
+  fill: var(--foreground);
+  background-color: var(--foreground);
 }
 .popover-wrap,
 .profile-wrap {

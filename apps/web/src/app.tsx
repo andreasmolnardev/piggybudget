@@ -77,31 +77,23 @@ function Header({
         <strong className="topbar-owner">{profileName}'s finances</strong>
         <span className="topbar-slash">/</span>
         <strong>{pageLabels[activeTab]}</strong>
+      </div>
+      <div className="topbar-actions">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span
-              className={`data-status-icon is-${syncState}`}
-              role="img"
-              aria-label={syncLabel}
-              tabIndex={0}
+            <button
+              className={`icon-button topbar-icon topbar-sync-icon is-${syncState}`}
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label={refreshing ? 'Refreshing saved data' : 'Refresh data'}
+              aria-busy={refreshing}
             >
-              <SyncIcon className={syncState === 'syncing' ? 'refresh-icon is-spinning' : undefined} size={18} />
-            </span>
+              <SyncIcon className={syncState === 'syncing' ? 'refresh-icon is-spinning' : 'refresh-icon'} size={17} />
+            </button>
           </TooltipTrigger>
           <TooltipContent sideOffset={8}>{syncLabel}</TooltipContent>
         </Tooltip>
-      </div>
-      <div className="topbar-actions">
-        <button
-          className="icon-button topbar-icon"
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          aria-label={refreshing ? 'Refreshing saved data' : 'Refresh data'}
-          aria-busy={refreshing}
-        >
-          <RefreshCw className={refreshing ? 'refresh-icon is-spinning' : 'refresh-icon'} size={17} />
-        </button>
       </div>
     </header>
   );
