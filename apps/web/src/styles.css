@@ -1253,6 +1253,24 @@ kbd {
 .transactions-section {
   min-width: 0;
 }
+.transaction-header-actions {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  gap: 8px;
+}
+.transaction-header-control {
+  flex: 0 0 auto;
+}
+.transaction-header-action {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 10px;
+}
+.transaction-sort-popover {
+  width: 220px;
+}
 .transaction-toolbar {
   display: flex;
   align-items: center;
@@ -1264,6 +1282,51 @@ kbd {
   display: flex;
   align-items: center;
   gap: 9px;
+}
+.transaction-recurring-panel {
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.transaction-recurring-panel .transaction-filter-heading {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.transaction-recurring-panel .transaction-filter-heading > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.recurring-transaction-list {
+  padding-top: 10px;
+}
+.transaction-row.recurring-transaction-row {
+  grid-template-columns: 32px minmax(0, 1fr) max-content max-content max-content;
+  grid-template-areas: 'icon details next amount actions';
+}
+.recurring-transaction-row > .transaction-icon {
+  grid-area: icon;
+}
+.recurring-transaction-row > .transaction-main {
+  grid-area: details;
+}
+.recurring-transaction-row > time {
+  grid-area: next;
+}
+.recurring-transaction-row > .transaction-amount {
+  grid-area: amount;
+}
+.recurring-transaction-row > .recurring-transaction-actions {
+  grid-area: actions;
+}
+.recurring-transaction-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
 }
 .transaction-import-trigger { position: relative; overflow: hidden; cursor: pointer; }
 .transaction-import-trigger input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
@@ -1291,6 +1354,9 @@ kbd {
   gap: 7px;
 }
 .transaction-filter-trigger span {
+  position: absolute;
+  top: -4px;
+  right: -4px;
   min-width: 18px;
   height: 18px;
   display: grid;
@@ -1957,6 +2023,20 @@ kbd {
   align-items: center;
   gap: 15px;
   min-height: 150px;
+}
+.transaction-csv-settings {
+  grid-column: 1 / -1;
+  align-items: flex-start;
+}
+.transaction-csv-settings-content {
+  min-width: 0;
+  flex: 1;
+}
+.transaction-csv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
 }
 .account-manager { width: min(100%, 720px); }
 .account-manager-list { display: grid; gap: 9px; }
@@ -2936,10 +3016,7 @@ h1 {
   gap: 8px;
 }
 .transaction-add-trigger {
-  width: 36px;
-  min-width: 36px;
-  padding: 0;
-  justify-content: center;
+  min-width: 40px;
 }
 .transaction-add-popover {
   width: 210px;
@@ -2988,7 +3065,23 @@ h1 {
 .transaction-attachment-grid a { display: block; overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--soft); }
 .transaction-attachment-grid img { width: 100%; height: 110px; display: block; object-fit: cover; }
 .transaction-upload-retry { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
-.transaction-repeat-toggle { display: flex; align-items: center; gap: 8px; }
+.composer-card label.transaction-repeat-toggle {
+  width: 100%;
+  min-height: 24px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.composer-card .transaction-repeat-toggle input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary);
+}
 .transaction-split-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--soft); }
 .transaction-split-editor > div:first-child { display: flex; justify-content: space-between; gap: 10px; color: var(--foreground); font-size: 12px; }
 .transaction-split-editor > div:first-child small { color: var(--muted); font-size: 10px; }
@@ -3055,6 +3148,13 @@ h1 {
 @media (max-width: 700px) {
   .transaction-split-editor > div:first-child {
     flex-direction: column;
+  }
+  .transaction-row.recurring-transaction-row {
+    grid-template-columns: 30px minmax(0, 1fr) max-content max-content;
+    grid-template-areas: 'icon details amount actions';
+  }
+  .recurring-transaction-row time {
+    display: none;
   }
   .transaction-split-row {
     grid-template-columns: 1fr 1fr;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDownLeft,
+  ArrowDownUp,
   ArrowRight,
   ArrowRightLeft,
   ArrowUpRight,
@@ -935,7 +936,6 @@ function DashboardView({
     <>
       <PageHeader
         title={`${greeting}, ${firstName}`}
-        description="Here is your money at a glance."
         action={
           <button className="button button-primary" type="button" onClick={onAddTransaction}>
             <Plus size={16} /> New
@@ -1220,8 +1220,6 @@ function TransactionsView({
   const [savedViews, setSavedViews] = useState<SavedTransactionView[]>([]);
   const [loadedViewsKey, setLoadedViewsKey] = useState('');
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
-  const [importingCsv, setImportingCsv] = useState(false);
-  const [csvMessage, setCsvMessage] = useState('');
   const [recurringMessage, setRecurringMessage] = useState('');
   const pageSize = 25;
   useEffect(() => {
@@ -1340,148 +1338,6 @@ function TransactionsView({
   }, [data.transactions, filters, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const exportCsv = () => {
-    const blob = new Blob([transactionCsv(filtered)], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'piggybudget-transactions.csv';
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
-  const importCsv = async (file: File) => {
-    setImportingCsv(true);
-    setCsvMessage('');
-    try {
-      const rows = parseCsvRows(await file.text());
-      const headers = rows.shift()?.map((header) => header.trim().toLowerCase()) ?? [];
-      const column = (name: string) => headers.indexOf(name);
-      if (
-        column('date') < 0 ||
-        column('payee') < 0 ||
-        column('amount') < 0 ||
-        column('account') < 0
-      ) {
-        setCsvMessage('CSV needs date, payee, amount, and account columns.');
-        return;
-      }
-      let imported = 0;
-      const failures: string[] = [];
-      const importedTransfers = new Set<string>();
-      for (const [index, row] of rows.entries()) {
-        const accountValue = row[column('account')]?.trim() ?? '';
-        const account = data.accounts.find(
-          (item) =>
-            item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
-        );
-        const date = row[column('date')]?.trim() ?? '';
-        const parsedDate = new Date(`${date}T00:00:00Z`);
-        const amount = Number(row[column('amount')]);
-        const suppliedType = column('type') >= 0 ? row[column('type')]?.trim().toLowerCase() : '';
-        const type = suppliedType || (amount < 0 ? 'expense' : 'income');
-        if (type === 'transfer') {
-          const transferId =
-            column('transfer_id') >= 0 ? (row[column('transfer_id')]?.trim() ?? '') : '';
-          if (importedTransfers.has(transferId)) continue;
-          if (!transferId) {
-            failures.push(String(index + 2));
-            continue;
-          }
-          const peerIndex = rows.findIndex(
-            (candidate) =>
-              candidate !== row && candidate[column('transfer_id')]?.trim() === transferId,
-          );
-          const peer = peerIndex >= 0 ? rows[peerIndex] : undefined;
-          const peerAmount = Number(peer?.[column('amount')]);
-          const peerAccountValue = peer?.[column('account')]?.trim() ?? '';
-          const peerAccount = data.accounts.find(
-            (item) =>
-              item.id === peerAccountValue ||
-              item.name.toLowerCase() === peerAccountValue.toLowerCase(),
-          );
-          if (
-            !account ||
-            !peerAccount ||
-            !peer ||
-            account.id === peerAccount.id ||
-            !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-            parsedDate.toISOString().slice(0, 10) !== date ||
-            !Number.isFinite(amount) ||
-            !Number.isFinite(peerAmount) ||
-            amount === 0 ||
-            peerAmount === 0 ||
-            Math.sign(amount) === Math.sign(peerAmount)
-          ) {
-            failures.push(String(index + 2));
-            importedTransfers.add(transferId);
-            continue;
-          }
-          const source = amount < 0 ? account : peerAccount;
-          const destination = amount < 0 ? peerAccount : account;
-          const response = await apiFetch('/api/finance/transfers', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${pb.authStore.token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              source_account: source.id,
-              destination_account: destination.id,
-              date,
-              amount: Math.abs(amount),
-              notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
-            }),
-          });
-          importedTransfers.add(transferId);
-          if (response.ok) imported += 2;
-          else failures.push(String(index + 2));
-          continue;
-        }
-        if (
-          !account ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-          Number.isNaN(parsedDate.getTime()) ||
-          parsedDate.toISOString().slice(0, 10) !== date ||
-          !Number.isFinite(amount) ||
-          amount === 0 ||
-          !['expense', 'income', 'adjustment'].includes(type)
-        ) {
-          failures.push(String(index + 2));
-          continue;
-        }
-        const response = await apiFetch('/api/finance/transactions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${pb.authStore.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            account: account.id,
-            date,
-            amount: type === 'expense' ? -Math.abs(amount) : amount,
-            type,
-            payee: row[column('payee')]?.trim() || 'Imported transaction',
-            category: column('category') >= 0 ? (row[column('category')]?.trim() ?? '') : '',
-            notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
-          }),
-        });
-        if (response.ok) imported += 1;
-        else failures.push(String(index + 2));
-      }
-      setCsvMessage(
-        failures.length
-          ? `Imported ${imported}; skipped or failed rows ${failures.slice(0, 8).join(', ')}${failures.length > 8 ? ', …' : ''}.`
-          : `Imported ${imported} transactions.`,
-      );
-      if (imported) window.dispatchEvent(new Event('piggybudget:refresh'));
-    } catch {
-      setCsvMessage('Could not read this CSV file. Check the file and try again.');
-    } finally {
-      setImportingCsv(false);
-    }
-  };
   const saveView = () => {
     const name = window.prompt('Name this saved view');
     if (!name?.trim()) return;
@@ -1499,7 +1355,260 @@ function TransactionsView({
   };
   return (
     <>
-      <PageHeader title="Transactions" />
+      <PageHeader
+        title="Transactions"
+        action={
+          <div className="transaction-header-actions">
+            <div className="transaction-header-control">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className="icon-button transaction-header-action"
+                    type="button"
+                    aria-label="Sort transactions"
+                    title="Sort transactions"
+                  >
+                    <ArrowDownUp size={18} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="transaction-sort-popover">
+                  <label className="transaction-filter-field">
+                    Sort by
+                    <select
+                      value={sort}
+                      onChange={(event) => setSort(event.target.value as typeof sort)}
+                    >
+                      <option value="date-desc">Newest date</option>
+                      <option value="date-asc">Oldest date</option>
+                      <option value="amount-desc">Highest amount</option>
+                      <option value="amount-asc">Lowest amount</option>
+                    </select>
+                  </label>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="transaction-header-control">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className="icon-button transaction-header-action transaction-filter-trigger"
+                    type="button"
+                    aria-label="Filter transactions"
+                    title="Filter transactions"
+                  >
+                    <Filter size={18} />
+                    {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="transaction-filter-popover">
+                  <div className="transaction-filter-heading">
+                    <strong>Filter transactions</strong>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={clearFilters}
+                      disabled={activeFilterCount === 0}
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <label className="transaction-filter-field">
+                    Account
+                    <select
+                      value={filters.account}
+                      onChange={(event) => setFilters({ ...filters, account: event.target.value })}
+                    >
+                      <option>All accounts</option>
+                      {data.accounts.map((item) => (
+                        <option key={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="transaction-filter-field">
+                    <span>Type</span>
+                    <div className="filter-group" role="group" aria-label="Transaction type">
+                      {(['all', 'expense', 'income', 'transfer', 'adjustment'] as const).map(
+                        (option) => (
+                          <button
+                            key={option}
+                            className={filters.kind === option ? 'is-active' : ''}
+                            type="button"
+                            onClick={() => setFilters({ ...filters, kind: option })}
+                          >
+                            {option === 'all'
+                              ? 'All'
+                              : option === 'expense'
+                                ? 'Expenses'
+                                : option === 'income'
+                                  ? 'Income'
+                                  : option === 'transfer'
+                                    ? 'Transfers'
+                                    : 'Adjustments'}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                  <label className="transaction-filter-field">
+                    Category
+                    <select
+                      value={filters.category}
+                      disabled={filters.uncategorized}
+                      onChange={(event) => setFilters({ ...filters, category: event.target.value })}
+                    >
+                      <option>All categories</option>
+                      {[...new Set(data.transactions.map((item) => item.category))]
+                        .sort()
+                        .filter(Boolean)
+                        .map((item) => (
+                          <option key={item}>{item}</option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="transaction-filter-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={filters.uncategorized}
+                      onChange={(event) =>
+                        setFilters({ ...filters, uncategorized: event.target.checked })
+                      }
+                    />
+                    Uncategorized only
+                  </label>
+                  <label className="transaction-filter-field">
+                    Tag
+                    <input
+                      value={filters.tagQuery}
+                      onChange={(event) => setFilters({ ...filters, tagQuery: event.target.value })}
+                      placeholder="Filter by tag"
+                    />
+                  </label>
+                  <div className="transaction-date-filters">
+                    <label className="transaction-filter-field">
+                      From
+                      <input
+                        type="date"
+                        value={filters.fromDate}
+                        onChange={(event) => setFilters({ ...filters, fromDate: event.target.value })}
+                        aria-label="From date"
+                      />
+                    </label>
+                    <label className="transaction-filter-field">
+                      To
+                      <input
+                        type="date"
+                        value={filters.toDate}
+                        onChange={(event) => setFilters({ ...filters, toDate: event.target.value })}
+                        aria-label="To date"
+                      />
+                    </label>
+                  </div>
+                  <div className="transaction-date-filters">
+                    <label className="transaction-filter-field">
+                      Min amount
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={filters.minAmount}
+                        onChange={(event) =>
+                          setFilters({ ...filters, minAmount: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="transaction-filter-field">
+                      Max amount
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={filters.maxAmount}
+                        onChange={(event) =>
+                          setFilters({ ...filters, maxAmount: event.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="transaction-filter-field">
+                    Cleared
+                    <select
+                      value={filters.cleared}
+                      onChange={(event) =>
+                        setFilters({
+                          ...filters,
+                          cleared: event.target.value as TransactionFilters['cleared'],
+                        })
+                      }
+                    >
+                      <option value="all">All</option>
+                      <option value="cleared">Cleared</option>
+                      <option value="uncleared">Uncleared</option>
+                    </select>
+                  </label>
+                  <label className="transaction-filter-field">
+                    Reconciliation
+                    <select
+                      value={filters.reconciled}
+                      onChange={(event) =>
+                        setFilters({
+                          ...filters,
+                          reconciled: event.target.value as TransactionFilters['reconciled'],
+                        })
+                      }
+                    >
+                      <option value="all">All</option>
+                      <option value="reconciled">Reconciled</option>
+                      <option value="unreconciled">Unreconciled</option>
+                    </select>
+                  </label>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="transaction-header-control">
+              <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="icon-button transaction-header-action transaction-add-trigger"
+                    type="button"
+                    aria-label="Add finance entry"
+                  >
+                    <Plus size={19} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="transaction-add-popover">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddPopoverOpen(false);
+                      onAddTransaction();
+                    }}
+                  >
+                    Add transaction
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddPopoverOpen(false);
+                      onAddAccount();
+                    }}
+                  >
+                    <Landmark size={15} /> Add account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddPopoverOpen(false);
+                      onAddCheckpoint();
+                    }}
+                  >
+                    <CheckCircle2 size={15} /> Record checkpoint
+                  </button>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+        }
+      />
       <MoneyLentPanel
         transactions={data.transactions}
         userId={userId}
@@ -1507,291 +1616,52 @@ function TransactionsView({
         onRenamePerson={onRenameReceivable}
       />
       <section className="transactions-section">
-        <div className="transaction-toolbar">
-          <div className="transaction-toolbar-actions">
-            <button
-              className="button"
-              type="button"
-              onClick={exportCsv}
-              disabled={!remote || !filtered.length}
-            >
-              Export CSV
-            </button>
-            <label className={`button transaction-import-trigger ${remote ? '' : 'is-disabled'}`}>
-              {importingCsv ? 'Importing…' : 'Import CSV'}
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                aria-label="Import transactions from CSV"
-                disabled={!remote || importingCsv}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void importCsv(file);
-                  event.currentTarget.value = '';
-                }}
-              />
-            </label>
-            <label className="transaction-sort-control">
-              Sort
-              <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}>
-                <option value="date-desc">Newest date</option>
-                <option value="date-asc">Oldest date</option>
-                <option value="amount-desc">Highest amount</option>
-                <option value="amount-asc">Lowest amount</option>
-              </select>
-            </label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="button transaction-filter-trigger" type="button">
-                  <SlidersHorizontal size={15} />
-                  Filters
-                  {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="transaction-filter-popover">
-                <div className="transaction-filter-heading">
-                  <strong>Filter transactions</strong>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={clearFilters}
-                    disabled={activeFilterCount === 0}
-                  >
-                    Clear all
-                  </button>
-                </div>
-                <label className="transaction-filter-field">
-                  Account
-                  <select
-                    value={filters.account}
-                    onChange={(event) => setFilters({ ...filters, account: event.target.value })}
-                  >
-                    <option>All accounts</option>
-                    {data.accounts.map((item) => (
-                      <option key={item.id}>{item.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <div className="transaction-filter-field">
-                  <span>Type</span>
-                  <div className="filter-group" role="group" aria-label="Transaction type">
-                    {(['all', 'expense', 'income', 'transfer', 'adjustment'] as const).map(
-                      (option) => (
-                        <button
-                          key={option}
-                          className={filters.kind === option ? 'is-active' : ''}
-                          type="button"
-                          onClick={() => setFilters({ ...filters, kind: option })}
-                        >
-                          {option === 'all'
-                            ? 'All'
-                            : option === 'expense'
-                              ? 'Expenses'
-                              : option === 'income'
-                                ? 'Income'
-                                : option === 'transfer'
-                                  ? 'Transfers'
-                                  : 'Adjustments'}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                </div>
-                <label className="transaction-filter-field">
-                  Category
-                  <select
-                    value={filters.category}
-                    disabled={filters.uncategorized}
-                    onChange={(event) => setFilters({ ...filters, category: event.target.value })}
-                  >
-                    <option>All categories</option>
-                    {[...new Set(data.transactions.map((item) => item.category))]
-                      .sort()
-                      .filter(Boolean)
-                      .map((item) => (
-                        <option key={item}>{item}</option>
-                      ))}
-                  </select>
-                </label>
-                <label className="transaction-filter-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={filters.uncategorized}
-                    onChange={(event) =>
-                      setFilters({ ...filters, uncategorized: event.target.checked })
-                    }
-                  />
-                  Uncategorized only
-                </label>
-                <label className="transaction-filter-field">
-                  Tag
-                  <input
-                    value={filters.tagQuery}
-                    onChange={(event) => setFilters({ ...filters, tagQuery: event.target.value })}
-                    placeholder="Filter by tag"
-                  />
-                </label>
-                <div className="transaction-date-filters">
-                  <label className="transaction-filter-field">
-                    From
-                    <input
-                      type="date"
-                      value={filters.fromDate}
-                      onChange={(event) => setFilters({ ...filters, fromDate: event.target.value })}
-                      aria-label="From date"
-                    />
-                  </label>
-                  <label className="transaction-filter-field">
-                    To
-                    <input
-                      type="date"
-                      value={filters.toDate}
-                      onChange={(event) => setFilters({ ...filters, toDate: event.target.value })}
-                      aria-label="To date"
-                    />
-                  </label>
-                </div>
-                <div className="transaction-date-filters">
-                  <label className="transaction-filter-field">
-                    Min amount
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={filters.minAmount}
-                      onChange={(event) =>
-                        setFilters({ ...filters, minAmount: event.target.value })
-                      }
-                    />
-                  </label>
-                  <label className="transaction-filter-field">
-                    Max amount
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={filters.maxAmount}
-                      onChange={(event) =>
-                        setFilters({ ...filters, maxAmount: event.target.value })
-                      }
-                    />
-                  </label>
-                </div>
-                <label className="transaction-filter-field">
-                  Cleared
-                  <select
-                    value={filters.cleared}
-                    onChange={(event) =>
-                      setFilters({
-                        ...filters,
-                        cleared: event.target.value as TransactionFilters['cleared'],
-                      })
-                    }
-                  >
-                    <option value="all">All</option>
-                    <option value="cleared">Cleared</option>
-                    <option value="uncleared">Uncleared</option>
-                  </select>
-                </label>
-                <label className="transaction-filter-field">
-                  Reconciliation
-                  <select
-                    value={filters.reconciled}
-                    onChange={(event) =>
-                      setFilters({
-                        ...filters,
-                        reconciled: event.target.value as TransactionFilters['reconciled'],
-                      })
-                    }
-                  >
-                    <option value="all">All</option>
-                    <option value="reconciled">Reconciled</option>
-                    <option value="unreconciled">Unreconciled</option>
-                  </select>
-                </label>
-              </PopoverContent>
-            </Popover>
-            <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  className="button button-primary transaction-add-trigger"
-                  type="button"
-                  aria-label="Add finance entry"
-                >
-                  <Plus size={17} />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="transaction-add-popover">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddPopoverOpen(false);
-                    onAddTransaction();
-                  }}
-                >
-                  Add transaction
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddPopoverOpen(false);
-                    onAddAccount();
-                  }}
-                >
-                  <Landmark size={15} /> Add account
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddPopoverOpen(false);
-                    onAddCheckpoint();
-                  }}
-                >
-                  <CheckCircle2 size={15} /> Record checkpoint
-                </button>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-        <p className="transaction-csv-help">
-          CSV columns: date, payee, amount, and account. Optional columns: type, category, and
-          notes. Account can be its name or ID. Transfer rows need both entries with the same
-          transfer_id.
-        </p>
         <section
           className="transaction-recurring-panel"
           aria-labelledby="recurring-transactions-title"
         >
           <div className="transaction-filter-heading">
             <strong id="recurring-transactions-title">Recurring transactions</strong>
-            <span>{data.recurringTransactions.length} rules</span>
+            <span>
+              {data.recurringTransactions.length}{' '}
+              {data.recurringTransactions.length === 1 ? 'rule' : 'rules'}
+            </span>
           </div>
           {data.recurringTransactions.length ? (
-            <div className="transaction-list">
+            <div className="transaction-list transaction-cards recurring-transaction-list">
               {data.recurringTransactions.map((rule) => (
-                <div className="saved-view-row" key={rule.id}>
-                  <span>
-                    <strong>{rule.merchant}</strong> · {rule.account} ·{' '}
-                    {rule.amount < 0 ? '−' : '+'}
-                    {formatMoney(Math.abs(rule.amount))} · Every{' '}
-                    {rule.interval > 1 ? `${rule.interval} ` : ''}
-                    {rule.frequency}
-                    <small> · Next {formatDate(rule.nextDate)}</small>
+                <div className="transaction-row recurring-transaction-row" key={rule.id}>
+                  <span className="transaction-icon income">
+                    <RefreshCw size={15} />
                   </span>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => void changeRecurringRule(rule, !rule.active)}
-                  >
-                    {rule.active ? 'Pause' : 'Resume'}
-                  </button>
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => void changeRecurringRule(rule)}
-                  >
-                    Delete
-                  </button>
+                  <div className="transaction-main">
+                    <strong>{rule.merchant}</strong>
+                    <span>
+                      {rule.account} · Every {rule.interval > 1 ? `${rule.interval} ` : ''}
+                      {rule.frequency}
+                    </span>
+                  </div>
+                  <time>Next {formatDate(rule.nextDate)}</time>
+                  <strong className="transaction-amount income">
+                    {rule.amount < 0 ? '−' : '+'}
+                    {formatMoney(Math.abs(rule.amount))}
+                  </strong>
+                  <div className="recurring-transaction-actions">
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => void changeRecurringRule(rule, !rule.active)}
+                    >
+                      {rule.active ? 'Pause' : 'Resume'}
+                    </button>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => void changeRecurringRule(rule)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1804,11 +1674,6 @@ function TransactionsView({
             </p>
           )}
         </section>
-        {csvMessage && (
-          <p className="page-description csv-import-status" role="status">
-            {csvMessage}
-          </p>
-        )}
         <div className="table-header">
           <span>Transaction</span>
           <span>Date</span>
@@ -5091,6 +4956,206 @@ function TransactionDetails({
   );
 }
 
+function TransactionCsvSettings({
+  data,
+  remote,
+  onRefresh,
+}: {
+  data: BudgetData;
+  remote: boolean;
+  onRefresh: () => void;
+}) {
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [csvMessage, setCsvMessage] = useState('');
+  const exportCsv = () => {
+    const blob = new Blob([transactionCsv(data.transactions)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'piggybudget-transactions.csv';
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const importCsv = async (file: File) => {
+    setImportingCsv(true);
+    setCsvMessage('');
+    try {
+      const rows = parseCsvRows(await file.text());
+      const headers = rows.shift()?.map((header) => header.trim().toLowerCase()) ?? [];
+      const column = (name: string) => headers.indexOf(name);
+      if (
+        column('date') < 0 ||
+        column('payee') < 0 ||
+        column('amount') < 0 ||
+        column('account') < 0
+      ) {
+        setCsvMessage('CSV needs date, payee, amount, and account columns.');
+        return;
+      }
+      let imported = 0;
+      const failures: string[] = [];
+      const importedTransfers = new Set<string>();
+      for (const [index, row] of rows.entries()) {
+        const accountValue = row[column('account')]?.trim() ?? '';
+        const account = data.accounts.find(
+          (item) =>
+            item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
+        );
+        const date = row[column('date')]?.trim() ?? '';
+        const parsedDate = new Date(`${date}T00:00:00Z`);
+        const amount = Number(row[column('amount')]);
+        const suppliedType = column('type') >= 0 ? row[column('type')]?.trim().toLowerCase() : '';
+        const type = suppliedType || (amount < 0 ? 'expense' : 'income');
+        if (type === 'transfer') {
+          const transferId =
+            column('transfer_id') >= 0 ? (row[column('transfer_id')]?.trim() ?? '') : '';
+          if (importedTransfers.has(transferId)) continue;
+          if (!transferId) {
+            failures.push(String(index + 2));
+            continue;
+          }
+          const peerIndex = rows.findIndex(
+            (candidate) =>
+              candidate !== row && candidate[column('transfer_id')]?.trim() === transferId,
+          );
+          const peer = peerIndex >= 0 ? rows[peerIndex] : undefined;
+          const peerAmount = Number(peer?.[column('amount')]);
+          const peerAccountValue = peer?.[column('account')]?.trim() ?? '';
+          const peerAccount = data.accounts.find(
+            (item) =>
+              item.id === peerAccountValue ||
+              item.name.toLowerCase() === peerAccountValue.toLowerCase(),
+          );
+          if (
+            !account ||
+            !peerAccount ||
+            !peer ||
+            account.id === peerAccount.id ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+            parsedDate.toISOString().slice(0, 10) !== date ||
+            !Number.isFinite(amount) ||
+            !Number.isFinite(peerAmount) ||
+            amount === 0 ||
+            peerAmount === 0 ||
+            Math.sign(amount) === Math.sign(peerAmount)
+          ) {
+            failures.push(String(index + 2));
+            importedTransfers.add(transferId);
+            continue;
+          }
+          const source = amount < 0 ? account : peerAccount;
+          const destination = amount < 0 ? peerAccount : account;
+          const response = await apiFetch('/api/finance/transfers', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              source_account: source.id,
+              destination_account: destination.id,
+              date,
+              amount: Math.abs(amount),
+              notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
+            }),
+          });
+          importedTransfers.add(transferId);
+          if (response.ok) imported += 2;
+          else failures.push(String(index + 2));
+          continue;
+        }
+        if (
+          !account ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          Number.isNaN(parsedDate.getTime()) ||
+          parsedDate.toISOString().slice(0, 10) !== date ||
+          !Number.isFinite(amount) ||
+          amount === 0 ||
+          !['expense', 'income', 'adjustment'].includes(type)
+        ) {
+          failures.push(String(index + 2));
+          continue;
+        }
+        const response = await apiFetch('/api/finance/transactions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            account: account.id,
+            date,
+            amount: type === 'expense' ? -Math.abs(amount) : amount,
+            type,
+            payee: row[column('payee')]?.trim() || 'Imported transaction',
+            category: column('category') >= 0 ? (row[column('category')]?.trim() ?? '') : '',
+            notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
+          }),
+        });
+        if (response.ok) imported += 1;
+        else failures.push(String(index + 2));
+      }
+      setCsvMessage(
+        failures.length
+          ? `Imported ${imported}; skipped or failed rows ${failures.slice(0, 8).join(', ')}${failures.length > 8 ? ', …' : ''}.`
+          : `Imported ${imported} transactions.`,
+      );
+      if (imported) onRefresh();
+    } catch {
+      setCsvMessage('Could not read this CSV file. Check the file and try again.');
+    } finally {
+      setImportingCsv(false);
+    }
+  };
+  return (
+    <article className="panel settings-card transaction-csv-settings">
+      <div className="small-panel-icon">
+        <ArrowRightLeft size={17} />
+      </div>
+      <div className="transaction-csv-settings-content">
+        <h3>Transaction CSV</h3>
+        <p>Import transactions from a CSV file or export all your transactions.</p>
+        <div className="transaction-csv-actions">
+          <button
+            className="button"
+            type="button"
+            onClick={exportCsv}
+            disabled={!remote || !data.transactions.length}
+          >
+            Export CSV
+          </button>
+          <label className={`button transaction-import-trigger ${remote ? '' : 'is-disabled'}`}>
+            {importingCsv ? 'Importing…' : 'Import CSV'}
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              aria-label="Import transactions from CSV"
+              disabled={!remote || importingCsv}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importCsv(file);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+        </div>
+        <p className="transaction-csv-help">
+          CSV columns: date, payee, amount, and account. Optional columns: type, category, and
+          notes. Account can be its name or ID. Transfer rows need both entries with the same
+          transfer_id.
+        </p>
+        {csvMessage && (
+          <p className="page-description csv-import-status" role="status">
+            {csvMessage}
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function SettingsView({
   userId,
   data,
@@ -5181,6 +5246,7 @@ function SettingsView({
             </div>
           </article>
         )}
+        <TransactionCsvSettings data={data} remote={remote} onRefresh={onRefresh} />
         <article className="panel settings-card">
           <div className="small-panel-icon">
             <SlidersHorizontal size={17} />
@@ -6065,8 +6131,7 @@ function WelcomeWalkthrough({
             </div>
             <p className="page-description">
               Your default account is selected automatically when you add a transaction. You can
-              manage accounts and preferences in Settings, or import transactions from CSV on the
-              Transactions page.
+              manage accounts, preferences, and transaction CSV files in Settings.
             </p>
             <div className="composer-actions">
               <button className="button" type="button" onClick={onClose}>
