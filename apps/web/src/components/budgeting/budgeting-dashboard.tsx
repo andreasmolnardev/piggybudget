@@ -2620,16 +2620,18 @@ function TransactionsView({
         }
       />
       <section className="transactions-section">
-        <ObligationsPanel data={data} onRefresh={onRefresh} onOpenTransaction={onOpenTransaction} />
-        {!data.obligations.length && (
-          <MoneyLentPanel
-            transactions={data.transactions}
-            userId={userId}
-            onOpenTransaction={onOpenTransaction}
-            onRenamePerson={onRenameReceivable}
-          />
-        )}
-        <details className="transaction-recurring-panel">
+        <div hidden={selectionMode}>
+          <ObligationsPanel data={data} onRefresh={onRefresh} onOpenTransaction={onOpenTransaction} />
+          {!data.obligations.length && (
+            <MoneyLentPanel
+              transactions={data.transactions}
+              userId={userId}
+              onOpenTransaction={onOpenTransaction}
+              onRenamePerson={onRenameReceivable}
+            />
+          )}
+        </div>
+        <details className="transaction-recurring-panel" hidden={selectionMode}>
           <summary className="transaction-filter-heading">
             <strong id="recurring-transactions-title">Recurring transactions</strong>
             <span className="transaction-recurring-summary-meta">
