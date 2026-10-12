@@ -31,7 +31,7 @@ import type { RecordModel } from 'pocketbase';
 import { useTheme } from 'next-themes';
 import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
-import { apiBaseUrl, apiFetch } from '../../api/client';
+import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 import type {
   Account,
@@ -7709,7 +7709,7 @@ function FinanceComposer({
         },
         body: JSON.stringify(requestBody),
       });
-      if (!response.ok) throw new Error((await response.text()) || 'Could not save this record.');
+      if (!response.ok) throw await apiErrorFromResponse(response);
       transactionSaved = kind === 'transaction';
       let createdTransactionId = editedId;
       if (kind === 'transaction' && !editedId && !isSplit) {
