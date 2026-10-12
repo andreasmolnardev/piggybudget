@@ -395,28 +395,17 @@ h3 {
   font-weight: 750;
   letter-spacing: -0.03em;
 }
-.data-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.data-status-icon {
+  display: inline-grid;
+  place-items: center;
   margin-left: 12px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 99px;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
+  cursor: help;
+  outline-offset: 4px;
 }
-.data-status i {
-  width: 5px;
-  height: 5px;
-  display: block;
-  border-radius: 50%;
-  background: var(--muted);
-}
-.data-status.is-synced i {
-  background: #53a87d;
-}
+.data-status-icon.is-syncing { color: var(--primary); }
+.data-status-icon.is-synced { color: #53a87d; }
+.data-status-icon.is-error { color: #c9685a; }
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -2914,8 +2903,7 @@ h1 {
     flex: 1;
   }
   .topbar-context .topbar-slash,
-  .topbar-context strong,
-  .data-status {
+  .topbar-context strong {
     display: none;
   }
   .mobile-brand {

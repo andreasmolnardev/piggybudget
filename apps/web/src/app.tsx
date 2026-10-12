@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { CircleAlert, CircleCheck, CloudOff, RefreshCw, X } from 'lucide-react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FinanceSearch } from './components/app/finance-search';
@@ -9,6 +9,7 @@ import { emptyBudgetData, type FinanceRecordTarget } from './components/budgetin
 import { budgetDataQueryKey, budgetDataQueryOptions } from './components/budgeting/query';
 import { pb } from './api/pocketbase';
 import { profileFromRecord, type UserProfile } from './profile';
+import { Tooltip, TooltipContent, TooltipTrigger } from './components/ui/tooltip';
 
 const routeForTab: Record<
   SidebarTab,
@@ -45,14 +46,30 @@ function Header({
   profileName,
   remote,
   refreshing,
+  syncError,
   onRefresh,
 }: {
   activeTab: SidebarTab;
   profileName: string;
   remote: boolean;
   refreshing: boolean;
+  syncError: boolean;
   onRefresh: () => void;
 }) {
+  const syncState = refreshing ? 'syncing' : syncError ? 'error' : remote ? 'synced' : 'offline';
+  const SyncIcon = {
+    syncing: RefreshCw,
+    error: CircleAlert,
+    synced: CircleCheck,
+    offline: CloudOff,
+  }[syncState];
+  const syncLabel = {
+    syncing: 'Syncing saved data',
+    error: 'Could not sync saved data',
+    synced: 'Synced',
+    offline: 'Not synced',
+  }[syncState];
+
   return (
     <header className="topbar">
       <div className="topbar-context">
@@ -60,9 +77,19 @@ function Header({
         <strong className="topbar-owner">{profileName}'s finances</strong>
         <span className="topbar-slash">/</span>
         <strong>{pageLabels[activeTab]}</strong>
-        <span className={`data-status ${remote ? 'is-synced' : ''}`}>
-          <i /> {refreshing ? 'Refreshing' : remote ? 'Synced' : 'Not synced'}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={`data-status-icon is-${syncState}`}
+              role="img"
+              aria-label={syncLabel}
+              tabIndex={0}
+            >
+              <SyncIcon className={syncState === 'syncing' ? 'refresh-icon is-spinning' : undefined} size={18} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={8}>{syncLabel}</TooltipContent>
+        </Tooltip>
       </div>
       <div className="topbar-actions">
         <button
@@ -216,6 +243,7 @@ export function App() {
           profileName={profile.name}
           remote={remote}
           refreshing={budgetQuery.isFetching}
+          syncError={budgetQuery.isError}
           onRefresh={refresh}
         />
         <div className="content-wrap">
