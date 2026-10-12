@@ -735,6 +735,12 @@ function CashFlowChart({
         expenses: matchingTransactions
           .filter((transaction) => transaction.kind === 'expense')
           .reduce((sum, transaction) => sum + transaction.amount, 0),
+        incomeTransactions: matchingTransactions.filter(
+          (transaction) => transaction.kind === 'income',
+        ),
+        expenseTransactions: matchingTransactions.filter(
+          (transaction) => transaction.kind === 'expense',
+        ),
       };
     },
   );
@@ -757,44 +763,84 @@ function CashFlowChart({
           className="chart-bars"
           style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
         >
-          {days.map((day) => (
-            <div className="chart-day" key={day.dateKey}>
-              <div className="chart-bar-wrap">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="chart-income"
-                      style={{ height: `${(day.income / scale) * 100}%` }}
-                      aria-label={`${day.label} income: ${formatMoney(day.income)}`}
-                      onClick={() => onSelectDay(day.dateKey)}
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent>{`${day.label} income: ${formatMoney(day.income)}`}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className="chart-expense"
-                      style={{ height: `${(day.expenses / scale) * 100}%` }}
-                      aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
-                      onClick={() => onSelectDay(day.dateKey)}
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent>{`${day.label} expenses: ${formatMoney(day.expenses)}`}</TooltipContent>
-                </Tooltip>
+          {days.map((day) => {
+            const tooltipContent = (
+              <div className="cashflow-tooltip">
+                <strong className="cashflow-tooltip-date">
+                  {new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}
+                </strong>
+                {[
+                  { label: 'Income', total: day.income, transactions: day.incomeTransactions },
+                  { label: 'Expenses', total: day.expenses, transactions: day.expenseTransactions },
+                ].map((group) => (
+                  <div className="cashflow-tooltip-group" key={group.label}>
+                    <div className="cashflow-tooltip-summary">
+                      <span>{group.label}</span>
+                      <strong>{formatMoney(group.total)}</strong>
+                    </div>
+                    {group.transactions.length > 0 ? (
+                      <>
+                        {group.transactions.slice(0, 3).map((transaction) => (
+                          <div className="cashflow-tooltip-transaction" key={transaction.id}>
+                            <span>{transaction.merchant || 'Transaction'}</span>
+                            <span>{formatMoney(transaction.amount)}</span>
+                          </div>
+                        ))}
+                        {group.transactions.length > 3 && (
+                          <small>+ {group.transactions.length - 3} more</small>
+                        )}
+                      </>
+                    ) : (
+                      <small>No {group.label.toLowerCase()}</small>
+                    )}
+                  </div>
+                ))}
               </div>
-              <button
-                className="chart-day-label"
-                type="button"
-                onClick={() => onSelectDay(day.dateKey)}
-                aria-label={`Open transactions for ${new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}`}
-              >
-                {day.label}
-              </button>
-            </div>
-          ))}
+            );
+
+            return (
+              <div className="chart-day" key={day.dateKey}>
+                <div className="chart-bar-wrap">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="chart-income"
+                        style={{ height: `${(day.income / scale) * 100}%` }}
+                        aria-label={`${day.label} income: ${formatMoney(day.income)}`}
+                        onClick={() => onSelectDay(day.dateKey)}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent className="cashflow-tooltip-content">
+                      {tooltipContent}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="chart-expense"
+                        style={{ height: `${(day.expenses / scale) * 100}%` }}
+                        aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
+                        onClick={() => onSelectDay(day.dateKey)}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent className="cashflow-tooltip-content">
+                      {tooltipContent}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <button
+                  className="chart-day-label"
+                  type="button"
+                  onClick={() => onSelectDay(day.dateKey)}
+                  aria-label={`Open transactions for ${new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}`}
+                >
+                  {day.label}
+                </button>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="chart-empty">No income or expenses in this date range.</div>
