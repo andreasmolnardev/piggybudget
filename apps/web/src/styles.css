@@ -1403,6 +1403,8 @@ kbd {
   cursor: pointer;
   padding: 13px 0;
   border-bottom: 1px solid transparent;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .transaction-recurring-panel > summary::-webkit-details-marker {
   display: none;
