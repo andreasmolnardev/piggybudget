@@ -1428,8 +1428,8 @@ kbd {
 .obligation-row > time,
 .obligations-totals span,
 .obligation-settled-row > span { color: var(--muted); font-size: 11px; }
-.obligations-totals { gap: 24px; margin: 14px 0; padding: 0 0 2px; }
-.obligations-totals > div { display: grid; gap: 4px; }
+.obligations-totals { justify-content: center; gap: 24px; margin: 14px 0; padding: 0 0 2px; }
+.obligations-totals > div { display: grid; min-width: 140px; gap: 4px; justify-items: center; text-align: center; }
 .obligations-totals strong { font-size: 18px; }
 .obligation-list { display: grid; gap: 9px; }
 .obligation-row,
