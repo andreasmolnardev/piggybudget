@@ -35,6 +35,7 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
+import { checkpointsMatchingHistory } from './data';
 import type {
   Account,
   Asset,
@@ -2375,6 +2376,12 @@ function TransactionsView({
     transactions.push(transaction);
     transactionsByDate.set(transaction.date, transactions);
   });
+  const checkpointsByDate = new Map<string, ReturnType<typeof checkpointsMatchingHistory>>();
+  for (const checkpoint of checkpointsMatchingHistory(data.checkpoints, pageItems)) {
+    const checkpoints = checkpointsByDate.get(checkpoint.date) ?? [];
+    checkpoints.push(checkpoint);
+    checkpointsByDate.set(checkpoint.date, checkpoints);
+  }
   const saveView = () => {
     const name = window.prompt('Name this saved view');
     if (!name?.trim()) return;
@@ -2906,6 +2913,15 @@ function TransactionsView({
                       selected={selectedTransactionIds.has(transaction.id)}
                       onSelect={() => toggleTransactionSelection(transaction.id)}
                     />
+                  ))}
+                  {(checkpointsByDate.get(date) ?? []).map((checkpoint) => (
+                    <div className="checkpoint-history-row" key={checkpoint.id}>
+                      <span>
+                        <Landmark size={15} />
+                        {checkpoint.account} · End-of-day checkpoint
+                      </span>
+                      <strong>{formatMoney(checkpoint.balance)}</strong>
+                    </div>
                   ))}
                 </div>
               </section>
@@ -8553,7 +8569,7 @@ function FinanceComposer({
               >
                 {availableAccounts.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name}
+                    {item.name} · {item.type}
                   </option>
                 ))}
               </AppSelect>
