@@ -2993,7 +2993,8 @@ h1 {
   .search-dialog,
   .search-dismiss .search-overlay,
   .topbar-popover,
-  .sidebar-profile-popover.is-closing {
+  .sidebar-profile-popover.is-closing,
+  .tab-page-transition {
     animation-duration: 0.01ms;
   }
 }

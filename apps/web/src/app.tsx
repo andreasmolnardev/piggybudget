@@ -89,6 +89,8 @@ export function App() {
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const scrollPositions = useRef(new Map<string, number>());
+  const previousTab = useRef(tabForPath(pathname));
+  const tabPageRef = useRef<HTMLDivElement>(null);
   const [userId, setUserId] = useState(pb.authStore.record?.id ?? '');
   const [profile, setProfile] = useState<UserProfile>(() => profileFromRecord(pb.authStore.record));
   const [dataErrorDismissed, setDataErrorDismissed] = useState(false);
@@ -112,6 +114,16 @@ export function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pathname]);
+
+  useLayoutEffect(() => {
+    if (previousTab.current === activeTab) return;
+    previousTab.current = activeTab;
+    const page = tabPageRef.current;
+    if (!page) return;
+    page.classList.remove('tab-page-transition');
+    void page.offsetWidth;
+    page.classList.add('tab-page-transition');
+  }, [activeTab]);
 
   useEffect(
     () =>
@@ -220,7 +232,7 @@ export function App() {
               </button>
             </AppError>
           )}
-          <div className="tab-page-transition">
+          <div ref={tabPageRef} className="tab-page-transition">
             <BudgetingDashboard
               view={activeTab}
               userId={userId}
