@@ -2473,7 +2473,7 @@ kbd {
   max-width: 1180px;
 }
 .page-header {
-  margin: 42px 0 28px;
+  margin: 22px 0 28px;
 }
 
 h1 {
@@ -2735,7 +2735,7 @@ h1 {
     align-items: flex-start;
     flex-direction: column;
     gap: 17px;
-    margin: 29px 0 22px;
+    margin: 18px 0 22px;
   }
   .page-header .header-actions {
     width: 100%;
