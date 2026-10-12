@@ -204,6 +204,7 @@ function TransactionRow({
   onDuplicate,
   onToggleCleared,
   showDate = true,
+  dashboardCard = false,
 }: {
   transaction: Transaction;
   onOpen?: () => void;
@@ -212,11 +213,21 @@ function TransactionRow({
   onDuplicate?: () => void;
   onToggleCleared?: () => void;
   showDate?: boolean;
+  dashboardCard?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const transactionDetails = dashboardCard
+    ? [
+        ...(showDate ? [formatDate(transaction.date)] : []),
+        transaction.account,
+        transaction.category || 'Uncategorized',
+      ].join(' · ')
+    : `${transaction.category || 'Uncategorized'} · ${transaction.account}`;
   return (
     <div
-      className="transaction-row transaction-entry"
+      className={`transaction-row transaction-entry${
+        dashboardCard ? ' dashboard-recent-transaction' : ''
+      }`}
       role="group"
       aria-label={`${transaction.merchant}, ${formatMoney(transaction.amount)}`}
       tabIndex={0}
@@ -231,11 +242,9 @@ function TransactionRow({
       <TransactionIcon kind={transaction.kind} />
       <div className="transaction-main">
         <strong>{transaction.merchant}</strong>
-        <span>
-          {transaction.category || 'Uncategorized'} · {transaction.account}
-        </span>
+        <span>{transactionDetails}</span>
       </div>
-      {showDate && <time>{formatDate(transaction.date)}</time>}
+      {showDate && !dashboardCard && <time>{formatDate(transaction.date)}</time>}
       <strong className={`transaction-amount ${transaction.kind}`}>
         {(transaction.signedAmount ?? (transaction.kind === 'income' ? 1 : -1)) >= 0 ? '+' : '−'}
         {formatMoney(transaction.amount)}
@@ -1073,6 +1082,7 @@ function DashboardView({
               <TransactionRow
                 key={transaction.id}
                 transaction={transaction}
+                dashboardCard
                 onOpen={() => onOpenTransaction(transaction)}
                 onEdit={() => onEditTransaction(transaction)}
                 onDelete={() => onDeleteTransaction(transaction)}

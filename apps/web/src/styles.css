@@ -1515,6 +1515,38 @@ kbd {
 .transaction-row.transaction-entry {
   grid-template-columns: 32px minmax(0, 1fr) auto 21px;
 }
+.transaction-row.dashboard-recent-transaction {
+  grid-template-columns: 32px minmax(0, 1fr) auto 21px;
+  grid-template-rows: auto auto;
+  column-gap: 11px;
+  row-gap: 10px;
+  padding: 15px;
+}
+.dashboard-recent-transaction > .transaction-icon {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+}
+.dashboard-recent-transaction > .transaction-main {
+  display: contents;
+}
+.dashboard-recent-transaction > .transaction-main > strong {
+  grid-column: 2 / 4;
+  grid-row: 1;
+}
+.dashboard-recent-transaction > .transaction-main > span {
+  grid-column: 2;
+  grid-row: 2;
+}
+.dashboard-recent-transaction > .transaction-amount {
+  grid-column: 3;
+  grid-row: 2;
+}
+.dashboard-recent-transaction > .transaction-row-menu-wrap {
+  grid-column: 4;
+  grid-row: 1;
+  align-self: start;
+}
 .transaction-cards {
   gap: 8px;
 }
