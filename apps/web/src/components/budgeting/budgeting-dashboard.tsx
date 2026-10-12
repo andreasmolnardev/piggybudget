@@ -2361,7 +2361,6 @@ function TransactionsView({
         }
       />
       <section className="transactions-section">
-        <SectionHeading title="Upcoming transactions" />
         <ObligationsPanel data={data} onRefresh={onRefresh} onOpenTransaction={onOpenTransaction} />
         {!data.obligations.length && (
           <MoneyLentPanel
