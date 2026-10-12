@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -154,10 +155,13 @@ func listNotificationsRoute(event *core.RequestEvent) error {
 		return err
 	}
 	now, _ := types.ParseDateTime(time.Now().UTC())
-	records, err := event.App.FindRecordsByFilter(notificationCollection, "owner = {:owner} && dismissed_at = '' && (snoozed_until = '' || snoozed_until <= {:now})", "-created", 0, 0, dbx.Params{"owner": user.Id, "now": now})
+	records, err := event.App.FindRecordsByFilter(notificationCollection, "owner = {:owner} && dismissed_at = '' && (snoozed_until = '' || snoozed_until <= {:now})", "", 0, 0, dbx.Params{"owner": user.Id, "now": now})
 	if err != nil {
 		return err
 	}
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].GetDateTime("created").Time().After(records[j].GetDateTime("created").Time())
+	})
 	items := make([]notificationResponse, 0, len(records))
 	for _, record := range records {
 		items = append(items, notificationFromRecord(record))

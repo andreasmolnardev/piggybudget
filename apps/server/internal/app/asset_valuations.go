@@ -82,7 +82,7 @@ func listAssetValuationsRoute(event *core.RequestEvent) error {
 	records, err := event.App.FindRecordsByFilter(
 		assetValuationCollection,
 		"owner = {:owner} && source = 'asset' && asset = {:asset}",
-		"-as_of,-created",
+		"-as_of,-id",
 		0,
 		0,
 		dbx.Params{"owner": user.Id, "asset": asset.Id},
@@ -106,7 +106,7 @@ func saveAssetValuation(app core.App, owner string, asset *core.Record) error {
 	latest, err := app.FindRecordsByFilter(
 		assetValuationCollection,
 		"owner = {:owner} && source = 'asset' && asset = {:asset}",
-		"-as_of,-created",
+		"-as_of,-id",
 		1,
 		0,
 		dbx.Params{"owner": owner, "asset": asset.Id},
@@ -142,7 +142,7 @@ func saveAssetPositionValuation(app core.App, owner string, position *core.Recor
 	latest, err := app.FindRecordsByFilter(
 		assetValuationCollection,
 		"owner = {:owner} && position = {:position}",
-		"-as_of,-created",
+		"-as_of,-id",
 		1,
 		0,
 		dbx.Params{"owner": owner, "position": position.Id},

@@ -234,6 +234,9 @@ func registerAuthRoutes(e *core.ServeEvent, config Config) {
 		if err != nil {
 			return event.InternalServerError("could not create guest user", err)
 		}
+		if err := ensureDevSampleData(event.App, user.Id); err != nil {
+			return event.InternalServerError("could not initialize guest preview data", err)
+		}
 		token, err := user.NewAuthToken()
 		if err != nil {
 			return event.InternalServerError("could not create guest token", err)

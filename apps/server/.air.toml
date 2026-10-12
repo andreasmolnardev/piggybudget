@@ -2,9 +2,9 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/slopstack ./cmd/slopstack"
-  entrypoint = ["./tmp/slopstack"]
-  full_bin = "SLOPSTACK_DEVELOPMENT=true ./tmp/slopstack serve --http=${SLOPSTACK_HTTP_ADDRESS:-0.0.0.0:8090}"
+  cmd = "go build -o ./tmp/piggybudget ./cmd/piggybudget"
+  entrypoint = ["./tmp/piggybudget"]
+  full_bin = "PIGGYBUDGET_DEVELOPMENT=true ./tmp/piggybudget serve --http=${PIGGYBUDGET_HTTP_ADDRESS:-0.0.0.0:8090}"
   include_ext = ["go", "json", "yaml", "yml", "toml"]
   exclude_dir = ["tmp", "pb_data", "node_modules"]
   poll = true

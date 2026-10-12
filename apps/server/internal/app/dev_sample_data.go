@@ -66,7 +66,7 @@ func ensureDevSampleData(app core.App, userID string) error {
 }
 
 func ensureDevDefaultAccount(app core.App, owner string) error {
-	accounts, err := app.FindRecordsByFilter("accounts", "owner = {:owner}", "created", 0, 0, map[string]any{"owner": owner})
+	accounts, err := app.FindRecordsByFilter("accounts", "owner = {:owner}", "name", 0, 0, map[string]any{"owner": owner})
 	if err != nil || len(accounts) == 0 {
 		return err
 	}

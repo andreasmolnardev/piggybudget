@@ -337,7 +337,7 @@ func listGoalContributionsRoute(event *core.RequestEvent) error {
 	records, err := event.App.FindRecordsByFilter(
 		"goal_contributions",
 		"owner = {:owner} && goal = {:goal}",
-		"-date,-created",
+		"-date,-id",
 		0,
 		0,
 		dbx.Params{"owner": user.Id, "goal": goal.Id},

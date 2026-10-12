@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FinanceSearch } from './components/app/finance-search';
 import { Sidebar, type SidebarTab } from './components/sidebar';
 import { BudgetingDashboard } from './components/budgeting/budgeting-dashboard';
-import { sampleData, type FinanceRecordTarget } from './components/budgeting/data';
+import { emptyBudgetData, type FinanceRecordTarget } from './components/budgeting/data';
 import { budgetDataQueryKey, budgetDataQueryOptions } from './components/budgeting/query';
 import { pb } from './api/pocketbase';
 import { profileFromRecord, type UserProfile } from './profile';
@@ -58,7 +58,7 @@ function Header({
         <span className="topbar-slash">/</span>
         <strong>{pageLabels[activeTab]}</strong>
         <span className={`data-status ${remote ? 'is-synced' : ''}`}>
-          <i /> {refreshing ? 'Refreshing' : remote ? 'Synced' : 'Sample data'}
+          <i /> {refreshing ? 'Refreshing' : remote ? 'Synced' : 'Not synced'}
         </span>
       </div>
       <div className="topbar-actions">
@@ -93,13 +93,13 @@ export function App() {
   const [searchClosing, setSearchClosing] = useState(false);
   const [searchTarget, setSearchTarget] = useState<FinanceRecordTarget | null>(null);
   const budgetQuery = useQuery(budgetDataQueryOptions(userId));
-  const data = budgetQuery.data?.data ?? sampleData;
+  const data = budgetQuery.data?.data ?? emptyBudgetData;
   const remote = budgetQuery.data?.remote ?? false;
   const loading = budgetQuery.isLoading;
   const lastRefreshedAt = budgetQuery.dataUpdatedAt;
   const dataError =
     budgetQuery.isError && !dataErrorDismissed
-      ? 'Could not reach your saved data. Showing the local sample instead.'
+      ? 'Could not reach your saved data.'
       : '';
   const activeTab = tabForPath(pathname);
 

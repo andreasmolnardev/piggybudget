@@ -11,6 +11,11 @@ pnpm dev
 ```
 
 Vite serves the web app on `5173`. Go and PocketBase serve the API on `8090`.
+Run the API with `PIGGYBUDGET_DEVELOPMENT=true` to enable guest sign-in and
+one-time preview data for new users. Preview records are stored in PocketBase
+and use the same finance API as other records, so they can be edited and
+deleted normally. The web app does not substitute local sample data when the
+API is unavailable.
 
 Profile data comes from the authenticated PocketBase user record (`display_name` and `email`). For local development only, set `VITE_USE_DEFAULT_PROFILE=true` to show the sample Alex Morgan profile instead. The flag is ignored in production builds.
 

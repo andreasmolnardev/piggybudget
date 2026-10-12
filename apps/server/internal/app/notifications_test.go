@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -169,4 +170,18 @@ func addNotificationTestRecord(t *testing.T, app core.App, collectionName string
 		t.Fatal(err)
 	}
 	return record
+}
+
+func TestFinanceDataAndNotificationsRoutesReturnSavedData(t *testing.T) {
+	server := newHTTPIntegrationServer(t)
+	user := integrationUser(t, server.app, "finance-routes@example.com")
+	token := authToken(t, server, user.GetString("email"))
+	headers := bearerHeaders(token)
+
+	for _, path := range []string{"/api/notifications", "/api/finance/recurring_transactions"} {
+		status, _, body := integrationRequest(t, server, http.MethodGet, path, "", headers)
+		if status != http.StatusOK {
+			t.Errorf("GET %s = %d, body = %s", path, status, body)
+		}
+	}
 }
