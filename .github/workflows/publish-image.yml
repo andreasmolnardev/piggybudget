@@ -43,6 +43,7 @@ jobs:
         with:
           images: ${{ steps.image.outputs.repository }}
           tags: |
+            type=raw,value=latest
             type=raw,value=main
             type=sha,prefix=sha-,format=short
 

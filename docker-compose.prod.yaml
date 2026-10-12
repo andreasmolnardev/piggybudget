@@ -1,0 +1,20 @@
+services:
+  piggybudget:
+    image: ghcr.io/andreasmolnardev/piggybudget:${PIGGYBUDGET_IMAGE_TAG:-latest}
+    pull_policy: always
+    init: true
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      PIGGYBUDGET_STORAGE_PATH: /app/pb_data
+      PIGGYBUDGET_LOG_LEVEL: ${PIGGYBUDGET_LOG_LEVEL:-info}
+      PIGGYBUDGET_REGISTRATION_ENABLED: ${PIGGYBUDGET_REGISTRATION_ENABLED:-false}
+      PIGGYBUDGET_BACKUP_ENABLED: ${PIGGYBUDGET_BACKUP_ENABLED:-true}
+      PIGGYBUDGET_BACKUP_CRON: ${PIGGYBUDGET_BACKUP_CRON:-0 3 * * *}
+      PIGGYBUDGET_BACKUP_MAX_KEEP: ${PIGGYBUDGET_BACKUP_MAX_KEEP:-14}
+    volumes:
+      - slopstack-data:/app/pb_data
+
+volumes:
+  slopstack-data:
