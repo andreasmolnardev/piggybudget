@@ -1601,7 +1601,7 @@ function TransactionsView({
                       onAddCheckpoint();
                     }}
                   >
-                    <CheckCircle2 size={15} /> Record checkpoint
+                    <CheckCircle2 size={15} /> Add checkpoint
                   </button>
                 </PopoverContent>
               </Popover>

@@ -3022,6 +3022,11 @@ h1 {
   width: 210px;
   padding: 6px;
 }
+div[data-slot='popover-content'].transaction-add-popover {
+  background-color: var(--background);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
 .transaction-add-popover button {
   width: 100%;
   display: flex;
