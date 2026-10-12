@@ -1592,39 +1592,37 @@ kbd {
 }
 .transaction-filter-checkbox input { accent-color: var(--primary); }
 .transaction-selection-bar {
+  position: fixed;
+  z-index: 40;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  max-height: 0;
-  margin: 0;
-  padding: 0 13px;
-  overflow: hidden;
+  flex-wrap: nowrap;
+  gap: 8px 14px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 7px 10px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--card);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-7px);
+  transform: translate(-50%, calc(100% + 24px));
   visibility: hidden;
   transition:
-    max-height 180ms ease,
-    margin 180ms ease,
-    padding 180ms ease,
     border-color 180ms ease,
     opacity 160ms ease,
     transform 180ms ease,
     visibility 0s linear 180ms;
 }
 .transaction-selection-bar.is-visible {
-  max-height: 220px;
-  margin: 0 0 14px;
-  padding: 11px 13px;
   border-color: var(--border);
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
   visibility: visible;
   transition-delay: 0s;
 }
@@ -3125,13 +3123,15 @@ h1 {
     width: 100%;
     flex-wrap: wrap;
   }
-  .transaction-selection-bar,
-  .transaction-selection-actions {
-    align-items: stretch;
+  .transaction-selection-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 24px;
   }
   .transaction-selection-actions {
     width: 100%;
-    flex-wrap: wrap;
+    justify-content: space-around;
+    flex-wrap: nowrap;
   }
   .search-field {
     width: auto;
