@@ -3017,6 +3017,12 @@ h1 {
 }
 .transaction-add-trigger {
   min-width: 40px;
+  color: var(--background);
+  background: var(--primary);
+}
+.transaction-add-trigger:hover {
+  color: var(--background);
+  background: var(--primary-dark);
 }
 .transaction-add-popover {
   width: 210px;

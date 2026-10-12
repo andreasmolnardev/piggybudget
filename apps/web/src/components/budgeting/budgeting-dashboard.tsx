@@ -1583,7 +1583,7 @@ function TransactionsView({
                       onAddTransaction();
                     }}
                   >
-                    Add transaction
+                    <Plus size={15} /> Add transaction
                   </button>
                   <button
                     type="button"
