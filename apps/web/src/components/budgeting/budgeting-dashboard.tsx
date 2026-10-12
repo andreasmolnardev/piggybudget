@@ -878,6 +878,8 @@ function DashboardView({
   profile,
   onNavigate,
   onAddTransaction,
+  onAddAccount,
+  onAddCheckpoint,
   onOpenTransaction,
   onEditTransaction,
   onDeleteTransaction,
@@ -889,6 +891,8 @@ function DashboardView({
   profile: UserProfile;
   onNavigate: (view: BudgetView) => void;
   onAddTransaction: () => void;
+  onAddAccount: () => void;
+  onAddCheckpoint: () => void;
   onOpenTransaction: (transaction: Transaction) => void;
   onEditTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
@@ -953,9 +957,16 @@ function DashboardView({
       <PageHeader
         title={`${greeting}, ${firstName}`}
         action={
-          <button className="button button-primary" type="button" onClick={onAddTransaction}>
-            <Plus size={16} /> New
-          </button>
+          <AddFinanceEntryPopover
+            trigger={
+              <button className="button button-primary" type="button">
+                <Plus size={16} /> New
+              </button>
+            }
+            onAddTransaction={onAddTransaction}
+            onAddAccount={onAddAccount}
+            onAddCheckpoint={onAddCheckpoint}
+          />
         }
       />
 
@@ -1199,6 +1210,41 @@ function readTransactionViewState(userId: string): {
   }
 }
 
+function AddFinanceEntryPopover({
+  trigger,
+  onAddTransaction,
+  onAddAccount,
+  onAddCheckpoint,
+}: {
+  trigger: ReactNode;
+  onAddTransaction: () => void;
+  onAddAccount: () => void;
+  onAddCheckpoint: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const choose = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent align="end" className="transaction-add-popover">
+        <button type="button" onClick={() => choose(onAddTransaction)}>
+          <Plus size={15} /> Add transaction
+        </button>
+        <button type="button" onClick={() => choose(onAddAccount)}>
+          <Landmark size={15} /> Add account
+        </button>
+        <button type="button" onClick={() => choose(onAddCheckpoint)}>
+          <CheckCircle2 size={15} /> Add checkpoint
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function TransactionsView({
   data,
   userId,
@@ -1232,7 +1278,6 @@ function TransactionsView({
   const [sort, setSort] = useState<TransactionSort>(() => readTransactionViewState(userId).sort);
   const [stateUserId, setStateUserId] = useState(userId);
   const [page, setPage] = useState(1);
-  const [addPopoverOpen, setAddPopoverOpen] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedTransactionView[]>([]);
   const [loadedViewsKey, setLoadedViewsKey] = useState('');
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
@@ -1588,8 +1633,8 @@ function TransactionsView({
               </Popover>
             </div>
             <div className="transaction-header-control">
-              <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
-                <PopoverTrigger asChild>
+              <AddFinanceEntryPopover
+                trigger={
                   <button
                     className="icon-button transaction-header-action transaction-add-trigger"
                     type="button"
@@ -1597,37 +1642,11 @@ function TransactionsView({
                   >
                     <Plus size={19} />
                   </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="transaction-add-popover">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddPopoverOpen(false);
-                      onAddTransaction();
-                    }}
-                  >
-                    <Plus size={15} /> Add transaction
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddPopoverOpen(false);
-                      onAddAccount();
-                    }}
-                  >
-                    <Landmark size={15} /> Add account
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddPopoverOpen(false);
-                      onAddCheckpoint();
-                    }}
-                  >
-                    <CheckCircle2 size={15} /> Add checkpoint
-                  </button>
-                </PopoverContent>
-              </Popover>
+                }
+                onAddTransaction={onAddTransaction}
+                onAddAccount={onAddAccount}
+                onAddCheckpoint={onAddCheckpoint}
+              />
             </div>
           </div>
         }
@@ -4530,6 +4549,8 @@ export function BudgetingDashboard({
         profile={profile}
         onNavigate={onNavigate}
         onAddTransaction={() => setComposer('transaction')}
+        onAddAccount={() => setComposer('account')}
+        onAddCheckpoint={() => setComposer('checkpoint')}
         onOpenTransaction={setViewingTransaction}
         onEditTransaction={(transaction) => {
           setEditingTransaction(transaction);
