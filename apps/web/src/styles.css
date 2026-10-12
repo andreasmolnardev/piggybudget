@@ -1,5 +1,10 @@
 @import 'tailwindcss';
 
+@theme inline {
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+}
+
 :root {
   color-scheme: light;
   --background: #f5f7f4;
@@ -3214,7 +3219,7 @@ h1 {
   padding: 6px;
 }
 div[data-slot='popover-content'].transaction-add-popover {
-  background-color: var(--background);
+  background-color: var(--card);
   border-color: var(--border);
   box-shadow: var(--shadow);
 }
