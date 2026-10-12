@@ -1481,17 +1481,23 @@ kbd {
   height: 34px;
   border: 1px solid var(--border);
 }
-.table-header {
+.transaction-date-groups {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 105px 105px 21px;
-  gap: 11px;
+  gap: 17px;
+}
+.transaction-date-group {
+  display: grid;
+  gap: 8px;
+}
+.transaction-date-heading {
   margin: 0;
-  padding: 14px 15px 9px 58px;
+  padding: 4px 15px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+}
+.transaction-row.transaction-entry {
+  grid-template-columns: 32px minmax(0, 1fr) auto 21px;
 }
 .transaction-cards {
   gap: 8px;
@@ -2765,16 +2771,6 @@ h1 {
   }
   .transaction-row time {
     display: none;
-  }
-  .table-header {
-    grid-template-columns: minmax(0, 1fr) 90px 21px;
-    padding-left: 50px;
-  }
-  .table-header span:nth-child(2) {
-    display: none;
-  }
-  .table-header span:nth-child(3) {
-    text-align: right;
   }
   .transaction-toolbar {
     flex-wrap: wrap;

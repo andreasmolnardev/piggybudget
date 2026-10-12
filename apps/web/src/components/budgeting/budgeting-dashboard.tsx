@@ -202,6 +202,7 @@ function TransactionRow({
   onDelete,
   onDuplicate,
   onToggleCleared,
+  showDate = true,
 }: {
   transaction: Transaction;
   onOpen?: () => void;
@@ -209,6 +210,7 @@ function TransactionRow({
   onDelete?: () => void;
   onDuplicate?: () => void;
   onToggleCleared?: () => void;
+  showDate?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -232,7 +234,7 @@ function TransactionRow({
           {transaction.category || 'Uncategorized'} · {transaction.account}
         </span>
       </div>
-      <time>{formatDate(transaction.date)}</time>
+      {showDate && <time>{formatDate(transaction.date)}</time>}
       <strong className={`transaction-amount ${transaction.kind}`}>
         {(transaction.signedAmount ?? (transaction.kind === 'income' ? 1 : -1)) >= 0 ? '+' : '−'}
         {formatMoney(transaction.amount)}
@@ -1352,6 +1354,12 @@ function TransactionsView({
   }, [data.transactions, filters, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const transactionsByDate = new Map<string, Transaction[]>();
+  pageItems.forEach((transaction) => {
+    const transactions = transactionsByDate.get(transaction.date) ?? [];
+    transactions.push(transaction);
+    transactionsByDate.set(transaction.date, transactions);
+  });
   const saveView = () => {
     const name = window.prompt('Name this saved view');
     if (!name?.trim()) return;
@@ -1708,23 +1716,25 @@ function TransactionsView({
             </p>
           )}
         </section>
-        <div className="table-header">
-          <span>Transaction</span>
-          <span>Date</span>
-          <span>Amount</span>
-          <span />
-        </div>
-        <div className="transaction-list transaction-table transaction-cards">
+        <div className="transaction-date-groups">
           {filtered.length ? (
-            pageItems.map((transaction) => (
-              <TransactionRow
-                key={transaction.id}
-                transaction={transaction}
-                onOpen={() => onOpenTransaction(transaction)}
-                onEdit={() => onEditTransaction(transaction)}
-                onDelete={() => onDeleteTransaction(transaction)}
-                onToggleCleared={() => onToggleCleared(transaction)}
-              />
+            [...transactionsByDate].map(([date, transactions]) => (
+              <section className="transaction-date-group" key={date}>
+                <h3 className="transaction-date-heading">{formatDate(date)}</h3>
+                <div className="transaction-list transaction-table transaction-cards">
+                  {transactions.map((transaction) => (
+                    <TransactionRow
+                      key={transaction.id}
+                      transaction={transaction}
+                      onOpen={() => onOpenTransaction(transaction)}
+                      onEdit={() => onEditTransaction(transaction)}
+                      onDelete={() => onDeleteTransaction(transaction)}
+                      onToggleCleared={() => onToggleCleared(transaction)}
+                      showDate={false}
+                    />
+                  ))}
+                </div>
+              </section>
             ))
           ) : (
             <div className="empty-state">
