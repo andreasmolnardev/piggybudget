@@ -670,7 +670,14 @@ function ReconciliationCard({
   );
 }
 
-type DashboardPeriod = 'this-month' | 'last-month' | 'this-week' | 'last-7-days' | 'last-30-days';
+type DashboardPeriod =
+  | 'this-month'
+  | 'last-month'
+  | 'this-week'
+  | 'last-7-days'
+  | 'last-30-days'
+  | 'last-3-months'
+  | 'last-6-months';
 type DashboardDiagram = 'cash-flow' | 'spending-category' | 'income-expenses' | 'account-balances';
 
 function readDashboardDiagram(userId: string): DashboardDiagram {
@@ -711,160 +718,323 @@ function periodRange(period: DashboardPeriod, weekStart: UserPreferences['weekSt
   }
   if (period === 'last-7-days') start.setDate(start.getDate() - 6);
   if (period === 'last-30-days') start.setDate(start.getDate() - 29);
+  if (period === 'last-3-months' || period === 'last-6-months') {
+    const monthCount = period === 'last-3-months' ? 3 : 6;
+    start.setDate(1);
+    start.setMonth(start.getMonth() - monthCount + 1);
+  }
   if (period === 'this-week') {
     const offset = weekStart === 'monday' ? (today.getDay() + 6) % 7 : today.getDay();
     start.setDate(start.getDate() - offset);
   }
-  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-  const previousEnd = new Date(start);
-  previousEnd.setDate(previousEnd.getDate() - 1);
-  const previousStart = new Date(previousEnd);
-  previousStart.setDate(previousStart.getDate() - days + 1);
-  return { start, end, previousStart, previousEnd, days };
+  return { start, end };
 }
 
-function CashFlowChart({
+type MoneyFlowNode = { label: string; value: number; color: string };
+
+function transactionCategoryTotals(transactions: Transaction[], kind: Transaction['kind']) {
+  const totals = new Map<string, number>();
+  transactions
+    .filter((transaction) => transaction.kind === kind)
+    .forEach((transaction) => {
+      const category = transaction.category || 'Uncategorized';
+      totals.set(category, (totals.get(category) ?? 0) + transaction.amount);
+    });
+  const sorted = [...totals.entries()].sort((first, second) => second[1] - first[1]);
+  if (sorted.length <= 4) return sorted.map(([label, value]) => ({ label, value }));
+  return [
+    ...sorted.slice(0, 3).map(([label, value]) => ({ label, value })),
+    {
+      label: 'Other',
+      value: sorted.slice(3).reduce((sum, [, value]) => sum + value, 0),
+    },
+  ];
+}
+
+function MoneyInOutFlowChart({ transactions }: { transactions: Transaction[] }) {
+  const incomeNodes = transactionCategoryTotals(transactions, 'income').map((node, index) => ({
+    ...node,
+    color: ['#7b8793', '#70a795', '#a3b9aa', '#8fa5b5'][index % 4],
+  }));
+  const expenseNodes = transactionCategoryTotals(transactions, 'expense').map((node, index) => ({
+    ...node,
+    color: ['#14b8a6', '#3c9fc0', '#5285ca', '#8775c9'][index % 4],
+  }));
+  const income = incomeNodes.reduce((sum, node) => sum + node.value, 0);
+  const expenses = expenseNodes.reduce((sum, node) => sum + node.value, 0);
+  const total = Math.max(income, expenses);
+  if (!total) return <div className="chart-empty">No income or expenses in this date range.</div>;
+
+  const leftNodes: MoneyFlowNode[] = [...incomeNodes];
+  const rightNodes: MoneyFlowNode[] = [...expenseNodes];
+  if (expenses > income) {
+    leftNodes.push({ label: 'Deficit', value: expenses - income, color: '#ed4f56' });
+  } else if (income > expenses) {
+    rightNodes.push({ label: 'Surplus', value: income - expenses, color: '#d3a442' });
+  }
+
+  const chartTop = 46;
+  const chartHeight = 246;
+  const nodeWidth = 14;
+  const [chartWidth, setChartWidth] = useState(720);
+  const chartRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setChartWidth(entry.contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const centerX = chartWidth / 2 - nodeWidth / 2;
+  const rightX = chartWidth - nodeWidth;
+  const layoutNodes = (nodes: MoneyFlowNode[]) => {
+    let currentY = chartTop;
+    return nodes.map((node) => {
+      const height = (node.value / total) * chartHeight;
+      const layout = { ...node, top: currentY, bottom: currentY + height };
+      currentY += height;
+      return layout;
+    });
+  };
+  const leftLayout = layoutNodes(leftNodes);
+  const rightLayout = layoutNodes(rightNodes);
+  const linkPath = (
+    startX: number,
+    startTop: number,
+    startBottom: number,
+    endX: number,
+    endTop: number,
+    endBottom: number,
+  ) => {
+    const curve = (endX - startX) * 0.52;
+    return [
+      `M ${startX} ${startTop}`,
+      `C ${startX + curve} ${startTop}, ${endX - curve} ${endTop}, ${endX} ${endTop}`,
+      `L ${endX} ${endBottom}`,
+      `C ${endX - curve} ${endBottom}, ${startX + curve} ${startBottom}, ${startX} ${startBottom}`,
+      'Z',
+    ].join(' ');
+  };
+  const shortenLabel = (label: string) => {
+    const limit = Math.max(8, Math.min(24, Math.floor((chartWidth / 2 - 42) / 7)));
+    return label.length > limit ? `${label.slice(0, limit - 1)}…` : label;
+  };
+
+  return (
+    <div className="money-flow-chart" ref={chartRef}>
+      <svg
+        viewBox={`0 0 ${chartWidth} 300`}
+        role="img"
+        aria-label={`Money in and out. Income ${formatMoney(income)}; expenses ${formatMoney(expenses)}.`}
+      >
+        {leftLayout.map((node) => (
+          <path
+            key={`in-${node.label}`}
+            d={linkPath(nodeWidth, node.top, node.bottom, centerX, node.top, node.bottom)}
+            fill={node.color}
+            opacity="0.16"
+          />
+        ))}
+        {rightLayout.map((node) => (
+          <path
+            key={`out-${node.label}`}
+            d={linkPath(centerX + nodeWidth, node.top, node.bottom, rightX, node.top, node.bottom)}
+            fill={node.color}
+            opacity="0.16"
+          />
+        ))}
+        {leftLayout.map((node) => (
+          <Tooltip key={`left-node-${node.label}`}>
+            <TooltipTrigger asChild>
+              <g
+                role="img"
+                tabIndex={0}
+                aria-label={`${node.label}: ${formatMoney(node.value)}`}
+              >
+                <rect
+                  x="0"
+                  y={node.top}
+                  width={nodeWidth}
+                  height={Math.max(node.bottom - node.top, 2)}
+                  fill={node.color}
+                />
+                <text
+                  x={nodeWidth + 8}
+                  y={(node.top + node.bottom) / 2 - 2}
+                  className="money-flow-label"
+                >
+                  {shortenLabel(node.label)}
+                </text>
+                <text
+                  x={nodeWidth + 8}
+                  y={(node.top + node.bottom) / 2 + 14}
+                  className="money-flow-amount"
+                >
+                  {formatMoney(node.value)}
+                </text>
+              </g>
+            </TooltipTrigger>
+            <TooltipContent>
+              {node.label}: {formatMoney(node.value)}
+            </TooltipContent>
+          </Tooltip>
+        ))}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <g role="img" tabIndex={0} aria-label={`Cash flow: ${formatMoney(total)}`}>
+              <rect x={centerX} y={chartTop} width={nodeWidth} height={chartHeight} fill="#32d08a" />
+              <text
+                x={centerX + nodeWidth / 2}
+                y="18"
+                textAnchor="middle"
+                className="money-flow-label"
+              >
+                Cash Flow
+              </text>
+              <text
+                x={centerX + nodeWidth / 2}
+                y="34"
+                textAnchor="middle"
+                className="money-flow-amount"
+              >
+                {formatMoney(total)}
+              </text>
+            </g>
+          </TooltipTrigger>
+          <TooltipContent>Cash flow: {formatMoney(total)}</TooltipContent>
+        </Tooltip>
+        {rightLayout.map((node) => (
+          <Tooltip key={`right-node-${node.label}`}>
+            <TooltipTrigger asChild>
+              <g
+                role="img"
+                tabIndex={0}
+                aria-label={`${node.label}: ${formatMoney(node.value)}`}
+              >
+                <rect
+                  x={rightX}
+                  y={node.top}
+                  width={nodeWidth}
+                  height={Math.max(node.bottom - node.top, 2)}
+                  fill={node.color}
+                />
+                <text
+                  x={rightX - 8}
+                  y={(node.top + node.bottom) / 2 - 2}
+                  textAnchor="end"
+                  className="money-flow-label"
+                >
+                  {shortenLabel(node.label)}
+                </text>
+                <text
+                  x={rightX - 8}
+                  y={(node.top + node.bottom) / 2 + 14}
+                  textAnchor="end"
+                  className="money-flow-amount"
+                >
+                  {formatMoney(node.value)}
+                </text>
+              </g>
+            </TooltipTrigger>
+            <TooltipContent>{node.label}: {formatMoney(node.value)}</TooltipContent>
+          </Tooltip>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function MonthlyMoneyInOutChart({
   transactions,
   start,
   end,
-  onSelectDay,
 }: {
   transactions: Transaction[];
   start: Date;
   end: Date;
-  onSelectDay: (date: string) => void;
 }) {
-  const days = Array.from(
-    { length: Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1 },
-    (_, index) => {
-      const date = new Date(start);
-      date.setDate(start.getDate() + index);
-      const key = dateKey(date);
-      const matchingTransactions = transactions.filter((transaction) => transaction.date === key);
-      return {
-        dateKey: key,
-        date,
-        label:
-          Math.round((end.getTime() - start.getTime()) / 86_400_000) < 7
-            ? new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(date)
-            : `${date.getMonth() + 1}/${date.getDate()}`,
-        income: matchingTransactions
-          .filter((transaction) => transaction.kind === 'income')
-          .reduce((sum, transaction) => sum + transaction.amount, 0),
-        expenses: matchingTransactions
-          .filter((transaction) => transaction.kind === 'expense')
-          .reduce((sum, transaction) => sum + transaction.amount, 0),
-        incomeTransactions: matchingTransactions.filter(
-          (transaction) => transaction.kind === 'income',
-        ),
-        expenseTransactions: matchingTransactions.filter(
-          (transaction) => transaction.kind === 'expense',
-        ),
-      };
-    },
-  );
+  const months: Array<{ key: string; label: string; income: number; expenses: number }> = [];
+  const monthCursor = new Date(start.getFullYear(), start.getMonth(), 1, 12);
+  const lastMonth = new Date(end.getFullYear(), end.getMonth(), 1, 12);
+  while (monthCursor <= lastMonth) {
+    const key = `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`;
+    const matchingTransactions = transactions.filter((transaction) =>
+      transaction.date.startsWith(key),
+    );
+    months.push({
+      key,
+      label: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(monthCursor),
+      income: matchingTransactions
+        .filter((transaction) => transaction.kind === 'income')
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+      expenses: matchingTransactions
+        .filter((transaction) => transaction.kind === 'expense')
+        .reduce((sum, transaction) => sum + transaction.amount, 0),
+    });
+    monthCursor.setMonth(monthCursor.getMonth() + 1);
+  }
   const scale = Math.max(
-    2000,
-    Math.ceil(Math.max(...days.flatMap((day) => [day.income, day.expenses])) / 1000) * 1000,
+    1000,
+    Math.ceil(
+      Math.max(...months.flatMap((month) => [month.income, month.expenses])) / 1000,
+    ) * 1000,
   );
+  if (!months.some((month) => month.income > 0 || month.expenses > 0)) {
+    return <div className="chart-empty">No income or expenses in this date range.</div>;
+  }
+
   return (
-    <div
-      className="cashflow-chart"
-      aria-label={`Cash flow from ${dateKey(start)} through ${dateKey(end)}`}
-    >
-      <div className="chart-y-labels">
-        <span>{formatMoney(scale, true)}</span>
-        <span>{formatMoney(scale / 2, true)}</span>
-        <span>$0</span>
-      </div>
-      {days.some((day) => day.income > 0 || day.expenses > 0) ? (
-        <div
-          className="chart-bars"
-          style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
-        >
-          {days.map((day) => {
-            const tooltipContent = (
-              <div className="cashflow-tooltip">
-                <strong className="cashflow-tooltip-date">
-                  {new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}
-                </strong>
+    <>
+      <div
+        className="monthly-money-chart"
+        aria-label={`Monthly money in and out from ${dateKey(start)} through ${dateKey(end)}`}
+      >
+        <div className="chart-y-labels">
+          <span>{formatMoney(scale, true)}</span>
+          <span>{formatMoney(scale / 2, true)}</span>
+          <span>$0</span>
+        </div>
+        <div className="monthly-money-months">
+          {months.map((month) => (
+            <div className="monthly-money-month" key={month.key}>
+              <div className="monthly-money-bars">
                 {[
-                  { label: 'Income', total: day.income, transactions: day.incomeTransactions },
-                  { label: 'Expenses', total: day.expenses, transactions: day.expenseTransactions },
-                ].map((group) => (
-                  <div className="cashflow-tooltip-group" key={group.label}>
-                    <div className="cashflow-tooltip-summary">
-                      <span>{group.label}</span>
-                      <strong>{formatMoney(group.total)}</strong>
-                    </div>
-                    {group.transactions.length > 0 ? (
-                      <>
-                        {group.transactions.slice(0, 3).map((transaction) => (
-                          <div className="cashflow-tooltip-transaction" key={transaction.id}>
-                            <span>{transaction.merchant || 'Transaction'}</span>
-                            <span>{formatMoney(transaction.amount)}</span>
-                          </div>
-                        ))}
-                        {group.transactions.length > 3 && (
-                          <small>+ {group.transactions.length - 3} more</small>
-                        )}
-                      </>
-                    ) : (
-                      <small>No {group.label.toLowerCase()}</small>
-                    )}
-                  </div>
+                  { label: 'Money in', value: month.income, tone: 'chart-income' },
+                  { label: 'Money out', value: month.expenses, tone: 'chart-expense' },
+                ].map((series) => (
+                  <Tooltip key={series.label}>
+                    <TooltipTrigger asChild>
+                      <span
+                        className={series.tone}
+                        role="img"
+                        tabIndex={0}
+                        aria-label={`${month.label} ${series.label.toLowerCase()}: ${formatMoney(
+                          series.value,
+                        )}`}
+                        style={{ height: `${(series.value / scale) * 100}%` }}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {month.label} {series.label.toLowerCase()}: {formatMoney(series.value)}
+                    </TooltipContent>
+                  </Tooltip>
                 ))}
               </div>
-            );
-
-            return (
-              <div className="chart-day" key={day.dateKey}>
-                <div className="chart-bar-wrap">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="chart-income"
-                        style={{ height: `${(day.income / scale) * 100}%` }}
-                        aria-label={`${day.label} income: ${formatMoney(day.income)}`}
-                        onClick={() => onSelectDay(day.dateKey)}
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent className="cashflow-tooltip-content">
-                      {tooltipContent}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="chart-expense"
-                        style={{ height: `${(day.expenses / scale) * 100}%` }}
-                        aria-label={`${day.label} expenses: ${formatMoney(day.expenses)}`}
-                        onClick={() => onSelectDay(day.dateKey)}
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent className="cashflow-tooltip-content">
-                      {tooltipContent}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <button
-                  className="chart-day-label"
-                  type="button"
-                  onClick={() => onSelectDay(day.dateKey)}
-                  aria-label={`Open transactions for ${new Intl.DateTimeFormat('en-US', { dateStyle: 'full' }).format(day.date)}`}
-                >
-                  {day.label}
-                </button>
-              </div>
-            );
-          })}
+              <span className="monthly-money-label">{month.label}</span>
+            </div>
+          ))}
         </div>
-      ) : (
-        <div className="chart-empty">No income or expenses in this date range.</div>
-      )}
-    </div>
+      </div>
+      <div className="money-inout-legend" aria-hidden="true">
+        <span>
+          <i className="money-inout-dot is-in" /> Money in
+        </span>
+        <span>
+          <i className="money-inout-dot is-out" /> Money out
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -1085,16 +1255,21 @@ function DashboardView({
   const [period, setPeriod] = useState<DashboardPeriod>(() => {
     try {
       const saved = sessionStorage.getItem(dashboardPeriodKey);
-      return ['this-month', 'last-month', 'this-week', 'last-7-days', 'last-30-days'].includes(
-        saved ?? '',
-      )
+      return [
+        'this-month',
+        'last-month',
+        'this-week',
+        'last-7-days',
+        'last-30-days',
+        'last-3-months',
+        'last-6-months',
+      ].includes(saved ?? '')
         ? (saved as DashboardPeriod)
         : 'this-month';
     } catch {
       return 'this-month';
     }
   });
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   useEffect(() => {
     try {
       sessionStorage.setItem(dashboardPeriodKey, period);
@@ -1107,32 +1282,16 @@ function DashboardView({
     (transaction) =>
       transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
   );
-  const previousTransactions = data.transactions.filter(
-    (transaction) =>
-      transaction.date >= dateKey(range.previousStart) &&
-      transaction.date <= dateKey(range.previousEnd),
-  );
   const income = currentTransactions
     .filter((item) => item.kind === 'income')
     .reduce((sum, item) => sum + item.amount, 0);
   const expenses = currentTransactions
     .filter((item) => item.kind === 'expense')
     .reduce((sum, item) => sum + item.amount, 0);
-  const previousNet =
-    previousTransactions
-      .filter((item) => item.kind === 'income')
-      .reduce((sum, item) => sum + item.amount, 0) -
-    previousTransactions
-      .filter((item) => item.kind === 'expense')
-      .reduce((sum, item) => sum + item.amount, 0);
-  const netChange = income - expenses - previousNet;
   const firstName = profile.name.trim().split(/\s+/)[0] || 'there';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const recent = data.transactions.slice(0, 5);
-  const selectedDayTransactions = selectedDay
-    ? currentTransactions.filter((transaction) => transaction.date === selectedDay)
-    : [];
   return (
     <>
       <PageHeader
@@ -1161,10 +1320,9 @@ function DashboardView({
                 value={diagram}
                 onChange={(event) => {
                   setDiagram(event.target.value as DashboardDiagram);
-                  setSelectedDay(null);
                 }}
               >
-                <option value="cash-flow">Cash flow</option>
+                <option value="cash-flow">Money in/out</option>
                 <option value="spending-category">Spending by category</option>
                 <option value="income-expenses">Income vs expenses</option>
                 <option value="account-balances">Account balances</option>
@@ -1183,78 +1341,28 @@ function DashboardView({
                   <option value="this-week">This week</option>
                   <option value="last-7-days">Last 7 days</option>
                   <option value="last-30-days">Last 30 days</option>
+                  <option value="last-3-months">Last 3 months</option>
+                  <option value="last-6-months">Last 6 months</option>
                 </AppSelect>
               ) : undefined
             }
           />
           {diagram === 'cash-flow' ? (
-            <>
-              <div className="cashflow-total">
-                <strong>{formatMoney(income - expenses)}</strong>
-                <span className={netChange < 0 ? 'cashflow-change is-down' : 'cashflow-change'}>
-                  <ArrowUpRight size={14} /> {formatMoney(Math.abs(netChange))}{' '}
-                  {netChange < 0 ? 'less' : 'more'} than the previous period
-                </span>
-              </div>
-              <CashFlowChart
+            period === 'last-3-months' || period === 'last-6-months' ? (
+              <MonthlyMoneyInOutChart
                 transactions={currentTransactions}
                 start={range.start}
                 end={range.end}
-                onSelectDay={setSelectedDay}
               />
-            </>
+            ) : (
+              <MoneyInOutFlowChart transactions={currentTransactions} />
+            )
           ) : diagram === 'spending-category' ? (
             <SpendingByCategoryChart transactions={currentTransactions} />
           ) : diagram === 'income-expenses' ? (
             <IncomeExpensesChart income={income} expenses={expenses} />
           ) : (
             <AccountBalancesChart accounts={data.accounts} />
-          )}
-          {diagram === 'cash-flow' && selectedDay && (
-            <div className="chart-day-transactions">
-              <div className="chart-day-transactions-heading">
-                <strong>
-                  {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(
-                    new Date(`${selectedDay}T12:00:00`),
-                  )}
-                </strong>
-                <button
-                  className="icon-button"
-                  type="button"
-                  onClick={() => setSelectedDay(null)}
-                  aria-label="Close day transactions"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-              {selectedDayTransactions.length ? (
-                selectedDayTransactions.map((transaction) => (
-                  <button
-                    className="chart-transaction-link"
-                    type="button"
-                    key={transaction.id}
-                    onClick={() => onOpenTransaction(transaction)}
-                  >
-                    <span>{transaction.merchant}</span>
-                    <strong>{formatMoney(transaction.amount)}</strong>
-                  </button>
-                ))
-              ) : (
-                <p>No transactions were recorded on this day.</p>
-              )}
-            </div>
-          )}
-          {diagram === 'cash-flow' && (
-            <div className="chart-legend">
-              <span>
-                <i className="legend-dot income" />
-                Income
-              </span>
-              <span>
-                <i className="legend-dot expense" />
-                Expenses
-              </span>
-            </div>
           )}
         </section>
         <FinanceHelper
@@ -1459,7 +1567,6 @@ function AddFinanceEntryPopover({
 function TransactionsView({
   data,
   userId,
-  remote,
   onAddTransaction,
   onAddCheckpoint,
   onAddAccount,
@@ -1472,7 +1579,6 @@ function TransactionsView({
 }: {
   data: BudgetData;
   userId: string;
-  remote: boolean;
   onAddTransaction: () => void;
   onAddCheckpoint: () => void;
   onAddAccount: () => void;
@@ -2688,7 +2794,7 @@ function AssetsView({
     .sort((a, b) => b[1] - a[1]);
   const compositionColors = ['#5f8d7e', '#be8a54', '#8e82b9', '#6b9ab8', '#d68b5e', '#789c63'];
   let compositionOffset = 0;
-  const compositionStops = composition.map(([type, value], index) => {
+  const compositionStops = composition.map(([, value], index) => {
     const start = compositionOffset;
     compositionOffset += totalValue ? (value / totalValue) * 100 : 0;
     return `${compositionColors[index % compositionColors.length]} ${start}% ${compositionOffset}%`;
@@ -4778,7 +4884,6 @@ export function BudgetingDashboard({
       <TransactionsView
         data={data}
         userId={userId}
-        remote={remote}
         onAddTransaction={() => setComposer('transaction')}
         onAddCheckpoint={() => setComposer('checkpoint')}
         onAddAccount={() => setComposer('account')}

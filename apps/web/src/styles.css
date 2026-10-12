@@ -819,36 +819,24 @@ kbd {
   grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.95fr);
   margin-top: 15px;
 }
-.cashflow-total {
-  display: flex;
-  align-items: baseline;
-  gap: 11px;
-  margin: -5px 0 13px;
+.money-flow-chart {
+  width: 100%;
+  height: 300px;
+  overflow: hidden;
 }
-.cashflow-total strong {
-  font-size: 28px;
-  letter-spacing: -0.05em;
+.money-flow-chart svg {
+  display: block;
+  width: 100%;
+  height: 300px;
 }
-.cashflow-total span {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  color: var(--primary);
-  font-size: 10px;
+.money-flow-label {
+  fill: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
 }
-.cashflow-total .is-down { color: var(--danger); }
-.cashflow-chart {
-  height: 166px;
-  display: flex;
-  gap: 10px;
-  padding-top: 4px;
-  border-bottom: 1px solid var(--border);
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 52px,
-    color-mix(in srgb, var(--border) 55%, transparent) 53px
-  );
+.money-flow-amount {
+  fill: var(--muted);
+  font-size: 12px;
 }
 .chart-y-labels {
   width: 26px;
@@ -859,41 +847,47 @@ kbd {
   color: var(--muted);
   font-size: 9px;
 }
-.chart-bars {
+.monthly-money-chart {
+  height: 300px;
+  display: flex;
+  gap: 10px;
+  padding-top: 4px;
+  border-bottom: 1px solid var(--border);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 72px,
+    color-mix(in srgb, var(--border) 55%, transparent) 73px
+  );
+}
+.monthly-money-months {
   flex: 1;
   min-width: 0;
   display: grid;
-  align-items: end;
-  gap: 3px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
 }
-.chart-day {
-  min-width: 0;
+.monthly-money-month {
   height: 100%;
   display: flex;
-  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: end;
   gap: 8px;
 }
-.chart-bar-wrap {
-  width: min(33px, 100%);
-  height: calc(100% - 19px);
+.monthly-money-bars {
+  width: min(64px, 100%);
+  height: calc(100% - 20px);
   display: flex;
   align-items: end;
-  gap: 3px;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
 }
-.chart-bar-wrap button {
+.monthly-money-bars > span {
   display: block;
   flex: 1;
   min-height: 3px;
-  padding: 0;
-  border: 0;
   border-radius: 5px 5px 0 0;
-  cursor: pointer;
-}
-.chart-bar-wrap button:focus-visible {
-  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 .chart-income {
@@ -902,55 +896,30 @@ kbd {
 .chart-expense {
   background: #d78b62;
 }
-.cashflow-tooltip-content {
-  max-width: min(280px, calc(100vw - 24px));
-}
-.cashflow-tooltip {
-  display: grid;
-  min-width: 190px;
-  gap: 9px;
-  font-size: 11px;
-}
-.cashflow-tooltip-date {
-  padding-bottom: 5px;
-  border-bottom: 1px solid color-mix(in srgb, var(--background) 25%, transparent);
-  font-size: 12px;
-}
-.cashflow-tooltip-group {
-  display: grid;
-  gap: 4px;
-}
-.cashflow-tooltip-summary,
-.cashflow-tooltip-transaction {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.cashflow-tooltip-summary {
-  font-weight: 600;
-}
-.cashflow-tooltip-transaction,
-.cashflow-tooltip-group small {
-  color: color-mix(in srgb, var(--background) 78%, transparent);
+.monthly-money-label {
+  color: var(--muted);
   font-size: 10px;
 }
-.cashflow-tooltip-transaction span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chart-day-label {
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
+.money-inout-legend {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 10px;
   color: var(--muted);
-  background: transparent;
-  font: inherit;
-  font-size: 8px;
-  text-overflow: clip;
-  cursor: pointer;
+  font-size: 10px;
 }
+.money-inout-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.money-inout-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.money-inout-dot.is-in { background: #9ac4ad; }
+.money-inout-dot.is-out { background: #d78b62; }
 .chart-empty {
   flex: 1;
   display: grid;
@@ -1013,34 +982,6 @@ kbd {
 .dashboard-metric-fill.balance.is-negative {
   background: var(--danger);
 }
-.chart-day-transactions {
-  display: grid;
-  gap: 5px;
-  margin-top: 11px;
-  padding: 10px;
-  border-radius: 9px;
-  background: var(--soft);
-}
-.chart-day-transactions-heading,
-.chart-transaction-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.chart-day-transactions-heading { font-size: 11px; }
-.chart-transaction-link {
-  padding: 7px 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-  color: var(--foreground);
-  background: transparent;
-  font: inherit;
-  font-size: 10px;
-  text-align: left;
-  cursor: pointer;
-}
-.chart-day-transactions p { margin: 0; color: var(--muted); font-size: 10px; }
 .helper-answer {
   display: grid;
   gap: 7px;
@@ -1050,30 +991,6 @@ kbd {
   background: var(--card);
   color: var(--muted);
   font-size: 11px;
-}
-.chart-legend {
-  display: flex;
-  gap: 15px;
-  margin-top: 12px;
-  color: var(--muted);
-  font-size: 10px;
-}
-.chart-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.legend-dot {
-  width: 6px;
-  height: 6px;
-  display: inline-block;
-  border-radius: 50%;
-}
-.legend-dot.income {
-  background: #9ac4ad;
-}
-.legend-dot.expense {
-  background: #d78b62;
 }
 .reconciliation-card {
   display: flex;
@@ -2739,17 +2656,11 @@ h1 {
 .cashflow-panel {
   min-height: 410px;
 }
-.cashflow-chart {
-  height: 250px;
-}
 .chart-income {
   background: #c8e8d5;
 }
 .chart-expense {
   background: #252525;
-}
-.chart-legend {
-  margin-top: 16px;
 }
 .helper-panel {
   min-height: 410px;
