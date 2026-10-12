@@ -63,6 +63,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.TextField{Name: "notes"},
 				&core.TextField{Name: "transfer_id"},
 				&core.TextField{Name: "split_group"},
+				&core.TextField{Name: "parent_transaction"},
 				&core.TextField{Name: "recurring_rule"},
 				&core.DateField{Name: "recurring_date"},
 				&core.BoolField{Name: "cleared"},

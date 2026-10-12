@@ -16,6 +16,8 @@ export type Transaction = {
   kind: TransactionKind;
   transferId?: string;
   splitGroup?: string;
+  parentTransactionId?: string;
+  subtransactions?: Transaction[];
   date: string;
   budgetId?: string;
   note?: string;
@@ -302,6 +304,36 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     ),
   ]);
 
+  const mappedTransactions: Transaction[] = transactions.map((record) => ({
+    id: record.id,
+    merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
+    category: textValue(record, 'category', 'budget'),
+    account: textValue(record, 'account') || 'Unassigned account',
+    accountId: textValue(record, 'account'),
+    amount: Math.abs(numberValue(record, 'amount', 'value')),
+    signedAmount: numberValue(record, 'amount', 'value'),
+    kind: transactionKind(record),
+    transferId: textValue(record, 'transfer_id') || undefined,
+    splitGroup: textValue(record, 'split_group') || undefined,
+    parentTransactionId: textValue(record, 'parent_transaction') || undefined,
+    date: dateValue(record),
+    budgetId: textValue(record, 'budget'),
+    note: textValue(record, 'notes', 'note', 'memo'),
+    tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
+    cleared: Boolean(record.cleared),
+    reconciled: Boolean(record.reconciled),
+    receipt: textValue(record, 'receipt'),
+    description: textValue(record, 'description'),
+    receivable: textValue(record, 'receivable'),
+    budgetAmount:
+      record.budget_amount === undefined || record.budget_amount === null
+        ? undefined
+        : numberValue(record, 'budget_amount'),
+    incomeAmount:
+      record.income_amount === undefined || record.income_amount === null
+        ? undefined
+        : numberValue(record, 'income_amount'),
+  }));
   const remoteData: BudgetData = {
     recurringTransactions: recurringTransactions.map((record) => ({
       id: record.id,
@@ -336,35 +368,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       date: dateValue(record),
       notes: textValue(record, 'notes') || undefined,
     })),
-    transactions: transactions.map((record) => ({
-      id: record.id,
-      merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
-      category: textValue(record, 'category', 'budget'),
-      account: textValue(record, 'account') || 'Unassigned account',
-      amount: Math.abs(numberValue(record, 'amount', 'value')),
-      signedAmount: numberValue(record, 'amount', 'value'),
-      kind: transactionKind(record),
-      transferId: textValue(record, 'transfer_id') || undefined,
-      splitGroup: textValue(record, 'split_group') || undefined,
-      date: dateValue(record),
-      budgetId: textValue(record, 'budget'),
-      note: textValue(record, 'notes', 'note', 'memo'),
-      tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
-      cleared: Boolean(record.cleared),
-      reconciled: Boolean(record.reconciled),
-      receipt: textValue(record, 'receipt'),
-      description: textValue(record, 'description'),
-      receivable: textValue(record, 'receivable'),
-      budgetAmount:
-        record.budget_amount === undefined || record.budget_amount === null
-          ? undefined
-          : numberValue(record, 'budget_amount'),
-      incomeAmount:
-        record.income_amount === undefined || record.income_amount === null
-          ? undefined
-          : numberValue(record, 'income_amount'),
-      accountId: textValue(record, 'account'),
-    })),
+    transactions: mappedTransactions,
     accounts: accounts.map((record) => ({
       id: record.id,
       name: textValue(record, 'name', 'title') || 'Unnamed account',
@@ -484,6 +488,16 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     ...transaction,
     account: accountNames.get(transaction.account) ?? transaction.account,
   }));
+  const transactionsById = new Map(
+    remoteData.transactions.map((transaction) => [transaction.id, transaction]),
+  );
+  for (const transaction of remoteData.transactions) {
+    if (!transaction.parentTransactionId) continue;
+    const parent = transactionsById.get(transaction.parentTransactionId);
+    if (!parent) continue;
+    parent.subtransactions ??= [];
+    parent.subtransactions.push(transaction);
+  }
   remoteData.recurringTransactions = remoteData.recurringTransactions.map((rule) => ({
     ...rule,
     account: accountNames.get(rule.accountId) ?? rule.account,
@@ -493,7 +507,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     if (transaction.kind === 'expense' && transaction.budgetId) {
       spentByBudget.set(
         transaction.budgetId,
-        (spentByBudget.get(transaction.budgetId) ?? 0) + (transaction.budgetAmount ?? transaction.amount),
+        (spentByBudget.get(transaction.budgetId) ?? 0) +
+          (transaction.budgetAmount ?? transaction.amount),
       );
     }
   }

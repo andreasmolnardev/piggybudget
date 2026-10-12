@@ -1041,7 +1041,12 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 	balance := opening
 	clearedBalance := opening
 	reconciledBalance := opening
+	transactionCount := 0
 	for _, transaction := range transactions {
+		if transaction.GetString("parent_transaction") != "" {
+			continue
+		}
+		transactionCount++
 		amount := transaction.GetFloat("amount")
 		balance += amount
 		if transaction.GetBool("cleared") || transaction.GetBool("reconciled") {
@@ -1072,7 +1077,7 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 		"miscellaneous":            map[string]any{"name": "Miscellaneous", "amount": miscellaneousAmount, "items": miscellaneousItems},
 		"clearedBalance":           clearedBalance,
 		"reconciledBalance":        reconciledBalance,
-		"transactionCount":         len(transactions),
+		"transactionCount":         transactionCount,
 		"lastCheckpoint":           nil,
 		"reconciliationDifference": nil,
 		"checkpointWindows":        windows,
@@ -1090,6 +1095,9 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 	checkpointDate := latestCheckpoint.GetDateTime("date").Time()
 	checkpointCalculated := opening
 	for _, transaction := range transactions {
+		if transaction.GetString("parent_transaction") != "" {
+			continue
+		}
 		if !transaction.GetDateTime("date").Time().After(checkpointDate) {
 			checkpointCalculated += transaction.GetFloat("amount")
 		}
@@ -1118,6 +1126,9 @@ func checkpointWindows(account *core.Record, checkpoints, transactions []*core.R
 		transactionDelta := 0.0
 		allTransactionsReconciled := true
 		for _, transaction := range transactions {
+			if transaction.GetString("parent_transaction") != "" {
+				continue
+			}
 			transactionDate := transaction.GetDateTime("date").Time()
 			if !transactionDate.After(previousDate) || transactionDate.After(currentDate) {
 				continue

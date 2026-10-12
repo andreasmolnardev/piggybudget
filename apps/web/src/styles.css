@@ -1204,6 +1204,39 @@ kbd {
   color: var(--muted);
   font-size: 10px;
 }
+.transaction-subtransactions {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+.transaction-subtransactions li,
+.transaction-subtransactions li > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.transaction-subtransactions li > span {
+  min-width: 0;
+}
+.transaction-subtransactions li > span > strong {
+  margin: 0;
+  font-size: 10px;
+}
+.transaction-subtransactions small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transaction-subtransactions li > .transaction-amount {
+  flex: 0 0 auto;
+  font-size: 10px;
+}
 .transaction-row time {
   white-space: nowrap;
 }

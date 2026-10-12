@@ -156,6 +156,10 @@ function recognizedIncomeAmount(transaction: Transaction) {
   return transaction.incomeAmount ?? transaction.amount;
 }
 
+function topLevelTransactions(transactions: Transaction[]) {
+  return transactions.filter((transaction) => !transaction.parentTransactionId);
+}
+
 export function formatDate(date: string) {
   const { dateFormat } = readPreferences();
   if (dateFormat === 'iso') return date.slice(0, 10);
@@ -238,9 +242,13 @@ function TransactionRow({
     ? [
         ...(showDate ? [formatDate(transaction.date)] : []),
         transaction.account,
-        transaction.category || 'Uncategorized',
+        transaction.subtransactions?.length
+          ? `Parent · ${transaction.subtransactions.length} items`
+          : transaction.category || 'Uncategorized',
       ].join(' · ')
-    : `${transaction.category || 'Uncategorized'} · ${transaction.account}`;
+    : transaction.subtransactions?.length
+      ? `Parent · ${transaction.subtransactions.length} items · ${transaction.account}`
+      : `${transaction.category || 'Uncategorized'} · ${transaction.account}`;
   return (
     <div
       className={`transaction-row transaction-entry${
@@ -272,6 +280,22 @@ function TransactionRow({
       <div className="transaction-main">
         <strong>{transaction.merchant}</strong>
         <span>{transactionDetails}</span>
+        {transaction.subtransactions?.length ? (
+          <ul className="transaction-subtransactions" aria-label="Subtransactions">
+            {transaction.subtransactions.map((item) => (
+              <li key={item.id}>
+                <span>
+                  <strong>{item.merchant}</strong>
+                  {item.category && <small>{item.category}</small>}
+                </span>
+                <strong className={`transaction-amount ${item.kind}`}>
+                  {(item.signedAmount ?? (item.kind === 'income' ? 1 : -1)) >= 0 ? '+' : '−'}
+                  {formatMoney(item.amount)}
+                </strong>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       {showDate && !dashboardCard && <time>{formatDate(transaction.date)}</time>}
       <strong className={`transaction-amount ${transaction.kind}`}>
@@ -707,11 +731,7 @@ type DashboardPeriod =
   | 'last-3-months'
   | 'last-6-months';
 type DashboardDiagram =
-  | 'cash-flow'
-  | 'spending-category'
-  | 'income-expenses'
-  | 'account-balances'
-  | 'net-worth-history';
+  'cash-flow' | 'spending-category' | 'income-expenses' | 'account-balances' | 'net-worth-history';
 type AssetValuation = {
   asset: string;
   position: string;
@@ -889,11 +909,7 @@ function MoneyInOutFlowChart({ transactions }: { transactions: Transaction[] }) 
         {leftLayout.map((node) => (
           <Tooltip key={`left-node-${node.label}`}>
             <TooltipTrigger asChild>
-              <g
-                role="img"
-                tabIndex={0}
-                aria-label={`${node.label}: ${formatMoney(node.value)}`}
-              >
+              <g role="img" tabIndex={0} aria-label={`${node.label}: ${formatMoney(node.value)}`}>
                 <rect
                   x="0"
                   y={node.top}
@@ -925,7 +941,13 @@ function MoneyInOutFlowChart({ transactions }: { transactions: Transaction[] }) 
         <Tooltip>
           <TooltipTrigger asChild>
             <g role="img" tabIndex={0} aria-label={`Cash flow: ${formatMoney(total)}`}>
-              <rect x={centerX} y={chartTop} width={nodeWidth} height={chartHeight} fill="#32d08a" />
+              <rect
+                x={centerX}
+                y={chartTop}
+                width={nodeWidth}
+                height={chartHeight}
+                fill="#32d08a"
+              />
               <text
                 x={centerX + nodeWidth / 2}
                 y="18"
@@ -949,11 +971,7 @@ function MoneyInOutFlowChart({ transactions }: { transactions: Transaction[] }) 
         {rightLayout.map((node) => (
           <Tooltip key={`right-node-${node.label}`}>
             <TooltipTrigger asChild>
-              <g
-                role="img"
-                tabIndex={0}
-                aria-label={`${node.label}: ${formatMoney(node.value)}`}
-              >
+              <g role="img" tabIndex={0} aria-label={`${node.label}: ${formatMoney(node.value)}`}>
                 <rect
                   x={rightX}
                   y={node.top}
@@ -979,7 +997,9 @@ function MoneyInOutFlowChart({ transactions }: { transactions: Transaction[] }) 
                 </text>
               </g>
             </TooltipTrigger>
-            <TooltipContent>{node.label}: {formatMoney(node.value)}</TooltipContent>
+            <TooltipContent>
+              {node.label}: {formatMoney(node.value)}
+            </TooltipContent>
           </Tooltip>
         ))}
       </svg>
@@ -1018,9 +1038,7 @@ function MonthlyMoneyInOutChart({
   }
   const scale = Math.max(
     1000,
-    Math.ceil(
-      Math.max(...months.flatMap((month) => [month.income, month.expenses])) / 1000,
-    ) * 1000,
+    Math.ceil(Math.max(...months.flatMap((month) => [month.income, month.expenses])) / 1000) * 1000,
   );
   if (!months.some((month) => month.income > 0 || month.expenses > 0)) {
     return <div className="chart-empty">No income or expenses in this date range.</div>;
@@ -1123,7 +1141,10 @@ function SpendingByCategoryChart({ transactions }: { transactions: Transaction[]
     .filter((transaction) => transaction.kind === 'expense')
     .forEach((transaction) => {
       const category = transaction.category || 'Uncategorized';
-      categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + budgetedExpenseAmount(transaction));
+      categoryTotals.set(
+        category,
+        (categoryTotals.get(category) ?? 0) + budgetedExpenseAmount(transaction),
+      );
     });
 
   const sorted = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
@@ -1270,9 +1291,7 @@ function NetWorthHistoryChart({
         .filter((valuation) => {
           const sourceId = source === 'asset' ? valuation.asset : valuation.position;
           return (
-            valuation.source === source &&
-            sourceId === id &&
-            valuation.as_of.slice(0, 10) <= key
+            valuation.source === source && sourceId === id && valuation.as_of.slice(0, 10) <= key
           );
         })
         .sort((first, second) => second.as_of.localeCompare(first.as_of))[0];
@@ -1324,7 +1343,9 @@ function NetWorthHistoryChart({
     chart.left + (index / Math.max(points.length - 1, 1)) * (chart.right - chart.left);
   const y = (value: number) =>
     chart.bottom - ((value - lower) / (upper - lower)) * (chart.bottom - chart.top);
-  const path = points.map((point, index) => `${index ? 'L' : 'M'} ${x(index)} ${y(point.value)}`).join(' ');
+  const path = points
+    .map((point, index) => `${index ? 'L' : 'M'} ${x(index)} ${y(point.value)}`)
+    .join(' ');
   const axisValues = [upper, upper - (upper - lower) / 2, lower];
   const labelIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
   const currentValue = points[points.length - 1]?.value ?? 0;
@@ -1342,8 +1363,19 @@ function NetWorthHistoryChart({
       >
         {axisValues.map((value) => (
           <g key={value}>
-            <line x1={chart.left} x2={chart.right} y1={y(value)} y2={y(value)} className="net-worth-grid-line" />
-            <text x={chart.left - 10} y={y(value) + 4} textAnchor="end" className="net-worth-axis-label">
+            <line
+              x1={chart.left}
+              x2={chart.right}
+              y1={y(value)}
+              y2={y(value)}
+              className="net-worth-grid-line"
+            />
+            <text
+              x={chart.left - 10}
+              y={y(value) + 4}
+              textAnchor="end"
+              className="net-worth-axis-label"
+            >
               {formatMoney(value, true)}
             </text>
           </g>
@@ -1367,8 +1399,17 @@ function NetWorthHistoryChart({
           </Tooltip>
         ))}
         {labelIndexes.map((index) => (
-          <text key={index} x={x(index)} y="272" textAnchor="middle" className="net-worth-axis-label">
-            {new Intl.DateTimeFormat('en-US', { month: 'short', day: monthly ? undefined : 'numeric' }).format(points[index].date)}
+          <text
+            key={index}
+            x={x(index)}
+            y="272"
+            textAnchor="middle"
+            className="net-worth-axis-label"
+          >
+            {new Intl.DateTimeFormat('en-US', {
+              month: 'short',
+              day: monthly ? undefined : 'numeric',
+            }).format(points[index].date)}
           </text>
         ))}
       </svg>
@@ -1392,7 +1433,10 @@ function FinanceHelper({
   const categoryTotals = new Map<string, number>();
   for (const transaction of expenses) {
     const category = transaction.category || 'Uncategorized';
-    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + budgetedExpenseAmount(transaction));
+    categoryTotals.set(
+      category,
+      (categoryTotals.get(category) ?? 0) + budgetedExpenseAmount(transaction),
+    );
   }
   const largestCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0];
   const largestExpense = [...expenses].sort((a, b) => b.amount - a.amount)[0];
@@ -1541,9 +1585,13 @@ function DashboardView({
     }
   }, [dashboardPeriodKey, period]);
   const range = periodRange(period, readPreferences().weekStart);
-  const currentTransactions = data.transactions.filter(
+  const currentTransactionEntries = data.transactions.filter(
     (transaction) =>
       transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
+  );
+  const currentTransactions = topLevelTransactions(currentTransactionEntries);
+  const currentCategoryTransactions = currentTransactionEntries.filter(
+    (transaction) => !transaction.subtransactions?.length,
   );
   const income = currentTransactions
     .filter((item) => item.kind === 'income')
@@ -1554,7 +1602,7 @@ function DashboardView({
   const firstName = profile.name.trim().split(/\s+/)[0] || 'there';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  const recent = data.transactions.slice(0, 5);
+  const recent = topLevelTransactions(data.transactions).slice(0, 5);
   return (
     <>
       <PageHeader
@@ -1622,13 +1670,13 @@ function DashboardView({
               <MoneyInOutFlowChart transactions={currentTransactions} />
             )
           ) : diagram === 'spending-category' ? (
-            <SpendingByCategoryChart transactions={currentTransactions} />
+            <SpendingByCategoryChart transactions={currentCategoryTransactions} />
           ) : diagram === 'income-expenses' ? (
             <IncomeExpensesChart income={income} expenses={expenses} />
           ) : diagram === 'net-worth-history' ? (
             <NetWorthHistoryChart
               accounts={data.accounts}
-              transactions={data.transactions}
+              transactions={topLevelTransactions(data.transactions)}
               assets={data.assets}
               assetPositions={data.assetPositions}
               assetGroups={data.assetGroups}
@@ -1960,7 +2008,7 @@ function TransactionsView({
     setFilters(emptyTransactionFilters);
   };
   const filtered = useMemo(() => {
-    const result = data.transactions.filter((transaction) => {
+    const matchesFilters = (transaction: Transaction) => {
       const matchesAccount =
         filters.account === 'All accounts' || transaction.account === filters.account;
       const matchesKind = filters.kind === 'all' || transaction.kind === filters.kind;
@@ -1994,7 +2042,11 @@ function TransactionsView({
         matchesCleared &&
         matchesReconciled
       );
-    });
+    };
+    const result = topLevelTransactions(data.transactions).filter(
+      (transaction) =>
+        matchesFilters(transaction) || transaction.subtransactions?.some(matchesFilters),
+    );
     return result.sort((a, b) => {
       if (sort === 'date-asc') return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
       if (sort === 'amount-desc') return b.amount - a.amount || b.date.localeCompare(a.date);
@@ -2004,12 +2056,14 @@ function TransactionsView({
   }, [data.transactions, filters, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const selectedTransactions = data.transactions.filter((transaction) =>
+  const selectedTransactions = topLevelTransactions(data.transactions).filter((transaction) =>
     selectedTransactionIds.has(transaction.id),
   );
   const selectedAreExpenses =
     selectedTransactions.length > 0 &&
-    selectedTransactions.every((transaction) => transaction.kind === 'expense');
+    selectedTransactions.every(
+      (transaction) => transaction.kind === 'expense' && !transaction.subtransactions?.length,
+    );
   const toggleTransactionSelection = (transactionId: string) => {
     setSelectedTransactionIds((current) => {
       const next = new Set(current);
@@ -2074,7 +2128,9 @@ function TransactionsView({
       }
       onRefresh();
     } catch {
-      setBulkMessage('Could not update the selected transactions. Check your connection and try again.');
+      setBulkMessage(
+        'Could not update the selected transactions. Check your connection and try again.',
+      );
       onRefresh();
     } finally {
       setBulkActionBusy(false);
@@ -2243,7 +2299,9 @@ function TransactionsView({
                       <input
                         type="date"
                         value={filters.fromDate}
-                        onChange={(event) => setFilters({ ...filters, fromDate: event.target.value })}
+                        onChange={(event) =>
+                          setFilters({ ...filters, fromDate: event.target.value })
+                        }
                         aria-label="From date"
                       />
                     </label>
@@ -2324,7 +2382,9 @@ function TransactionsView({
                   <button
                     className={`icon-button transaction-header-action${selectionMode ? ' is-active' : ''}`}
                     type="button"
-                    aria-label={selectionMode ? 'Exit transaction selection' : 'Select transactions'}
+                    aria-label={
+                      selectionMode ? 'Exit transaction selection' : 'Select transactions'
+                    }
                     aria-pressed={selectionMode}
                     onClick={() => {
                       if (selectionMode) leaveSelectionMode();
@@ -2338,7 +2398,9 @@ function TransactionsView({
                     {selectionMode ? <CheckCircle2 size={18} /> : <Circle size={18} />}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{selectionMode ? 'Exit selection' : 'Select transactions'}</TooltipContent>
+                <TooltipContent>
+                  {selectionMode ? 'Exit selection' : 'Select transactions'}
+                </TooltipContent>
               </Tooltip>
             </div>
             <div className="transaction-header-control">
@@ -2449,11 +2511,16 @@ function TransactionsView({
           )}
         </details>
         {selectionMode && (
-          <div className="transaction-selection-bar" role="toolbar" aria-label="Selected transactions">
+          <div
+            className="transaction-selection-bar"
+            role="toolbar"
+            aria-label="Selected transactions"
+          >
             <div className="transaction-selection-summary">
               <strong>{selectedTransactions.length} selected</strong>
               <button className="text-button" type="button" onClick={togglePageSelection}>
-                {pageItems.length > 0 && pageItems.every((transaction) => selectedTransactionIds.has(transaction.id))
+                {pageItems.length > 0 &&
+                pageItems.every((transaction) => selectedTransactionIds.has(transaction.id))
                   ? 'Clear page'
                   : 'Select page'}
               </button>
@@ -2482,9 +2549,13 @@ function TransactionsView({
                       onChange={(event) => setBulkBudgetId(event.target.value)}
                     >
                       <option value="">Choose a budget</option>
-                      {data.budgets.filter((budget) => !budget.archived).map((budget) => (
-                        <option key={budget.id} value={budget.id}>{budget.category}</option>
-                      ))}
+                      {data.budgets
+                        .filter((budget) => !budget.archived)
+                        .map((budget) => (
+                          <option key={budget.id} value={budget.id}>
+                            {budget.category}
+                          </option>
+                        ))}
                     </AppSelect>
                   </label>
                   <button
@@ -2510,16 +2581,27 @@ function TransactionsView({
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="transaction-bulk-popover">
-                  <strong>Delete {selectedTransactions.length} selected transaction{selectedTransactions.length === 1 ? '' : 's'}?</strong>
+                  <strong>
+                    Delete {selectedTransactions.length} selected transaction
+                    {selectedTransactions.length === 1 ? '' : 's'}?
+                  </strong>
                   {selectedTransactions.some((transaction) => transaction.splitGroup) && (
                     <p>Selecting a split transaction deletes all of its parts.</p>
                   )}
                   <p>You can undo this for 8 seconds.</p>
                   <div className="transaction-bulk-popover-actions">
-                    <button className="button button-quiet" type="button" onClick={() => setDeletePopoverOpen(false)}>
+                    <button
+                      className="button button-quiet"
+                      type="button"
+                      onClick={() => setDeletePopoverOpen(false)}
+                    >
                       Cancel
                     </button>
-                    <button className="button button-danger" type="button" onClick={deleteSelectedTransactions}>
+                    <button
+                      className="button button-danger"
+                      type="button"
+                      onClick={deleteSelectedTransactions}
+                    >
                       Delete selected
                     </button>
                   </div>
@@ -2535,9 +2617,15 @@ function TransactionsView({
               </button>
             </div>
             {selectedTransactions.length > 0 && !selectedAreExpenses && (
-              <span className="transaction-selection-hint">Select expenses only to assign a budget.</span>
+              <span className="transaction-selection-hint">
+                Select standalone expenses to assign a budget.
+              </span>
             )}
-            {bulkMessage && <span className="transaction-selection-message" role="status">{bulkMessage}</span>}
+            {bulkMessage && (
+              <span className="transaction-selection-message" role="status">
+                {bulkMessage}
+              </span>
+            )}
           </div>
         )}
         <div className="transaction-date-groups">
@@ -2576,7 +2664,8 @@ function TransactionsView({
             {filtered.length
               ? `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filtered.length)}`
               : 'Showing 0'}{' '}
-            of {filtered.length} filtered transactions · {data.transactions.length} total
+            of {filtered.length} filtered transactions ·{' '}
+            {topLevelTransactions(data.transactions).length} total
           </span>
           <div className="transaction-footer-actions">
             <button
@@ -2691,11 +2780,14 @@ function ObligationsPanel({
     .reduce((sum, obligation) => sum + obligation.outstandingAmount, 0);
   const activeAccounts = data.accounts.filter((account) => !account.archived);
   const usedSettlementIds = new Set(data.settlements.map((settlement) => settlement.transactionId));
-  const linkedOptionsFor = (obligationSide: Obligation['side']) => data.transactions.filter((transaction) => {
-    if (usedSettlementIds.has(transaction.id)) return false;
-    const signed = transaction.signedAmount ?? (transaction.kind === 'expense' ? -transaction.amount : transaction.amount);
-    return obligationSide === 'receivable' ? signed > 0 : signed < 0;
-  });
+  const linkedOptionsFor = (obligationSide: Obligation['side']) =>
+    data.transactions.filter((transaction) => {
+      if (usedSettlementIds.has(transaction.id)) return false;
+      const signed =
+        transaction.signedAmount ??
+        (transaction.kind === 'expense' ? -transaction.amount : transaction.amount);
+      return obligationSide === 'receivable' ? signed > 0 : signed < 0;
+    });
 
   const saveSettlement = async (event: FormEvent<HTMLFormElement>, obligation: Obligation) => {
     event.preventDefault();
@@ -2706,7 +2798,9 @@ function ObligationsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: Number(settlementAmount),
-          date: data.transactions.find((transaction) => transaction.id === linkedTransaction)?.date ?? settlementDate,
+          date:
+            data.transactions.find((transaction) => transaction.id === linkedTransaction)?.date ??
+            settlementDate,
           account: linkedTransaction ? '' : settlementAccount,
           transaction: linkedTransaction,
         }),
@@ -2727,7 +2821,9 @@ function ObligationsPanel({
 
   const deleteObligation = async (obligation: Obligation) => {
     if (!window.confirm(`Delete the debt for ${obligation.party}?`)) return;
-    const response = await apiFetch(`/api/finance/obligations/${obligation.id}`, { method: 'DELETE' });
+    const response = await apiFetch(`/api/finance/obligations/${obligation.id}`, {
+      method: 'DELETE',
+    });
     if (!response.ok) {
       window.alert((await response.text()) || 'Could not delete this debt.');
       return;
@@ -2739,7 +2835,9 @@ function ObligationsPanel({
     const settlements = data.settlements
       .filter((settlement) => settlement.obligationId === obligation.id)
       .sort((first, second) => first.date.localeCompare(second.date));
-    const source = data.transactions.find((transaction) => transaction.id === obligation.sourceTransaction);
+    const source = data.transactions.find(
+      (transaction) => transaction.id === obligation.sourceTransaction,
+    );
     return { settlements, source };
   };
 
@@ -2770,7 +2868,9 @@ function ObligationsPanel({
               <article className="obligation-row" key={obligation.id}>
                 <div className="obligation-row-main">
                   <strong>{obligation.party}</strong>
-                  <span>{obligation.title} · {obligation.side === 'receivable' ? 'Owes you' : 'You owe'}</span>
+                  <span>
+                    {obligation.title} · {obligation.side === 'receivable' ? 'Owes you' : 'You owe'}
+                  </span>
                 </div>
                 <time>
                   {obligation.dueDate
@@ -2778,64 +2878,155 @@ function ObligationsPanel({
                     : 'No due date'}
                 </time>
                 <strong className={obligation.side === 'receivable' ? 'income' : 'expense'}>
-                  {obligation.side === 'receivable' ? '+' : '−'}{formatMoney(obligation.outstandingAmount)}
+                  {obligation.side === 'receivable' ? '+' : '−'}
+                  {formatMoney(obligation.outstandingAmount)}
                 </strong>
                 <div className="obligation-actions">
-                  <button className="text-button" type="button" onClick={() => { setSettling(settling === obligation.id ? null : obligation.id); setSettlementAmount(String(obligation.outstandingAmount)); setSettlementDate(dateKey(new Date())); setSettlementAccount(activeAccounts[0]?.id ?? ''); setLinkedTransaction(''); }}>
-                    {settling === obligation.id ? 'Cancel' : obligation.side === 'receivable' ? 'Record money received' : 'Record payment'}
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => {
+                      setSettling(settling === obligation.id ? null : obligation.id);
+                      setSettlementAmount(String(obligation.outstandingAmount));
+                      setSettlementDate(dateKey(new Date()));
+                      setSettlementAccount(activeAccounts[0]?.id ?? '');
+                      setLinkedTransaction('');
+                    }}
+                  >
+                    {settling === obligation.id
+                      ? 'Cancel'
+                      : obligation.side === 'receivable'
+                        ? 'Record money received'
+                        : 'Record payment'}
                   </button>
-                  <button className="text-button" type="button" onClick={() => setOpenHistory(openHistory === obligation.id ? null : obligation.id)}>
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() =>
+                      setOpenHistory(openHistory === obligation.id ? null : obligation.id)
+                    }
+                  >
                     History ({history.settlements.length})
                   </button>
                   {history.settlements.length === 0 && (
-                    <button className="text-button" type="button" onClick={() => void deleteObligation(obligation)}>Delete</button>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => void deleteObligation(obligation)}
+                    >
+                      Delete
+                    </button>
                   )}
                 </div>
                 {settling === obligation.id && (
-                  <form className="obligation-settlement-form" onSubmit={(event) => void saveSettlement(event, obligation)}>
+                  <form
+                    className="obligation-settlement-form"
+                    onSubmit={(event) => void saveSettlement(event, obligation)}
+                  >
                     <label>
                       Amount
-                      <input required type="number" min="0.01" max={obligation.outstandingAmount} step="0.01" value={settlementAmount} onChange={(event) => { setSettlementAmount(event.target.value); setLinkedTransaction(''); }} />
+                      <input
+                        required
+                        type="number"
+                        min="0.01"
+                        max={obligation.outstandingAmount}
+                        step="0.01"
+                        value={settlementAmount}
+                        onChange={(event) => {
+                          setSettlementAmount(event.target.value);
+                          setLinkedTransaction('');
+                        }}
+                      />
                     </label>
                     <label>
                       Already recorded transaction <span className="optional-label">Optional</span>
-                      <AppSelect value={linkedTransaction} onChange={(event) => setLinkedTransaction(event.target.value)}>
+                      <AppSelect
+                        value={linkedTransaction}
+                        onChange={(event) => setLinkedTransaction(event.target.value)}
+                      >
                         <option value="">Create repayment transaction</option>
-                        {linkedOptionsFor(obligation.side).filter((transaction) => Math.abs(transaction.amount - Number(settlementAmount)) < 0.005).map((transaction) => (
-                          <option key={transaction.id} value={transaction.id}>{transaction.merchant} · {formatDate(transaction.date)}</option>
-                        ))}
+                        {linkedOptionsFor(obligation.side)
+                          .filter(
+                            (transaction) =>
+                              Math.abs(transaction.amount - Number(settlementAmount)) < 0.005,
+                          )
+                          .map((transaction) => (
+                            <option key={transaction.id} value={transaction.id}>
+                              {transaction.merchant} · {formatDate(transaction.date)}
+                            </option>
+                          ))}
                       </AppSelect>
                     </label>
                     {!linkedTransaction && (
                       <label>
                         Account
-                        <AppSelect required value={settlementAccount} onChange={(event) => setSettlementAccount(event.target.value)}>
-                          {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                        <AppSelect
+                          required
+                          value={settlementAccount}
+                          onChange={(event) => setSettlementAccount(event.target.value)}
+                        >
+                          {activeAccounts.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.name}
+                            </option>
+                          ))}
                         </AppSelect>
                       </label>
                     )}
                     <label>
                       Date
-                      <input required type="date" value={settlementDate} onChange={(event) => setSettlementDate(event.target.value)} />
+                      <input
+                        required
+                        type="date"
+                        value={settlementDate}
+                        onChange={(event) => setSettlementDate(event.target.value)}
+                      />
                     </label>
-                    <button className="button button-primary" type="submit" disabled={busy || (!linkedTransaction && !settlementAccount)}>{busy ? 'Saving…' : 'Save repayment'}</button>
+                    <button
+                      className="button button-primary"
+                      type="submit"
+                      disabled={busy || (!linkedTransaction && !settlementAccount)}
+                    >
+                      {busy ? 'Saving…' : 'Save repayment'}
+                    </button>
                   </form>
                 )}
                 {openHistory === obligation.id && (
                   <div className="obligation-history">
-                    {history.source && <button type="button" onClick={() => onOpenTransaction(history.source!)}>Original · {history.source.merchant} · {formatMoney(obligation.amount)}</button>}
+                    {history.source && (
+                      <button type="button" onClick={() => onOpenTransaction(history.source!)}>
+                        Original · {history.source.merchant} · {formatMoney(obligation.amount)}
+                      </button>
+                    )}
                     {history.settlements.map((settlement: ObligationSettlement) => {
-                      const transaction = data.transactions.find((item) => item.id === settlement.transactionId);
-                      return <button type="button" key={settlement.id} onClick={() => transaction && onOpenTransaction(transaction)}>{formatDate(settlement.date)} · {transaction?.merchant ?? 'Repayment'} · {formatMoney(settlement.amount)}</button>;
+                      const transaction = data.transactions.find(
+                        (item) => item.id === settlement.transactionId,
+                      );
+                      return (
+                        <button
+                          type="button"
+                          key={settlement.id}
+                          onClick={() => transaction && onOpenTransaction(transaction)}
+                        >
+                          {formatDate(settlement.date)} · {transaction?.merchant ?? 'Repayment'} ·{' '}
+                          {formatMoney(settlement.amount)}
+                        </button>
+                      );
                     })}
-                    {!history.source && !history.settlements.length && <span>No transactions linked yet.</span>}
+                    {!history.source && !history.settlements.length && (
+                      <span>No transactions linked yet.</span>
+                    )}
                   </div>
                 )}
               </article>
             );
           })}
         </div>
-      ) : <p className="page-description">No outstanding debts. Mark a transaction as debt when you add it.</p>}
+      ) : (
+        <p className="page-description">
+          No outstanding debts. Mark a transaction as debt when you add it.
+        </p>
+      )}
       {settled.length > 0 && (
         <details className="obligation-settled-history">
           <summary>Settled debts ({settled.length})</summary>
@@ -2844,12 +3035,29 @@ function ObligationsPanel({
             return (
               <div className="obligation-settled-row" key={obligation.id}>
                 <strong>{obligation.party}</strong>
-                <span>{obligation.title} · settled · {formatMoney(obligation.amount)}</span>
+                <span>
+                  {obligation.title} · settled · {formatMoney(obligation.amount)}
+                </span>
                 <div className="obligation-history">
-                  {history.source && <button type="button" onClick={() => onOpenTransaction(history.source!)}>Original · {history.source.merchant}</button>}
+                  {history.source && (
+                    <button type="button" onClick={() => onOpenTransaction(history.source!)}>
+                      Original · {history.source.merchant}
+                    </button>
+                  )}
                   {history.settlements.map((settlement) => {
-                    const transaction = data.transactions.find((item) => item.id === settlement.transactionId);
-                    return <button type="button" key={settlement.id} onClick={() => transaction && onOpenTransaction(transaction)}>{formatDate(settlement.date)} · {transaction?.merchant ?? 'Repayment'} · {formatMoney(settlement.amount)}</button>;
+                    const transaction = data.transactions.find(
+                      (item) => item.id === settlement.transactionId,
+                    );
+                    return (
+                      <button
+                        type="button"
+                        key={settlement.id}
+                        onClick={() => transaction && onOpenTransaction(transaction)}
+                      >
+                        {formatDate(settlement.date)} · {transaction?.merchant ?? 'Repayment'} ·{' '}
+                        {formatMoney(settlement.amount)}
+                      </button>
+                    );
                   })}
                 </div>
               </div>
@@ -5509,6 +5717,37 @@ export function BudgetingDashboard({
     onRefresh();
   };
   const duplicateTransaction = async (transaction: Transaction) => {
+    if (transaction.subtransactions?.length) {
+      const response = await apiFetch('/api/finance/transactions/split', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${pb.authStore.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          account: transaction.accountId,
+          date: transaction.date,
+          amount: transaction.amount,
+          type: transaction.kind,
+          payee: transaction.merchant,
+          description: transaction.description ?? '',
+          tags: transaction.tags ?? [],
+          notes: transaction.note ?? '',
+          splits: transaction.subtransactions.map((item) => ({
+            name: item.merchant,
+            amount: item.amount,
+            category: item.category,
+            budget: item.budgetId ?? '',
+          })),
+        }),
+      });
+      if (!response.ok) {
+        window.alert((await response.text()) || 'Could not duplicate this transaction.');
+        return;
+      }
+      onRefresh();
+      return;
+    }
     const transferPeer = transaction.transferId
       ? data.transactions.find(
           (item) => item.transferId === transaction.transferId && item.id !== transaction.id,
@@ -7446,11 +7685,20 @@ function FinanceComposer({
   const [debtParty, setDebtParty] = useState('');
   const [debtAmount, setDebtAmount] = useState('');
   const [debtDueDate, setDebtDueDate] = useState('');
-  const [splitting, setSplitting] = useState(false);
-  const [splitLines, setSplitLines] = useState([
-    { amount: '', category: '', budget: '' },
-    { amount: '', category: '', budget: '' },
-  ]);
+  const [splitting, setSplitting] = useState(Boolean(transaction?.subtransactions?.length));
+  const [splitLines, setSplitLines] = useState(() =>
+    transaction?.subtransactions?.length
+      ? transaction.subtransactions.map((item) => ({
+          name: item.merchant,
+          amount: String(item.amount),
+          category: item.category,
+          budget: item.budgetId ?? '',
+        }))
+      : [
+          { name: '', amount: '', category: '', budget: '' },
+          { name: '', amount: '', category: '', budget: '' },
+        ],
+  );
   const [repeatFrequency, setRepeatFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>(
     'monthly',
   );
@@ -7531,12 +7779,12 @@ function FinanceComposer({
         splitLines.length < 2 ||
         splitLines.some(
           (split) =>
-            !split.category.trim() ||
+            !split.name.trim() ||
             !Number.isFinite(Number(split.amount)) ||
             Number(split.amount) <= 0,
         )
       ) {
-        setError('Add at least two split entries with an amount and category.');
+        setError('Add at least two subtransactions with a name and amount.');
         return;
       }
       if (
@@ -7649,7 +7897,10 @@ function FinanceComposer({
         : body;
     let transactionSaved = false;
     try {
-      const isSplit = kind === 'transaction' && splitting && !transaction;
+      const isSplit =
+        kind === 'transaction' &&
+        splitting &&
+        (!transaction || Boolean(transaction.subtransactions?.length));
       const resource = isSplit
         ? 'transactions/split'
         : kind === 'account'
@@ -7695,20 +7946,28 @@ function FinanceComposer({
             receipt,
             notes: note,
             splits: splitLines.map((split) => ({
+              name: split.name.trim(),
               amount: Number(split.amount),
               category: split.category.trim(),
               budget: split.budget,
             })),
           }
         : recurringBody;
-      const response = await apiFetch(`/api/finance/${resource}${editedId ? `/${editedId}` : ''}`, {
-        method: editedId ? 'PUT' : 'POST',
-        headers: {
-          Authorization: `Bearer ${pb.authStore.token}`,
-          'Content-Type': 'application/json',
+      const splitGroup = transaction?.splitGroup;
+      const splitParent = isSplit && Boolean(splitGroup);
+      const response = await apiFetch(
+        splitParent
+          ? `/api/finance/transactions/splits/${encodeURIComponent(splitGroup!)}`
+          : `/api/finance/${resource}${editedId ? `/${editedId}` : ''}`,
+        {
+          method: splitParent || editedId ? 'PUT' : 'POST',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
         },
-        body: JSON.stringify(requestBody),
-      });
+      );
       if (!response.ok) throw await apiErrorFromResponse(response);
       transactionSaved = kind === 'transaction';
       let createdTransactionId = editedId;
@@ -7943,7 +8202,10 @@ function FinanceComposer({
             </label>
             <label>
               Account type
-              <AppSelect value={accountType} onChange={(event) => setAccountType(event.target.value)}>
+              <AppSelect
+                value={accountType}
+                onChange={(event) => setAccountType(event.target.value)}
+              >
                 <option>Checking</option>
                 <option>Cash</option>
                 <option>Savings</option>
@@ -7989,7 +8251,13 @@ function FinanceComposer({
         )}
         {!isAsset && (
           <label>
-            {isAccount ? 'Current balance' : kind === 'checkpoint' ? 'Actual balance' : 'Amount'}
+            {isAccount
+              ? 'Current balance'
+              : kind === 'checkpoint'
+                ? 'Actual balance'
+                : splitting
+                  ? 'Parent transaction total'
+                  : 'Amount'}
             <input
               required
               min="0"
@@ -8039,7 +8307,10 @@ function FinanceComposer({
                   <input
                     type="checkbox"
                     checked={trackAsDebt}
-                    onChange={(event) => setTrackAsDebt(event.target.checked)}
+                  onChange={(event) => {
+                    setTrackAsDebt(event.target.checked);
+                    if (event.target.checked) setSplitting(false);
+                  }}
                   />
                   {type === 'expense' ? 'Someone owes me money' : 'I owe someone money'}
                 </label>
@@ -8085,31 +8356,42 @@ function FinanceComposer({
                   checked={repeat}
                   onChange={(event) => {
                     setRepeat(event.target.checked);
-                    if (event.target.checked) setTrackAsDebt(false);
+                    if (event.target.checked) {
+                      setTrackAsDebt(false);
+                      setSplitting(false);
+                    }
                   }}
                 />
                 Repeat this transaction
               </label>
             )}
-            {!transaction && (type === 'expense' || type === 'income') && (
-              <label className="transaction-repeat-toggle">
-                <input
-                  type="checkbox"
-                  checked={splitting}
-                  onChange={(event) => {
-                    setSplitting(event.target.checked);
-                    if (event.target.checked) setTrackAsDebt(false);
-                  }}
-                />
-                Split into categories
-              </label>
-            )}
+            {(type === 'expense' || type === 'income') &&
+              (!transaction || Boolean(transaction.subtransactions?.length)) && (
+                <label className="transaction-repeat-toggle">
+                  <input
+                    type="checkbox"
+                    checked={splitting}
+                    disabled={Boolean(transaction?.subtransactions?.length)}
+                    onChange={(event) => {
+                      setSplitting(event.target.checked);
+                    if (event.target.checked) {
+                      setTrackAsDebt(false);
+                      setRepeat(false);
+                    }
+                    }}
+                  />
+                  Split into subtransactions
+                </label>
+              )}
             {splitting && (
-              <section className="transaction-split-editor" aria-label="Transaction split entries">
+              <section
+                className="transaction-split-editor"
+                aria-label="Transaction subtransactions"
+              >
                 <div>
-                  <strong>Split the total by category</strong>
+                  <strong>Break the parent transaction into items</strong>
                   <small>
-                    Assigned{' '}
+                    Items total{' '}
                     {formatMoney(
                       splitLines.reduce((sum, split) => sum + (Number(split.amount) || 0), 0),
                     )}
@@ -8120,7 +8402,22 @@ function FinanceComposer({
                 {splitLines.map((split, index) => (
                   <div className="transaction-split-row" key={index}>
                     <label>
-                      Part {index + 1}
+                      Item name
+                      <input
+                        required
+                        value={split.name}
+                        onChange={(event) =>
+                          setSplitLines((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, name: event.target.value } : item,
+                            ),
+                          )
+                        }
+                        placeholder="e.g. Ferrari"
+                      />
+                    </label>
+                    <label>
+                      Amount
                       <input
                         required
                         type="number"
@@ -8137,9 +8434,8 @@ function FinanceComposer({
                       />
                     </label>
                     <label>
-                      Category
+                      Category <span className="optional-label">Optional</span>
                       <input
-                        required
                         value={split.category}
                         onChange={(event) =>
                           setSplitLines((current) =>
@@ -8150,7 +8446,7 @@ function FinanceComposer({
                             ),
                           )
                         }
-                        placeholder="e.g. Groceries"
+                        placeholder="e.g. Transport"
                       />
                     </label>
                     <label>
@@ -8179,7 +8475,7 @@ function FinanceComposer({
                       <button
                         className="icon-button"
                         type="button"
-                        aria-label={`Remove split part ${index + 1}`}
+                        aria-label={`Remove subtransaction ${index + 1}`}
                         onClick={() =>
                           setSplitLines((current) =>
                             current.filter((_, itemIndex) => itemIndex !== index),
@@ -8198,11 +8494,11 @@ function FinanceComposer({
                     onClick={() =>
                       setSplitLines((current) => [
                         ...current,
-                        { amount: '', category: '', budget: '' },
+                        { name: '', amount: '', category: '', budget: '' },
                       ])
                     }
                   >
-                    <Plus size={14} /> Add split part
+                    <Plus size={14} /> Add subtransaction
                   </button>
                 )}
               </section>
