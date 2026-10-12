@@ -2462,6 +2462,26 @@ kbd {
   margin-left: 102px;
   padding: 0 42px 30px;
 }
+@media (min-width: 701px) and (max-width: 1050px) {
+  .sidebar {
+    width: 84px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+  .sidebar-link {
+    padding-right: 2px;
+    padding-left: 2px;
+    font-size: 9px;
+  }
+  .sidebar-label {
+    font-size: 9px;
+  }
+  .main-content {
+    margin-left: 84px;
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+}
 .topbar {
   height: 68px;
   max-width: 1180px;
