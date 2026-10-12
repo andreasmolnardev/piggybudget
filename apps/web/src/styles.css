@@ -2710,8 +2710,7 @@ h1 {
     width: 42px;
     height: 42px;
   }
-  .sidebar-link-transactions,
-  .sidebar-settings {
+  .sidebar-link-transactions {
     display: none;
   }
   .mobile-more-trigger {

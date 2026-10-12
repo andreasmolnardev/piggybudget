@@ -154,16 +154,6 @@ export function Sidebar({ activeTab, profile, data, userId, onChange, onSearch }
           </DropdownMenuContent>
         </DropdownMenu>
       </nav>
-      <button
-        className={`sidebar-link sidebar-settings ${activeTab === 'settings' ? 'is-active' : ''}`}
-        type="button"
-        onClick={() => onChange('settings')}
-        aria-label="Settings"
-        aria-current={activeTab === 'settings' ? 'page' : undefined}
-      >
-        <Settings size={19} strokeWidth={2} />
-        <span className="sidebar-label">Settings</span>
-      </button>
       <div className="sidebar-spacer" />
       <div className="sidebar-footer">
         <button
