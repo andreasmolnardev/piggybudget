@@ -2722,7 +2722,6 @@ h1 {
 .helper-panel {
   min-height: 410px;
   padding: 22px;
-  border-left: 1px solid var(--border);
   background: var(--card);
 }
 .helper-heading {

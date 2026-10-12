@@ -1372,7 +1372,7 @@ function FinanceHelper({
     0,
   );
   return (
-    <aside className="helper-panel">
+    <aside className="panel helper-panel">
       <div className="helper-heading">
         <span className="helper-mark">
           <Sparkles size={15} />
