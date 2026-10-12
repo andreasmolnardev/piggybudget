@@ -2440,13 +2440,6 @@ function ObligationsPanel({
   onRefresh: () => void;
   onOpenTransaction: (transaction: Transaction) => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [side, setSide] = useState<Obligation['side']>('receivable');
-  const [party, setParty] = useState('');
-  const [title, setTitle] = useState('');
-  const [amount, setAmount] = useState('');
-  const [sourceTransaction, setSourceTransaction] = useState('');
-  const [dueDate, setDueDate] = useState('');
   const [openHistory, setOpenHistory] = useState<string | null>(null);
   const [settling, setSettling] = useState<string | null>(null);
   const [settlementAmount, setSettlementAmount] = useState('');
@@ -2475,42 +2468,6 @@ function ObligationsPanel({
     const signed = transaction.signedAmount ?? (transaction.kind === 'expense' ? -transaction.amount : transaction.amount);
     return obligationSide === 'receivable' ? signed > 0 : signed < 0;
   });
-
-  const resetAddForm = () => {
-    setAdding(false);
-    setSide('receivable');
-    setParty('');
-    setTitle('');
-    setAmount('');
-    setSourceTransaction('');
-    setDueDate('');
-  };
-
-  const saveObligation = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const response = await apiFetch('/api/finance/obligations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          side,
-          party: party.trim(),
-          title: title.trim(),
-          amount: Number(amount),
-          source_transaction: sourceTransaction,
-          due_date: dueDate,
-        }),
-      });
-      if (!response.ok) throw new Error((await response.text()) || 'Could not save this debt.');
-      resetAddForm();
-      onRefresh();
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Could not save this debt.');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const saveSettlement = async (event: FormEvent<HTMLFormElement>, obligation: Obligation) => {
     event.preventDefault();
@@ -2559,16 +2516,14 @@ function ObligationsPanel({
   };
 
   return (
-    <section className="panel obligations-panel" aria-labelledby="obligations-title">
-      <div className="obligations-heading">
-        <div>
-          <h2 id="obligations-title">Debts</h2>
+    <details className="transaction-recurring-panel obligations-panel">
+      <summary className="transaction-filter-heading">
+        <strong id="obligations-title">Debts</strong>
+        <span className="transaction-recurring-summary-meta">
           <span>{open.length} outstanding</span>
-        </div>
-        <button className="button button-quiet" type="button" onClick={() => setAdding((value) => !value)}>
-          <Plus size={15} /> {adding ? 'Cancel' : 'Add debt'}
-        </button>
-      </div>
+          <ChevronDown size={16} aria-hidden="true" />
+        </span>
+      </summary>
       <div className="obligations-totals">
         <div>
           <span>You’ll receive</span>
@@ -2579,47 +2534,6 @@ function ObligationsPanel({
           <strong>{formatMoney(payableTotal)}</strong>
         </div>
       </div>
-      {adding && (
-        <form className="obligation-form" onSubmit={saveObligation}>
-          <label>
-            Direction
-            <AppSelect value={side} onChange={(event) => { setSide(event.target.value as Obligation['side']); setSourceTransaction(''); }}>
-              <option value="receivable">Someone owes you</option>
-              <option value="payable">You owe someone</option>
-            </AppSelect>
-          </label>
-          <label>
-            Person or organization
-            <input required value={party} onChange={(event) => setParty(event.target.value)} placeholder="Alex" />
-          </label>
-          <label>
-            What is it for?
-            <input required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Dinner" />
-          </label>
-          <label>
-            Amount
-            <input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
-          </label>
-          <label>
-            Link an existing transaction
-            <AppSelect value={sourceTransaction} onChange={(event) => setSourceTransaction(event.target.value)}>
-              <option value="">No transaction linked</option>
-              {data.transactions.filter((transaction) => side === 'receivable' ? transaction.kind === 'expense' : transaction.kind === 'income').map((transaction) => (
-                <option key={transaction.id} value={transaction.id}>
-                  {transaction.merchant} · {formatDate(transaction.date)} · {formatMoney(transaction.amount)}
-                </option>
-              ))}
-            </AppSelect>
-          </label>
-          <label>
-            Due date <span className="optional-label">Optional</span>
-            <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-          </label>
-          <div className="composer-actions">
-            <button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save debt'}</button>
-          </div>
-        </form>
-      )}
       {open.length ? (
         <div className="obligation-list">
           {open.map((obligation) => {
@@ -2693,7 +2607,7 @@ function ObligationsPanel({
             );
           })}
         </div>
-      ) : !adding ? <p className="page-description">No outstanding debts. Add one to track money owed to or by you.</p> : null}
+      ) : <p className="page-description">No outstanding debts. Mark a transaction as debt when you add it.</p>}
       {settled.length > 0 && (
         <details className="obligation-settled-history">
           <summary>Settled debts ({settled.length})</summary>
@@ -2715,7 +2629,7 @@ function ObligationsPanel({
           })}
         </details>
       )}
-    </section>
+    </details>
   );
 }
 
@@ -7257,6 +7171,10 @@ function FinanceComposer({
     (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
   const [repeat, setRepeat] = useState(false);
+  const [trackAsDebt, setTrackAsDebt] = useState(false);
+  const [debtParty, setDebtParty] = useState('');
+  const [debtAmount, setDebtAmount] = useState('');
+  const [debtDueDate, setDebtDueDate] = useState('');
   const [splitting, setSplitting] = useState(false);
   const [splitLines, setSplitLines] = useState([
     { amount: '', category: '', budget: '' },
@@ -7269,7 +7187,7 @@ function FinanceComposer({
   const [repeatEndDate, setRepeatEndDate] = useState('');
   const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
   const [description, setDescription] = useState(transaction?.description ?? '');
-  const [receivable, setReceivable] = useState(transaction?.receivable ?? '');
+  const [receivable] = useState(transaction?.receivable ?? '');
   const [purchaseTransaction, setPurchaseTransaction] = useState(asset?.purchaseTransaction ?? '');
   const [category, setCategory] = useState(transaction?.category ?? budgetRecord?.category ?? '');
   const [budget, setBudget] = useState(transaction?.budgetId ?? '');
@@ -7281,6 +7199,7 @@ function FinanceComposer({
   const [savedTransactionId, setSavedTransactionId] = useState<string | null>(
     transaction?.id ?? null,
   );
+  const [savedDebtTransactionId, setSavedDebtTransactionId] = useState<string | null>(null);
   const [assetName, setAssetName] = useState(asset?.name ?? '');
   const [assetType, setAssetType] = useState(asset?.type ?? 'Other');
   const [purchasePrice, setPurchasePrice] = useState(
@@ -7370,6 +7289,22 @@ function FinanceComposer({
       setError('Remove transaction pictures before saving a recurring rule.');
       return;
     }
+    const debtSide: Obligation['side'] = type === 'expense' ? 'receivable' : 'payable';
+    const debtValue = debtAmount.trim() ? Number(debtAmount) : numericAmount;
+    if (trackAsDebt) {
+      if (!debtParty.trim()) {
+        setError('Enter the person or organization connected to this debt.');
+        return;
+      }
+      if (!Number.isFinite(debtValue) || debtValue <= 0 || debtValue > numericAmount) {
+        setError('Debt amount must be greater than zero and no more than the transaction amount.');
+        return;
+      }
+      if (transaction || repeat || splitting || !['expense', 'income'].includes(type)) {
+        setError('Debt tracking is available for new, unsplit expense or income transactions.');
+        return;
+      }
+    }
     setBusy(true);
     setError('');
     const body =
@@ -7420,7 +7355,8 @@ function FinanceComposer({
                     type,
                     payee,
                     description,
-                    receivable,
+                    receivable:
+                      trackAsDebt && debtSide === 'receivable' ? debtParty.trim() : receivable,
                     category,
                     budget,
                     tags: tags
@@ -7504,9 +7440,50 @@ function FinanceComposer({
       });
       if (!response.ok) throw new Error((await response.text()) || 'Could not save this record.');
       transactionSaved = kind === 'transaction';
+      let createdTransactionId = editedId;
+      if (kind === 'transaction' && !editedId && !isSplit) {
+        const savedRecord = (await response.json()) as { id?: string };
+        createdTransactionId = savedRecord.id;
+        if (!createdTransactionId) {
+          throw new Error('Transaction saved, but its ID could not be read.');
+        }
+        setSavedTransactionId(createdTransactionId);
+      }
+      if (
+        trackAsDebt &&
+        kind === 'transaction' &&
+        savedDebtTransactionId !== createdTransactionId
+      ) {
+        if (!createdTransactionId) throw new Error('Save the transaction before linking its debt.');
+        const obligationResponse = await apiFetch('/api/finance/obligations', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            side: debtSide,
+            party: debtParty.trim(),
+            title:
+              payee.trim() ||
+              description.trim() ||
+              (debtSide === 'receivable' ? 'Money lent' : 'Borrowed money'),
+            amount: debtValue,
+            source_transaction: createdTransactionId,
+            due_date: debtDueDate,
+          }),
+        });
+        if (!obligationResponse.ok) {
+          throw new Error(
+            (await obligationResponse.text()) ||
+              'Transaction saved, but its debt could not be linked.',
+          );
+        }
+        setSavedDebtTransactionId(createdTransactionId);
+      }
       if (kind === 'transaction' && pictureFiles.length) {
-        const savedRecord = (await response.json()) as { id: string };
-        const transactionId = editedId ?? savedRecord.id;
+        const transactionId = createdTransactionId;
+        if (!transactionId) throw new Error('Transaction saved, but its ID could not be read.');
         setSavedTransactionId(transactionId);
         setUploadProgress(0);
         await uploadTransactionFiles(transactionId, pictureFiles, setUploadProgress);
@@ -7771,7 +7748,11 @@ function FinanceComposer({
               <AppSelect
                 value={type}
                 disabled={transaction?.kind === 'transfer'}
-                onChange={(event) => setType(event.target.value as TransactionKind)}
+                onChange={(event) => {
+                  const nextType = event.target.value as TransactionKind;
+                  setType(nextType);
+                  if (!['expense', 'income'].includes(nextType)) setTrackAsDebt(false);
+                }}
               >
                 <option value="expense">Expense</option>
                 <option value="income">Income</option>
@@ -7781,12 +7762,60 @@ function FinanceComposer({
                 )}
               </AppSelect>
             </label>
+            {!transaction && (type === 'expense' || type === 'income') && (
+              <>
+                <label className="transaction-repeat-toggle">
+                  <input
+                    type="checkbox"
+                    checked={trackAsDebt}
+                    onChange={(event) => setTrackAsDebt(event.target.checked)}
+                  />
+                  {type === 'expense' ? 'Someone owes me money' : 'I owe someone money'}
+                </label>
+                {trackAsDebt && (
+                  <>
+                    <label>
+                      Person or organization
+                      <input
+                        required
+                        value={debtParty}
+                        onChange={(event) => setDebtParty(event.target.value)}
+                        placeholder="e.g. Alex"
+                      />
+                    </label>
+                    <label>
+                      Amount owed <span className="optional-label">Optional</span>
+                      <input
+                        type="number"
+                        min="0.01"
+                        max={amount || undefined}
+                        step="0.01"
+                        value={debtAmount}
+                        onChange={(event) => setDebtAmount(event.target.value)}
+                        placeholder={amount || '0.00'}
+                      />
+                    </label>
+                    <label>
+                      Due date <span className="optional-label">Optional</span>
+                      <input
+                        type="date"
+                        value={debtDueDate}
+                        onChange={(event) => setDebtDueDate(event.target.value)}
+                      />
+                    </label>
+                  </>
+                )}
+              </>
+            )}
             {!transaction && type !== 'transfer' && (
               <label className="transaction-repeat-toggle">
                 <input
                   type="checkbox"
                   checked={repeat}
-                  onChange={(event) => setRepeat(event.target.checked)}
+                  onChange={(event) => {
+                    setRepeat(event.target.checked);
+                    if (event.target.checked) setTrackAsDebt(false);
+                  }}
                 />
                 Repeat this transaction
               </label>
@@ -7796,7 +7825,10 @@ function FinanceComposer({
                 <input
                   type="checkbox"
                   checked={splitting}
-                  onChange={(event) => setSplitting(event.target.checked)}
+                  onChange={(event) => {
+                    setSplitting(event.target.checked);
+                    if (event.target.checked) setTrackAsDebt(false);
+                  }}
                 />
                 Split into categories
               </label>
@@ -8021,14 +8053,6 @@ function FinanceComposer({
                     </label>
                   </>
                 )}
-                <label>
-                  Receivable / person
-                  <input
-                    value={receivable}
-                    onChange={(event) => setReceivable(event.target.value)}
-                    placeholder="Name to link money lent and repayments"
-                  />
-                </label>
                 <label>
                   Tags (comma separated)
                   <input

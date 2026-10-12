@@ -1414,9 +1414,7 @@ kbd {
 .transaction-recurring-panel[open] .transaction-recurring-summary-meta > svg {
   transform: rotate(180deg);
 }
-.obligations-panel { margin-bottom: 14px; }
-.obligations-heading,
-.obligations-heading > div,
+.obligations-panel { margin-bottom: 18px; }
 .obligations-totals,
 .obligation-row,
 .obligation-row-main,
@@ -1424,17 +1422,13 @@ kbd {
   display: flex;
   align-items: center;
 }
-.obligations-heading,
 .obligation-row { justify-content: space-between; gap: 16px; }
-.obligations-heading > div,
 .obligation-row-main { flex-direction: column; align-items: flex-start; gap: 4px; }
-.obligations-heading h2 { margin: 0; font-size: 16px; }
-.obligations-heading span,
 .obligation-row-main > span,
 .obligation-row > time,
 .obligations-totals span,
 .obligation-settled-row > span { color: var(--muted); font-size: 11px; }
-.obligations-totals { gap: 24px; margin: 16px 0; }
+.obligations-totals { gap: 24px; margin: 14px 0; padding: 0 0 2px; }
 .obligations-totals > div { display: grid; gap: 4px; }
 .obligations-totals strong { font-size: 18px; }
 .obligation-list { display: grid; gap: 9px; }
@@ -1444,13 +1438,9 @@ kbd {
 .obligation-row > time { white-space: nowrap; }
 .obligation-row > strong { min-width: 96px; text-align: right; white-space: nowrap; }
 .obligation-actions { gap: 12px; }
-.obligation-form,
 .obligation-settlement-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--soft); }
-.obligation-form label,
 .obligation-settlement-form label { display: grid; align-content: start; gap: 6px; color: var(--muted); font-size: 11px; }
-.obligation-form input,
 .obligation-settlement-form input { width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--card); }
-.obligation-form .composer-actions { grid-column: 1 / -1; margin-top: 0; }
 .obligation-settlement-form { flex: 1 1 100%; margin: 2px 0 0; }
 .obligation-settlement-form > button { align-self: end; }
 .optional-label { margin-left: 4px; color: var(--muted); font-weight: 400; }
@@ -3366,14 +3356,11 @@ div[data-slot='popover-content'].transaction-add-popover {
 }
 
 @media (max-width: 700px) {
-  .obligations-heading { align-items: flex-start; }
   .obligation-row { align-items: flex-start; }
   .obligation-row > time { order: 3; }
   .obligation-row > strong { margin-left: auto; }
   .obligation-actions { flex: 1 1 100%; flex-wrap: wrap; }
-  .obligation-form,
   .obligation-settlement-form { grid-template-columns: minmax(0, 1fr); }
-  .obligation-form .composer-actions { grid-column: auto; }
   .transaction-split-editor > div:first-child {
     flex-direction: column;
   }
