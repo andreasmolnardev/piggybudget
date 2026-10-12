@@ -1234,6 +1234,7 @@ function TransactionsView({
   const [loadedViewsKey, setLoadedViewsKey] = useState('');
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [recurringMessage, setRecurringMessage] = useState('');
+  const [openRecurringMenu, setOpenRecurringMenu] = useState<string | null>(null);
   const pageSize = 25;
   useEffect(() => {
     if (stateUserId === userId) return;
@@ -1658,22 +1659,43 @@ function TransactionsView({
                     {rule.amount < 0 ? '−' : '+'}
                     {formatMoney(Math.abs(rule.amount))}
                   </strong>
-                  <div className="recurring-transaction-actions">
+                  <span className="transaction-row-menu-wrap recurring-transaction-menu-wrap">
                     <button
-                      className="text-button"
+                      className="icon-button row-menu"
+                      aria-label={`More options for recurring ${rule.merchant}`}
+                      aria-expanded={openRecurringMenu === rule.id}
                       type="button"
-                      onClick={() => void changeRecurringRule(rule, !rule.active)}
+                      onClick={() =>
+                        setOpenRecurringMenu((open) => (open === rule.id ? null : rule.id))
+                      }
                     >
-                      {rule.active ? 'Pause' : 'Resume'}
+                      <MoreHorizontal size={17} />
                     </button>
-                    <button
-                      className="text-button"
-                      type="button"
-                      onClick={() => void changeRecurringRule(rule)}
-                    >
-                      Delete
-                    </button>
-                  </div>
+                    {openRecurringMenu === rule.id && (
+                      <span className="transaction-row-menu" role="menu">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenRecurringMenu(null);
+                            void changeRecurringRule(rule, !rule.active);
+                          }}
+                        >
+                          {rule.active ? 'Pause' : 'Resume'}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenRecurringMenu(null);
+                            void changeRecurringRule(rule);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </span>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>

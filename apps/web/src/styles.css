@@ -1318,15 +1318,8 @@ kbd {
 .recurring-transaction-row > .transaction-amount {
   grid-area: amount;
 }
-.recurring-transaction-row > .recurring-transaction-actions {
+.recurring-transaction-row > .recurring-transaction-menu-wrap {
   grid-area: actions;
-}
-.recurring-transaction-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  white-space: nowrap;
 }
 .transaction-import-trigger { position: relative; overflow: hidden; cursor: pointer; }
 .transaction-import-trigger input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
