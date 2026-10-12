@@ -834,6 +834,58 @@ kbd {
   width: 100%;
   height: 300px;
 }
+.net-worth-history-chart {
+  position: relative;
+  width: 100%;
+  height: 300px;
+}
+.net-worth-history-chart svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.net-worth-chart-total {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 4px;
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+.net-worth-chart-total span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.net-worth-chart-total strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 650;
+}
+.net-worth-grid-line {
+  stroke: var(--border);
+  stroke-dasharray: 3 5;
+  stroke-width: 1;
+}
+.net-worth-axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.net-worth-line {
+  fill: none;
+  stroke: #32b982;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+.net-worth-point {
+  cursor: crosshair;
+  fill: var(--card);
+  stroke: #32b982;
+  stroke-width: 2.5;
+  outline-offset: 3px;
+}
 .money-flow-label {
   fill: var(--foreground);
   font-size: 13px;

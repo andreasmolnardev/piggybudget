@@ -678,7 +678,19 @@ type DashboardPeriod =
   | 'last-30-days'
   | 'last-3-months'
   | 'last-6-months';
-type DashboardDiagram = 'cash-flow' | 'spending-category' | 'income-expenses' | 'account-balances';
+type DashboardDiagram =
+  | 'cash-flow'
+  | 'spending-category'
+  | 'income-expenses'
+  | 'account-balances'
+  | 'net-worth-history';
+type AssetValuation = {
+  asset: string;
+  position: string;
+  source: 'asset' | 'position';
+  value: number;
+  as_of: string;
+};
 
 function readDashboardDiagram(userId: string): DashboardDiagram {
   try {
@@ -687,7 +699,8 @@ function readDashboardDiagram(userId: string): DashboardDiagram {
       saved === 'cash-flow' ||
       saved === 'spending-category' ||
       saved === 'income-expenses' ||
-      saved === 'account-balances'
+      saved === 'account-balances' ||
+      saved === 'net-worth-history'
     ) {
       return saved;
     }
@@ -1135,6 +1148,205 @@ function AccountBalancesChart({ accounts }: { accounts: Account[] }) {
   );
 }
 
+function NetWorthHistoryChart({
+  accounts,
+  transactions,
+  assets,
+  assetPositions,
+  assetGroups,
+  valuations,
+  start,
+  end,
+  period,
+}: {
+  accounts: Account[];
+  transactions: Transaction[];
+  assets: Asset[];
+  assetPositions: AssetPosition[];
+  assetGroups: AssetGroup[];
+  valuations: AssetValuation[];
+  start: Date;
+  end: Date;
+  period: DashboardPeriod;
+}) {
+  const activeGroupIds = new Set(
+    assetGroups.filter((group) => !group.archived).map((group) => group.id),
+  );
+  const activePositions = assetPositions.filter(
+    (position) => !position.archived && activeGroupIds.has(position.group),
+  );
+  const groupsWithPositions = new Set(activePositions.map((position) => position.group));
+  const standaloneAssets = assets.filter(
+    (asset) => !asset.assetGroup || !groupsWithPositions.has(asset.assetGroup),
+  );
+  const trackedAccounts = accounts.filter((account) => !account.archived);
+  if (!trackedAccounts.length && !standaloneAssets.length && !activePositions.length) {
+    return <div className="chart-empty">Add accounts or assets to see net worth over time.</div>;
+  }
+
+  const rangeDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000));
+  const monthly = period === 'last-3-months' || period === 'last-6-months';
+  const dates: Date[] = [];
+  if (monthly) {
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1, 12);
+    const lastMonth = new Date(end.getFullYear(), end.getMonth(), 1, 12);
+    while (cursor <= lastMonth) {
+      dates.push(new Date(cursor));
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    if (dateKey(dates[dates.length - 1]) !== dateKey(end)) dates.push(new Date(end));
+  } else {
+    for (let offset = 0; offset <= rangeDays; offset += 1) {
+      const date = new Date(start);
+      date.setDate(date.getDate() + offset);
+      dates.push(date);
+    }
+  }
+  if (dates.length === 1) dates.push(new Date(end));
+
+  const today = dateKey(new Date());
+  const valueAtDate = (date: Date) => {
+    const key = dateKey(date);
+    const accountValue = trackedAccounts.reduce((total, account) => {
+      const laterTransactions = transactions
+        .filter(
+          (transaction) =>
+            transaction.accountId === account.id &&
+            transaction.date > key &&
+            transaction.date <= today,
+        )
+        .reduce((sum, transaction) => {
+          const delta =
+            transaction.signedAmount ??
+            (transaction.kind === 'income'
+              ? transaction.amount
+              : transaction.kind === 'expense'
+                ? -transaction.amount
+                : 0);
+          return sum + delta;
+        }, 0);
+      return total + account.balance - laterTransactions;
+    }, 0);
+    const valueAtDateForAsset = (
+      source: AssetValuation['source'],
+      id: string,
+      value: number,
+      cost: number,
+      costKnown: boolean,
+      purchaseDate?: string,
+      asOf?: string,
+    ) => {
+      if (purchaseDate && purchaseDate > key) return 0;
+      const latestValuation = valuations
+        .filter((valuation) => {
+          const sourceId = source === 'asset' ? valuation.asset : valuation.position;
+          return (
+            valuation.source === source &&
+            sourceId === id &&
+            valuation.as_of.slice(0, 10) <= key
+          );
+        })
+        .sort((first, second) => second.as_of.localeCompare(first.as_of))[0];
+      if (latestValuation) return latestValuation.value;
+      if (!asOf || key >= asOf) return value;
+      return costKnown ? cost : value;
+    };
+    const assetValue =
+      standaloneAssets.reduce(
+        (total, asset) =>
+          total +
+          valueAtDateForAsset(
+            'asset',
+            asset.id,
+            asset.value,
+            asset.cost,
+            asset.costKnown !== false,
+            asset.purchaseDate,
+            asset.asOf,
+          ),
+        0,
+      ) +
+      activePositions.reduce(
+        (total, position) =>
+          total +
+          valueAtDateForAsset(
+            'position',
+            position.id,
+            position.value,
+            position.purchasePrice,
+            position.costKnown !== false,
+            position.purchaseDate,
+            position.asOf,
+          ),
+        0,
+      );
+    return accountValue + assetValue;
+  };
+  const points = dates.map((date) => ({ date, value: valueAtDate(date) }));
+  const values = points.map((point) => point.value);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const spread = maxValue - minValue;
+  const padding = spread ? spread * 0.16 : Math.max(Math.abs(maxValue) * 0.08, 100);
+  const lower = minValue - padding;
+  const upper = maxValue + padding;
+  const chart = { left: 72, right: 706, top: 24, bottom: 238 };
+  const x = (index: number) =>
+    chart.left + (index / Math.max(points.length - 1, 1)) * (chart.right - chart.left);
+  const y = (value: number) =>
+    chart.bottom - ((value - lower) / (upper - lower)) * (chart.bottom - chart.top);
+  const path = points.map((point, index) => `${index ? 'L' : 'M'} ${x(index)} ${y(point.value)}`).join(' ');
+  const axisValues = [upper, upper - (upper - lower) / 2, lower];
+  const labelIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+  const currentValue = points[points.length - 1]?.value ?? 0;
+
+  return (
+    <div className="net-worth-history-chart">
+      <div className="net-worth-chart-total">
+        <span>Total net worth</span>
+        <strong>{formatMoney(currentValue)}</strong>
+      </div>
+      <svg
+        viewBox="0 0 720 286"
+        role="img"
+        aria-label={`Total net worth from ${formatDate(dateKey(start))} to ${formatDate(dateKey(end))}. Current total ${formatMoney(currentValue)}.`}
+      >
+        {axisValues.map((value) => (
+          <g key={value}>
+            <line x1={chart.left} x2={chart.right} y1={y(value)} y2={y(value)} className="net-worth-grid-line" />
+            <text x={chart.left - 10} y={y(value) + 4} textAnchor="end" className="net-worth-axis-label">
+              {formatMoney(value, true)}
+            </text>
+          </g>
+        ))}
+        <path d={path} className="net-worth-line" />
+        {points.map((point, index) => (
+          <Tooltip key={dateKey(point.date)}>
+            <TooltipTrigger asChild>
+              <circle
+                cx={x(index)}
+                cy={y(point.value)}
+                r="4"
+                className="net-worth-point"
+                tabIndex={0}
+                aria-label={`${formatDate(dateKey(point.date))}: ${formatMoney(point.value)}`}
+              />
+            </TooltipTrigger>
+            <TooltipContent>
+              {formatDate(dateKey(point.date))}: {formatMoney(point.value)}
+            </TooltipContent>
+          </Tooltip>
+        ))}
+        {labelIndexes.map((index) => (
+          <text key={index} x={x(index)} y="272" textAnchor="middle" className="net-worth-axis-label">
+            {new Intl.DateTimeFormat('en-US', { month: 'short', day: monthly ? undefined : 'numeric' }).format(points[index].date)}
+          </text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 function FinanceHelper({
   data,
   reconciliation,
@@ -1217,6 +1429,7 @@ function FinanceHelper({
 function DashboardView({
   data,
   userId,
+  remote,
   profile,
   onNavigate,
   onAddTransaction,
@@ -1231,6 +1444,7 @@ function DashboardView({
 }: {
   data: BudgetData;
   userId: string;
+  remote: boolean;
   profile: UserProfile;
   onNavigate: (view: BudgetView) => void;
   onAddTransaction: () => void;
@@ -1244,6 +1458,26 @@ function DashboardView({
   onOpenBudget: (budget: Budget) => void;
 }) {
   const [diagram, setDiagram] = useState<DashboardDiagram>(() => readDashboardDiagram(userId));
+  const [assetValuations, setAssetValuations] = useState<AssetValuation[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!remote || diagram !== 'net-worth-history') {
+      setAssetValuations([]);
+      return;
+    }
+    void apiFetch('/api/finance/asset-valuations')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not load asset valuation history.');
+        const records = (await response.json()) as AssetValuation[];
+        if (!cancelled) setAssetValuations(records);
+      })
+      .catch(() => {
+        if (!cancelled) setAssetValuations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data.assets, data.assetPositions, diagram, remote]);
   useEffect(() => {
     try {
       localStorage.setItem(`piggybudget:dashboard-diagram:${userId}`, diagram);
@@ -1326,6 +1560,7 @@ function DashboardView({
                 <option value="spending-category">Spending by category</option>
                 <option value="income-expenses">Income vs expenses</option>
                 <option value="account-balances">Account balances</option>
+                <option value="net-worth-history">Net worth over time</option>
               </AppSelect>
             }
             action={
@@ -1361,6 +1596,18 @@ function DashboardView({
             <SpendingByCategoryChart transactions={currentTransactions} />
           ) : diagram === 'income-expenses' ? (
             <IncomeExpensesChart income={income} expenses={expenses} />
+          ) : diagram === 'net-worth-history' ? (
+            <NetWorthHistoryChart
+              accounts={data.accounts}
+              transactions={data.transactions}
+              assets={data.assets}
+              assetPositions={data.assetPositions}
+              assetGroups={data.assetGroups}
+              valuations={assetValuations}
+              start={range.start}
+              end={range.end}
+              period={period}
+            />
           ) : (
             <AccountBalancesChart accounts={data.accounts} />
           )}
@@ -4865,6 +5112,7 @@ export function BudgetingDashboard({
         key={userId}
         data={data}
         userId={userId}
+        remote={remote}
         profile={profile}
         onNavigate={onNavigate}
         onAddTransaction={() => setComposer('transaction')}
