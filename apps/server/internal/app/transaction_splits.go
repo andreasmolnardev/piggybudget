@@ -156,6 +156,28 @@ func deleteTransactionSplitRoute(event *core.RequestEvent) error {
 	if len(records) < 2 {
 		return event.NotFoundError("transaction split not found", nil)
 	}
+	for _, record := range records {
+		for _, collection := range []string{"obligations", "settlements"} {
+			field := "source_transaction"
+			if collection == "settlements" {
+				field = "transaction"
+			}
+			linked, err := event.App.FindRecordsByFilter(
+				collection,
+				"owner = {:owner} && "+field+" = {:transaction}",
+				"id",
+				1,
+				0,
+				dbx.Params{"owner": user.Id, "transaction": record.Id},
+			)
+			if err != nil {
+				return err
+			}
+			if len(linked) > 0 {
+				return event.BadRequestError("transaction splits linked to debt history cannot be deleted", nil)
+			}
+		}
+	}
 	err = event.App.RunInTransaction(func(tx core.App) error {
 		for _, record := range records {
 			current, err := tx.FindRecordById("transactions", record.Id)

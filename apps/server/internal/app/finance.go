@@ -18,7 +18,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-var financeCollections = []string{"accounts", "transactions", "checkpoints", "budgets", "assets", "goals", "recurring_transactions"}
+var financeCollections = []string{"accounts", "transactions", "checkpoints", "budgets", "assets", "goals", "recurring_transactions", "obligations", "settlements"}
 
 var financeFields = map[string]map[string]bool{
 	"accounts": {
@@ -50,6 +50,13 @@ var financeFields = map[string]map[string]bool{
 		"account": true, "amount": true, "type": true, "payee": true, "description": true,
 		"category": true, "budget": true, "tags": true, "receivable": true, "notes": true,
 		"frequency": true, "interval": true, "start_date": true, "end_date": true, "active": true,
+	},
+	"obligations": {
+		"side": true, "party": true, "title": true, "amount": true, "outstanding_amount": true,
+		"source_transaction": true, "due_date": true, "notes": true, "status": true,
+	},
+	"settlements": {
+		"obligation": true, "transaction": true, "amount": true, "date": true, "notes": true,
 	},
 }
 
@@ -133,6 +140,7 @@ func registerFinanceRoutes(e *core.ServeEvent, config Config) {
 	// use for clients that already use /api/{resource} custom endpoints.
 	for _, prefix := range []string{"/api/finance", "/api"} {
 		registerFinanceResourceRoutes(e, prefix, config)
+		registerObligationRoutes(e, prefix)
 		registerTransactionSplitRoutes(e, prefix)
 		registerGoalContributionRoutes(e, prefix)
 		registerRecurringGoalContributionRoutes(e, prefix)
@@ -531,6 +539,12 @@ func getFinanceRecord(event *core.RequestEvent, collection string) error {
 }
 
 func createFinanceRecord(event *core.RequestEvent, collection string) error {
+	if collection == "obligations" {
+		return createObligationRecord(event)
+	}
+	if collection == "settlements" {
+		return event.BadRequestError("settlements are created through an obligation", nil)
+	}
 	user, err := CurrentUser(event)
 	if err != nil {
 		return err
@@ -598,6 +612,9 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 }
 
 func updateFinanceRecord(event *core.RequestEvent, collection string) error {
+	if collection == "obligations" || collection == "settlements" {
+		return event.BadRequestError("debt history records cannot be edited", nil)
+	}
 	user, err := CurrentUser(event)
 	if err != nil {
 		return err
@@ -618,6 +635,44 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 	}
 	if err := validateFinanceLinks(event, collection, input, record, user.Id); err != nil {
 		return event.BadRequestError(err.Error(), nil)
+	}
+	if collection == "transactions" {
+		linked, err := event.App.FindRecordsByFilter(
+			"obligations",
+			"owner = {:owner} && source_transaction = {:transaction}",
+			"id",
+			1,
+			0,
+			dbx.Params{"owner": user.Id, "transaction": record.Id},
+		)
+		if err != nil {
+			return err
+		}
+		settlements, err := event.App.FindRecordsByFilter(
+			"settlements",
+			"owner = {:owner} && transaction = {:transaction}",
+			"id",
+			1,
+			0,
+			dbx.Params{"owner": user.Id, "transaction": record.Id},
+		)
+		if err != nil {
+			return err
+		}
+		if len(settlements) > 0 {
+			return event.BadRequestError("repayment transactions linked to debt history cannot be edited", nil)
+		}
+		if len(linked) > 0 {
+			if _, amountChanged := input["amount"]; amountChanged {
+				return event.BadRequestError("amounts on transactions linked to an obligation cannot be changed", nil)
+			}
+			if _, typeChanged := input["type"]; typeChanged {
+				return event.BadRequestError("types on transactions linked to an obligation cannot be changed", nil)
+			}
+			if _, accountChanged := input["account"]; accountChanged {
+				return event.BadRequestError("accounts on transactions linked to an obligation cannot be changed", nil)
+			}
+		}
 	}
 	applyFinanceInput(record, collection, input)
 	record.Set("owner", user.Id)
@@ -658,9 +713,58 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 }
 
 func deleteFinanceRecord(event *core.RequestEvent, collection string) error {
+	if collection == "settlements" {
+		return event.BadRequestError("debt history records cannot be deleted", nil)
+	}
 	user, err := CurrentUser(event)
 	if err != nil {
 		return err
+	}
+	if collection == "obligations" {
+		obligation, err := ownedFinanceRecord(event, collection, user.Id)
+		if err != nil {
+			return err
+		}
+		settlements, err := event.App.FindRecordsByFilter(
+			"settlements",
+			"owner = {:owner} && obligation = {:obligation}",
+			"id",
+			1,
+			0,
+			dbx.Params{"owner": user.Id, "obligation": obligation.Id},
+		)
+		if err != nil {
+			return err
+		}
+		if len(settlements) > 0 {
+			return event.BadRequestError("obligations with settlement history cannot be deleted", nil)
+		}
+		err = event.App.RunInTransaction(func(tx core.App) error {
+			if sourceID := obligation.GetString("source_transaction"); sourceID != "" {
+				source, err := tx.FindRecordById("transactions", sourceID)
+				if err != nil || source.GetString("owner") != user.Id {
+					return fmt.Errorf("source transaction not found")
+				}
+				if obligation.GetString("side") == "receivable" {
+					source.Set("budget_amount", math.Min(math.Abs(source.GetFloat("amount")), source.GetFloat("budget_amount")+obligation.GetFloat("amount")))
+				} else {
+					incomeAmount := math.Min(math.Abs(source.GetFloat("amount")), source.GetFloat("income_amount")+obligation.GetFloat("amount"))
+					source.Set("income_amount", incomeAmount)
+					if incomeAmount > 0.005 {
+						source.Set("type", "income")
+					}
+				}
+				if err := tx.Save(source); err != nil {
+					return err
+				}
+			}
+			return tx.Delete(obligation)
+		})
+		if err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
+		logDomainMutation(event, user.Id, "delete", "obligations", obligation.Id, nil)
+		return event.NoContent(http.StatusNoContent)
 	}
 	if collection == "checkpoints" && !checkpointConfirmationPresent(event.Request) {
 		return event.BadRequestError("checkpoints are immutable; pass confirm=... to delete one", nil)
@@ -668,6 +772,31 @@ func deleteFinanceRecord(event *core.RequestEvent, collection string) error {
 	record, err := ownedFinanceRecord(event, collection, user.Id)
 	if err != nil {
 		return err
+	}
+	if collection == "transactions" {
+		for _, link := range []struct {
+			collection string
+			filter     string
+			message    string
+		}{
+			{"obligations", "owner = {:owner} && source_transaction = {:transaction}", "transactions linked to an obligation cannot be deleted"},
+			{"settlements", "owner = {:owner} && transaction = {:transaction}", "repayment transactions linked to debt history cannot be deleted"},
+		} {
+			linked, err := event.App.FindRecordsByFilter(
+				link.collection,
+				link.filter,
+				"id",
+				1,
+				0,
+				dbx.Params{"owner": user.Id, "transaction": record.Id},
+			)
+			if err != nil {
+				return err
+			}
+			if len(linked) > 0 {
+				return event.BadRequestError(link.message, nil)
+			}
+		}
 	}
 	if collection == "transactions" && record.GetString("transfer_id") != "" {
 		transferID := record.GetString("transfer_id")
@@ -905,6 +1034,10 @@ func financeSort(collection string) string {
 		return "-date"
 	case "recurring_transactions":
 		return "next_date"
+	case "obligations":
+		return "due_date,party,id"
+	case "settlements":
+		return "-date,id"
 	case "assets":
 		return "-as_of"
 	default:

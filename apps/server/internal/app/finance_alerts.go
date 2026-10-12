@@ -79,7 +79,11 @@ func createBudgetOverrunNotifications(app core.App, owner string, transaction *c
 				matchesBudget = strings.EqualFold(strings.TrimSpace(expense.GetString("category")), strings.TrimSpace(budget.GetString("category")))
 			}
 			if matchesBudget {
-				spent += math.Abs(expense.GetFloat("amount"))
+				amount := math.Abs(expense.GetFloat("amount"))
+				if expense.Get("budget_amount") != nil {
+					amount = expense.GetFloat("budget_amount")
+				}
+				spent += amount
 			}
 		}
 		if spent <= limit+0.005 {

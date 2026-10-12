@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowDownLeft,
   ArrowDownUp,
@@ -41,6 +41,8 @@ import type {
   BudgetData,
   Goal,
   GoalContribution,
+  Obligation,
+  ObligationSettlement,
   RecurringGoalContribution,
   FinanceRecordTarget,
   RecurringTransaction,
@@ -143,6 +145,14 @@ export function formatMoney(value: number, compact = false) {
     notation: compact ? 'compact' : 'standard',
     maximumFractionDigits: compact ? 1 : 2,
   }).format(value);
+}
+
+function budgetedExpenseAmount(transaction: Transaction) {
+  return transaction.budgetAmount ?? transaction.amount;
+}
+
+function recognizedIncomeAmount(transaction: Transaction) {
+  return transaction.incomeAmount ?? transaction.amount;
 }
 
 export function formatDate(date: string) {
@@ -751,7 +761,8 @@ function transactionCategoryTotals(transactions: Transaction[], kind: Transactio
     .filter((transaction) => transaction.kind === kind)
     .forEach((transaction) => {
       const category = transaction.category || 'Uncategorized';
-      totals.set(category, (totals.get(category) ?? 0) + transaction.amount);
+      const amount = kind === 'income' ? recognizedIncomeAmount(transaction) : transaction.amount;
+      totals.set(category, (totals.get(category) ?? 0) + amount);
     });
   const sorted = [...totals.entries()].sort((first, second) => second[1] - first[1]);
   if (sorted.length <= 4) return sorted.map(([label, value]) => ({ label, value }));
@@ -980,7 +991,7 @@ function MonthlyMoneyInOutChart({
       label: new Intl.DateTimeFormat('en-US', { month: 'short' }).format(monthCursor),
       income: matchingTransactions
         .filter((transaction) => transaction.kind === 'income')
-        .reduce((sum, transaction) => sum + transaction.amount, 0),
+        .reduce((sum, transaction) => sum + recognizedIncomeAmount(transaction), 0),
       expenses: matchingTransactions
         .filter((transaction) => transaction.kind === 'expense')
         .reduce((sum, transaction) => sum + transaction.amount, 0),
@@ -1094,7 +1105,7 @@ function SpendingByCategoryChart({ transactions }: { transactions: Transaction[]
     .filter((transaction) => transaction.kind === 'expense')
     .forEach((transaction) => {
       const category = transaction.category || 'Uncategorized';
-      categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + transaction.amount);
+      categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + budgetedExpenseAmount(transaction));
     });
 
   const sorted = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
@@ -1363,7 +1374,7 @@ function FinanceHelper({
   const categoryTotals = new Map<string, number>();
   for (const transaction of expenses) {
     const category = transaction.category || 'Uncategorized';
-    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + transaction.amount);
+    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + budgetedExpenseAmount(transaction));
   }
   const largestCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0];
   const largestExpense = [...expenses].sort((a, b) => b.amount - a.amount)[0];
@@ -1518,7 +1529,7 @@ function DashboardView({
   );
   const income = currentTransactions
     .filter((item) => item.kind === 'income')
-    .reduce((sum, item) => sum + item.amount, 0);
+    .reduce((sum, item) => sum + recognizedIncomeAmount(item), 0);
   const expenses = currentTransactions
     .filter((item) => item.kind === 'expense')
     .reduce((sum, item) => sum + item.amount, 0);
@@ -2215,13 +2226,17 @@ function TransactionsView({
           </div>
         }
       />
-      <MoneyLentPanel
-        transactions={data.transactions}
-        userId={userId}
-        onOpenTransaction={onOpenTransaction}
-        onRenamePerson={onRenameReceivable}
-      />
       <section className="transactions-section">
+        <SectionHeading title="Upcoming transactions" />
+        <ObligationsPanel data={data} onRefresh={onRefresh} onOpenTransaction={onOpenTransaction} />
+        {!data.obligations.length && (
+          <MoneyLentPanel
+            transactions={data.transactions}
+            userId={userId}
+            onOpenTransaction={onOpenTransaction}
+            onRenamePerson={onRenameReceivable}
+          />
+        )}
         <details className="transaction-recurring-panel">
           <summary className="transaction-filter-heading">
             <strong id="recurring-transactions-title">Recurring transactions</strong>
@@ -2413,6 +2428,294 @@ function TransactionsView({
         </div>
       </section>
     </>
+  );
+}
+
+function ObligationsPanel({
+  data,
+  onRefresh,
+  onOpenTransaction,
+}: {
+  data: BudgetData;
+  onRefresh: () => void;
+  onOpenTransaction: (transaction: Transaction) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [side, setSide] = useState<Obligation['side']>('receivable');
+  const [party, setParty] = useState('');
+  const [title, setTitle] = useState('');
+  const [amount, setAmount] = useState('');
+  const [sourceTransaction, setSourceTransaction] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [openHistory, setOpenHistory] = useState<string | null>(null);
+  const [settling, setSettling] = useState<string | null>(null);
+  const [settlementAmount, setSettlementAmount] = useState('');
+  const [settlementAccount, setSettlementAccount] = useState('');
+  const [settlementDate, setSettlementDate] = useState(dateKey(new Date()));
+  const [linkedTransaction, setLinkedTransaction] = useState('');
+  const [busy, setBusy] = useState(false);
+  const open = data.obligations
+    .filter((obligation) => obligation.status === 'open' && obligation.outstandingAmount > 0.005)
+    .sort((first, second) => {
+      if (!first.dueDate) return second.dueDate ? 1 : 0;
+      if (!second.dueDate) return -1;
+      return first.dueDate.localeCompare(second.dueDate);
+    });
+  const settled = data.obligations.filter((obligation) => obligation.status === 'settled');
+  const receivableTotal = open
+    .filter((obligation) => obligation.side === 'receivable')
+    .reduce((sum, obligation) => sum + obligation.outstandingAmount, 0);
+  const payableTotal = open
+    .filter((obligation) => obligation.side === 'payable')
+    .reduce((sum, obligation) => sum + obligation.outstandingAmount, 0);
+  const activeAccounts = data.accounts.filter((account) => !account.archived);
+  const usedSettlementIds = new Set(data.settlements.map((settlement) => settlement.transactionId));
+  const linkedOptionsFor = (obligationSide: Obligation['side']) => data.transactions.filter((transaction) => {
+    if (usedSettlementIds.has(transaction.id)) return false;
+    const signed = transaction.signedAmount ?? (transaction.kind === 'expense' ? -transaction.amount : transaction.amount);
+    return obligationSide === 'receivable' ? signed > 0 : signed < 0;
+  });
+
+  const resetAddForm = () => {
+    setAdding(false);
+    setSide('receivable');
+    setParty('');
+    setTitle('');
+    setAmount('');
+    setSourceTransaction('');
+    setDueDate('');
+  };
+
+  const saveObligation = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const response = await apiFetch('/api/finance/obligations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          side,
+          party: party.trim(),
+          title: title.trim(),
+          amount: Number(amount),
+          source_transaction: sourceTransaction,
+          due_date: dueDate,
+        }),
+      });
+      if (!response.ok) throw new Error((await response.text()) || 'Could not save this debt.');
+      resetAddForm();
+      onRefresh();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not save this debt.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSettlement = async (event: FormEvent<HTMLFormElement>, obligation: Obligation) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/finance/obligations/${obligation.id}/settlements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: Number(settlementAmount),
+          date: data.transactions.find((transaction) => transaction.id === linkedTransaction)?.date ?? settlementDate,
+          account: linkedTransaction ? '' : settlementAccount,
+          transaction: linkedTransaction,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error((await response.text()) || 'Could not record this repayment.');
+      }
+      setSettling(null);
+      setSettlementAmount('');
+      setLinkedTransaction('');
+      onRefresh();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not record this repayment.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteObligation = async (obligation: Obligation) => {
+    if (!window.confirm(`Delete the debt for ${obligation.party}?`)) return;
+    const response = await apiFetch(`/api/finance/obligations/${obligation.id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      window.alert((await response.text()) || 'Could not delete this debt.');
+      return;
+    }
+    onRefresh();
+  };
+
+  const historyFor = (obligation: Obligation) => {
+    const settlements = data.settlements
+      .filter((settlement) => settlement.obligationId === obligation.id)
+      .sort((first, second) => first.date.localeCompare(second.date));
+    const source = data.transactions.find((transaction) => transaction.id === obligation.sourceTransaction);
+    return { settlements, source };
+  };
+
+  return (
+    <section className="panel obligations-panel" aria-labelledby="obligations-title">
+      <div className="obligations-heading">
+        <div>
+          <h2 id="obligations-title">Debts</h2>
+          <span>{open.length} outstanding</span>
+        </div>
+        <button className="button button-quiet" type="button" onClick={() => setAdding((value) => !value)}>
+          <Plus size={15} /> {adding ? 'Cancel' : 'Add debt'}
+        </button>
+      </div>
+      <div className="obligations-totals">
+        <div>
+          <span>You’ll receive</span>
+          <strong>{formatMoney(receivableTotal)}</strong>
+        </div>
+        <div>
+          <span>You’ll pay</span>
+          <strong>{formatMoney(payableTotal)}</strong>
+        </div>
+      </div>
+      {adding && (
+        <form className="obligation-form" onSubmit={saveObligation}>
+          <label>
+            Direction
+            <AppSelect value={side} onChange={(event) => { setSide(event.target.value as Obligation['side']); setSourceTransaction(''); }}>
+              <option value="receivable">Someone owes you</option>
+              <option value="payable">You owe someone</option>
+            </AppSelect>
+          </label>
+          <label>
+            Person or organization
+            <input required value={party} onChange={(event) => setParty(event.target.value)} placeholder="Alex" />
+          </label>
+          <label>
+            What is it for?
+            <input required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Dinner" />
+          </label>
+          <label>
+            Amount
+            <input required type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+          </label>
+          <label>
+            Link an existing transaction
+            <AppSelect value={sourceTransaction} onChange={(event) => setSourceTransaction(event.target.value)}>
+              <option value="">No transaction linked</option>
+              {data.transactions.filter((transaction) => side === 'receivable' ? transaction.kind === 'expense' : transaction.kind === 'income').map((transaction) => (
+                <option key={transaction.id} value={transaction.id}>
+                  {transaction.merchant} · {formatDate(transaction.date)} · {formatMoney(transaction.amount)}
+                </option>
+              ))}
+            </AppSelect>
+          </label>
+          <label>
+            Due date <span className="optional-label">Optional</span>
+            <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          </label>
+          <div className="composer-actions">
+            <button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save debt'}</button>
+          </div>
+        </form>
+      )}
+      {open.length ? (
+        <div className="obligation-list">
+          {open.map((obligation) => {
+            const history = historyFor(obligation);
+            return (
+              <article className="obligation-row" key={obligation.id}>
+                <div className="obligation-row-main">
+                  <strong>{obligation.party}</strong>
+                  <span>{obligation.title} · {obligation.side === 'receivable' ? 'Owes you' : 'You owe'}</span>
+                </div>
+                <time>
+                  {obligation.dueDate
+                    ? `${obligation.dueDate < dateKey(new Date()) ? 'Overdue · ' : ''}${formatDate(obligation.dueDate)}`
+                    : 'No due date'}
+                </time>
+                <strong className={obligation.side === 'receivable' ? 'income' : 'expense'}>
+                  {obligation.side === 'receivable' ? '+' : '−'}{formatMoney(obligation.outstandingAmount)}
+                </strong>
+                <div className="obligation-actions">
+                  <button className="text-button" type="button" onClick={() => { setSettling(settling === obligation.id ? null : obligation.id); setSettlementAmount(String(obligation.outstandingAmount)); setSettlementDate(dateKey(new Date())); setSettlementAccount(activeAccounts[0]?.id ?? ''); setLinkedTransaction(''); }}>
+                    {settling === obligation.id ? 'Cancel' : obligation.side === 'receivable' ? 'Record money received' : 'Record payment'}
+                  </button>
+                  <button className="text-button" type="button" onClick={() => setOpenHistory(openHistory === obligation.id ? null : obligation.id)}>
+                    History ({history.settlements.length})
+                  </button>
+                  {history.settlements.length === 0 && (
+                    <button className="text-button" type="button" onClick={() => void deleteObligation(obligation)}>Delete</button>
+                  )}
+                </div>
+                {settling === obligation.id && (
+                  <form className="obligation-settlement-form" onSubmit={(event) => void saveSettlement(event, obligation)}>
+                    <label>
+                      Amount
+                      <input required type="number" min="0.01" max={obligation.outstandingAmount} step="0.01" value={settlementAmount} onChange={(event) => { setSettlementAmount(event.target.value); setLinkedTransaction(''); }} />
+                    </label>
+                    <label>
+                      Already recorded transaction <span className="optional-label">Optional</span>
+                      <AppSelect value={linkedTransaction} onChange={(event) => setLinkedTransaction(event.target.value)}>
+                        <option value="">Create repayment transaction</option>
+                        {linkedOptionsFor(obligation.side).filter((transaction) => Math.abs(transaction.amount - Number(settlementAmount)) < 0.005).map((transaction) => (
+                          <option key={transaction.id} value={transaction.id}>{transaction.merchant} · {formatDate(transaction.date)}</option>
+                        ))}
+                      </AppSelect>
+                    </label>
+                    {!linkedTransaction && (
+                      <label>
+                        Account
+                        <AppSelect required value={settlementAccount} onChange={(event) => setSettlementAccount(event.target.value)}>
+                          {activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                        </AppSelect>
+                      </label>
+                    )}
+                    <label>
+                      Date
+                      <input required type="date" value={settlementDate} onChange={(event) => setSettlementDate(event.target.value)} />
+                    </label>
+                    <button className="button button-primary" type="submit" disabled={busy || (!linkedTransaction && !settlementAccount)}>{busy ? 'Saving…' : 'Save repayment'}</button>
+                  </form>
+                )}
+                {openHistory === obligation.id && (
+                  <div className="obligation-history">
+                    {history.source && <button type="button" onClick={() => onOpenTransaction(history.source!)}>Original · {history.source.merchant} · {formatMoney(obligation.amount)}</button>}
+                    {history.settlements.map((settlement: ObligationSettlement) => {
+                      const transaction = data.transactions.find((item) => item.id === settlement.transactionId);
+                      return <button type="button" key={settlement.id} onClick={() => transaction && onOpenTransaction(transaction)}>{formatDate(settlement.date)} · {transaction?.merchant ?? 'Repayment'} · {formatMoney(settlement.amount)}</button>;
+                    })}
+                    {!history.source && !history.settlements.length && <span>No transactions linked yet.</span>}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      ) : !adding ? <p className="page-description">No outstanding debts. Add one to track money owed to or by you.</p> : null}
+      {settled.length > 0 && (
+        <details className="obligation-settled-history">
+          <summary>Settled debts ({settled.length})</summary>
+          {settled.map((obligation) => {
+            const history = historyFor(obligation);
+            return (
+              <div className="obligation-settled-row" key={obligation.id}>
+                <strong>{obligation.party}</strong>
+                <span>{obligation.title} · settled · {formatMoney(obligation.amount)}</span>
+                <div className="obligation-history">
+                  {history.source && <button type="button" onClick={() => onOpenTransaction(history.source!)}>Original · {history.source.merchant}</button>}
+                  {history.settlements.map((settlement) => {
+                    const transaction = data.transactions.find((item) => item.id === settlement.transactionId);
+                    return <button type="button" key={settlement.id} onClick={() => transaction && onOpenTransaction(transaction)}>{formatDate(settlement.date)} · {transaction?.merchant ?? 'Repayment'} · {formatMoney(settlement.amount)}</button>;
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -2820,7 +3123,7 @@ function BudgetsView({
             ? transaction.budgetId === budget.id
             : transaction.category.toLowerCase() === budget.category.toLowerCase(),
         )
-        .reduce((sum, transaction) => sum + transaction.amount, 0),
+        .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
     }));
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
   const totalLimit = budgets.reduce((sum, budget) => sum + budget.limit, 0);

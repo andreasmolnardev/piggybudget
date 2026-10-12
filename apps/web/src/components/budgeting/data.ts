@@ -25,6 +25,30 @@ export type Transaction = {
   receipt?: string;
   description?: string;
   receivable?: string;
+  budgetAmount?: number;
+  incomeAmount?: number;
+};
+
+export type Obligation = {
+  id: string;
+  side: 'receivable' | 'payable';
+  party: string;
+  title: string;
+  amount: number;
+  outstandingAmount: number;
+  sourceTransaction?: string;
+  dueDate?: string;
+  notes?: string;
+  status: 'open' | 'settled';
+};
+
+export type ObligationSettlement = {
+  id: string;
+  obligationId: string;
+  transactionId: string;
+  amount: number;
+  date: string;
+  notes?: string;
 };
 
 export type RecurringTransaction = {
@@ -164,6 +188,8 @@ export type Reconciliation = {
 export type BudgetData = {
   transactions: Transaction[];
   recurringTransactions: RecurringTransaction[];
+  obligations: Obligation[];
+  settlements: ObligationSettlement[];
   accounts: Account[];
   budgets: Budget[];
   assets: Asset[];
@@ -178,6 +204,8 @@ export type BudgetData = {
 export const emptyBudgetData: BudgetData = {
   transactions: [],
   recurringTransactions: [],
+  obligations: [],
+  settlements: [],
   accounts: [],
   budgets: [],
   assets: [],
@@ -243,6 +271,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     assetPositions,
     goals,
     recurringTransactions,
+    obligations,
+    settlements,
   ] = await Promise.all([
     getRecords('transactions'),
     getRecords('accounts'),
@@ -252,6 +282,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     getRecords('asset-positions'),
     getRecords('goals'),
     getRecords('recurring_transactions'),
+    getRecords('obligations'),
+    getRecords('settlements'),
   ]);
   const [contributionRecords, recurringGoalContributionRecords] = await Promise.all([
     Promise.all(
@@ -284,6 +316,26 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       endDate: optionalDateValue(record, 'end_date') || undefined,
       active: Boolean(record.active),
     })),
+    obligations: obligations.map((record) => ({
+      id: record.id,
+      side: textValue(record, 'side') === 'payable' ? 'payable' : 'receivable',
+      party: textValue(record, 'party'),
+      title: textValue(record, 'title'),
+      amount: numberValue(record, 'amount'),
+      outstandingAmount: numberValue(record, 'outstanding_amount'),
+      sourceTransaction: textValue(record, 'source_transaction') || undefined,
+      dueDate: optionalDateValue(record, 'due_date'),
+      notes: textValue(record, 'notes') || undefined,
+      status: textValue(record, 'status') === 'settled' ? 'settled' : 'open',
+    })),
+    settlements: settlements.map((record) => ({
+      id: record.id,
+      obligationId: textValue(record, 'obligation'),
+      transactionId: textValue(record, 'transaction'),
+      amount: numberValue(record, 'amount'),
+      date: dateValue(record),
+      notes: textValue(record, 'notes') || undefined,
+    })),
     transactions: transactions.map((record) => ({
       id: record.id,
       merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
@@ -303,6 +355,14 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       receipt: textValue(record, 'receipt'),
       description: textValue(record, 'description'),
       receivable: textValue(record, 'receivable'),
+      budgetAmount:
+        record.budget_amount === undefined || record.budget_amount === null
+          ? undefined
+          : numberValue(record, 'budget_amount'),
+      incomeAmount:
+        record.income_amount === undefined || record.income_amount === null
+          ? undefined
+          : numberValue(record, 'income_amount'),
       accountId: textValue(record, 'account'),
     })),
     accounts: accounts.map((record) => ({
@@ -433,7 +493,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     if (transaction.kind === 'expense' && transaction.budgetId) {
       spentByBudget.set(
         transaction.budgetId,
-        (spentByBudget.get(transaction.budgetId) ?? 0) + transaction.amount,
+        (spentByBudget.get(transaction.budgetId) ?? 0) + (transaction.budgetAmount ?? transaction.amount),
       );
     }
   }
