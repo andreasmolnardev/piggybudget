@@ -68,7 +68,8 @@ body {
 }
 button,
 input,
-select {
+select,
+.app-select-trigger {
   font: inherit;
 }
 button {
@@ -76,9 +77,16 @@ button {
 }
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+.app-select-trigger:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+.app-select-trigger {
+  border-color: var(--border);
+  color: var(--foreground);
+  background-color: var(--background);
+  font-family: inherit;
 }
 h1,
 h2,
@@ -1482,7 +1490,7 @@ kbd {
   color: var(--muted);
   font-size: 11px;
 }
-.transaction-sort-control select {
+.transaction-sort-control .app-select-trigger {
   height: 34px;
   padding: 0 9px;
   border: 1px solid var(--border);
@@ -1527,7 +1535,7 @@ kbd {
   color: var(--muted);
   font-size: 11px;
 }
-.transaction-filter-field select,
+.transaction-filter-field .app-select-trigger,
 .transaction-filter-field input {
   width: 100%;
   min-width: 0;
@@ -1588,7 +1596,7 @@ kbd {
   position: relative;
   min-width: 154px;
 }
-.account-select select {
+.account-select .app-select-trigger {
   width: 100%;
   appearance: none;
   border: 0;
@@ -1912,7 +1920,7 @@ kbd {
   top: 24px;
   right: 24px;
 }
-.asset-history-range select {
+.asset-history-range .app-select-trigger {
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -2443,7 +2451,7 @@ kbd {
   font-weight: 650;
 }
 .composer-card input,
-.composer-card select,
+.composer-card .app-select-trigger,
 .composer-card textarea {
   width: 100%;
   padding: 10px 11px;
@@ -2458,7 +2466,7 @@ kbd {
   resize: vertical;
 }
 .composer-card input:focus,
-.composer-card select:focus,
+.composer-card .app-select-trigger:focus,
 .composer-card textarea:focus {
   border-color: var(--primary);
 }

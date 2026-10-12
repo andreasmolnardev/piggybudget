@@ -3,6 +3,7 @@ import { ArrowRight, Search, X } from 'lucide-react';
 import type { SidebarTab } from '../sidebar';
 import type { BudgetData, FinanceRecordTarget, FinanceRecordType } from '../budgeting/data';
 import { formatMoney } from '../budgeting/budgeting-dashboard';
+import { AppSelect } from '../ui/app-select';
 
 type SearchResult = {
   id: string;
@@ -126,7 +127,7 @@ export function FinanceSearch({
             }}
             placeholder="Search transactions, accounts, budgets, assets, goals…"
           />
-          <select
+          <AppSelect
             className="finance-search-type"
             aria-label="Filter search results by type"
             value={typeFilter}
@@ -138,7 +139,7 @@ export function FinanceSearch({
             <option value="budget">Budgets</option>
             <option value="asset">Assets</option>
             <option value="goal">Goals</option>
-          </select>
+          </AppSelect>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close search">
             <X size={18} />
           </button>

@@ -48,6 +48,7 @@ import type {
   TransactionKind,
 } from './data';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { AppSelect } from '../ui/app-select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export type BudgetView = SidebarTab;
@@ -1154,7 +1155,7 @@ function DashboardView({
         <section className="panel cashflow-panel">
           <SectionHeading
             title={
-              <select
+              <AppSelect
                 className="select-button dashboard-diagram-select"
                 aria-label="Dashboard diagram"
                 value={diagram}
@@ -1167,11 +1168,11 @@ function DashboardView({
                 <option value="spending-category">Spending by category</option>
                 <option value="income-expenses">Income vs expenses</option>
                 <option value="account-balances">Account balances</option>
-              </select>
+              </AppSelect>
             }
             action={
               diagram !== 'account-balances' ? (
-                <select
+                <AppSelect
                   className="select-button"
                   aria-label="Chart date range"
                   value={period}
@@ -1182,7 +1183,7 @@ function DashboardView({
                   <option value="this-week">This week</option>
                   <option value="last-7-days">Last 7 days</option>
                   <option value="last-30-days">Last 30 days</option>
-                </select>
+                </AppSelect>
               ) : undefined
             }
           />
@@ -1652,7 +1653,7 @@ function TransactionsView({
                 <PopoverContent align="end" className="transaction-sort-popover">
                   <label className="transaction-filter-field">
                     Sort by
-                    <select
+                    <AppSelect
                       value={sort}
                       onChange={(event) => setSort(event.target.value as typeof sort)}
                     >
@@ -1660,7 +1661,7 @@ function TransactionsView({
                       <option value="date-asc">Oldest date</option>
                       <option value="amount-desc">Highest amount</option>
                       <option value="amount-asc">Lowest amount</option>
-                    </select>
+                    </AppSelect>
                   </label>
                 </PopoverContent>
               </Popover>
@@ -1692,7 +1693,7 @@ function TransactionsView({
                   </div>
                   <label className="transaction-filter-field">
                     Account
-                    <select
+                    <AppSelect
                       value={filters.account}
                       onChange={(event) => setFilters({ ...filters, account: event.target.value })}
                     >
@@ -1700,7 +1701,7 @@ function TransactionsView({
                       {data.accounts.map((item) => (
                         <option key={item.id}>{item.name}</option>
                       ))}
-                    </select>
+                    </AppSelect>
                   </label>
                   <div className="transaction-filter-field">
                     <span>Type</span>
@@ -1729,7 +1730,7 @@ function TransactionsView({
                   </div>
                   <label className="transaction-filter-field">
                     Category
-                    <select
+                    <AppSelect
                       value={filters.category}
                       disabled={filters.uncategorized}
                       onChange={(event) => setFilters({ ...filters, category: event.target.value })}
@@ -1741,7 +1742,7 @@ function TransactionsView({
                         .map((item) => (
                           <option key={item}>{item}</option>
                         ))}
-                    </select>
+                    </AppSelect>
                   </label>
                   <label className="transaction-filter-checkbox">
                     <input
@@ -1809,7 +1810,7 @@ function TransactionsView({
                   </div>
                   <label className="transaction-filter-field">
                     Cleared
-                    <select
+                    <AppSelect
                       value={filters.cleared}
                       onChange={(event) =>
                         setFilters({
@@ -1821,11 +1822,11 @@ function TransactionsView({
                       <option value="all">All</option>
                       <option value="cleared">Cleared</option>
                       <option value="uncleared">Uncleared</option>
-                    </select>
+                    </AppSelect>
                   </label>
                   <label className="transaction-filter-field">
                     Reconciliation
-                    <select
+                    <AppSelect
                       value={filters.reconciled}
                       onChange={(event) =>
                         setFilters({
@@ -1837,7 +1838,7 @@ function TransactionsView({
                       <option value="all">All</option>
                       <option value="reconciled">Reconciled</option>
                       <option value="unreconciled">Unreconciled</option>
-                    </select>
+                    </AppSelect>
                   </label>
                 </PopoverContent>
               </Popover>
@@ -2513,7 +2514,7 @@ function BudgetsView({
                     setMonthValue(event.target.value || dateKey(new Date()).slice(0, 7))
                   }
                 />
-                <select
+                <AppSelect
                   className="select-button"
                   aria-label="Budget period"
                   value={period}
@@ -2522,7 +2523,7 @@ function BudgetsView({
                   <option value="month">Monthly</option>
                   <option value="quarter">Quarterly</option>
                   <option value="year">Yearly</option>
-                </select>
+                </AppSelect>
               </div>
             }
           />
@@ -2793,14 +2794,14 @@ function AssetsView({
           </small>
           <label className="asset-history-range">
             <span className="sr-only">Valuation history range</span>
-            <select
+            <AppSelect
               value={historyRange}
               onChange={(event) => setHistoryRange(event.target.value as typeof historyRange)}
             >
               <option value="3m">3 months</option>
               <option value="1y">1 year</option>
               <option value="all">All history</option>
-            </select>
+            </AppSelect>
           </label>
           {sparklineValues.length ? (
             <div className="mini-sparkline" aria-label="Portfolio value history">
@@ -3959,14 +3960,14 @@ function GoalComposer({
         {goal && (
           <label>
             Status
-            <select
+            <AppSelect
               value={status}
               onChange={(event) => setStatus(event.target.value as GoalFormValues['status'])}
             >
               <option value="active">Active</option>
               <option value="paused">Paused</option>
               <option value="completed">Completed</option>
-            </select>
+            </AppSelect>
           </label>
         )}
         <label>
@@ -4080,7 +4081,7 @@ function GoalContributionDialog({
         </label>
         <label>
           Linked account <small>Optional</small>
-          <select value={account} onChange={(event) => setAccount(event.target.value)}>
+          <AppSelect value={account} onChange={(event) => setAccount(event.target.value)}>
             <option value="">No linked account</option>
             {accounts
               .filter((item) => !item.archived)
@@ -4089,18 +4090,18 @@ function GoalContributionDialog({
                   {item.name}
                 </option>
               ))}
-          </select>
+          </AppSelect>
         </label>
         <label>
           Linked transaction <small>Optional</small>
-          <select value={transaction} onChange={(event) => setTransaction(event.target.value)}>
+          <AppSelect value={transaction} onChange={(event) => setTransaction(event.target.value)}>
             <option value="">No linked transaction</option>
             {transactions.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.date} · {item.merchant} · {formatMoney(item.amount)}
               </option>
             ))}
-          </select>
+          </AppSelect>
         </label>
         <label>
           Notes
@@ -4210,7 +4211,7 @@ function RecurringGoalContributionDialog({
         <div className="form-grid">
           <label>
             Repeat
-            <select
+            <AppSelect
               value={frequency}
               onChange={(event) =>
                 setFrequency(event.target.value as RecurringGoalContribution['frequency'])
@@ -4219,7 +4220,7 @@ function RecurringGoalContributionDialog({
               <option value="weekly">Weekly</option>
               <option value="monthly">Monthly</option>
               <option value="yearly">Yearly</option>
-            </select>
+            </AppSelect>
           </label>
           <label>
             Every
@@ -4236,7 +4237,7 @@ function RecurringGoalContributionDialog({
         </div>
         <label>
           Linked account <small>Optional</small>
-          <select value={account} onChange={(event) => setAccount(event.target.value)}>
+          <AppSelect value={account} onChange={(event) => setAccount(event.target.value)}>
             <option value="">No linked account</option>
             {accounts
               .filter((item) => !item.archived)
@@ -4245,7 +4246,7 @@ function RecurringGoalContributionDialog({
                   {item.name}
                 </option>
               ))}
-          </select>
+          </AppSelect>
         </label>
         <div className="form-grid">
           <label>
@@ -5983,13 +5984,13 @@ function AccountEditor({
         </label>
         <label>
           Account type
-          <select value={type} onChange={(event) => setType(event.target.value)}>
+          <AppSelect value={type} onChange={(event) => setType(event.target.value)}>
             <option value="checking">Checking</option>
             <option value="cash">Cash</option>
             <option value="savings">Savings</option>
             <option value="credit">Credit card</option>
             <option value="other">Other</option>
-          </select>
+          </AppSelect>
         </label>
         <label>
           Currency
@@ -6231,7 +6232,7 @@ function PreferencesDialog({
         </div>
         <label>
           Currency
-          <select
+          <AppSelect
             value={draft.currency}
             onChange={(event) => setDraft({ ...draft, currency: event.target.value })}
           >
@@ -6241,11 +6242,11 @@ function PreferencesDialog({
             <option value="CAD">CAD · Canadian dollar</option>
             <option value="AUD">AUD · Australian dollar</option>
             <option value="JPY">JPY · Japanese yen</option>
-          </select>
+          </AppSelect>
         </label>
         <label>
           Week starts on
-          <select
+          <AppSelect
             value={draft.weekStart}
             onChange={(event) =>
               setDraft({ ...draft, weekStart: event.target.value as UserPreferences['weekStart'] })
@@ -6253,11 +6254,11 @@ function PreferencesDialog({
           >
             <option value="monday">Monday</option>
             <option value="sunday">Sunday</option>
-          </select>
+          </AppSelect>
         </label>
         <label>
           Date format
-          <select
+          <AppSelect
             value={draft.dateFormat}
             onChange={(event) =>
               setDraft({
@@ -6269,11 +6270,11 @@ function PreferencesDialog({
             <option value="locale">Local format</option>
             <option value="day-first">Day first</option>
             <option value="iso">YYYY-MM-DD</option>
-          </select>
+          </AppSelect>
         </label>
         <label>
           Number format
-          <select
+          <AppSelect
             value={draft.numberFormat}
             onChange={(event) =>
               setDraft({
@@ -6285,11 +6286,11 @@ function PreferencesDialog({
             <option value="locale">Use browser locale</option>
             <option value="en-US">1,234.56</option>
             <option value="de-DE">1.234,56</option>
-          </select>
+          </AppSelect>
         </label>
         <label>
           Theme
-          <select
+          <AppSelect
             value={draft.theme}
             onChange={(event) =>
               setDraft({ ...draft, theme: event.target.value as UserPreferences['theme'] })
@@ -6298,7 +6299,7 @@ function PreferencesDialog({
             <option value="system">System</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
-          </select>
+          </AppSelect>
         </label>
         <label className="transaction-filter-checkbox">
           <input
@@ -6456,13 +6457,13 @@ function WelcomeWalkthrough({
             </label>
             <label>
               Account type
-              <select value={type} onChange={(event) => setType(event.target.value)}>
+              <AppSelect value={type} onChange={(event) => setType(event.target.value)}>
                 <option value="checking">Checking</option>
                 <option value="cash">Cash</option>
                 <option value="savings">Savings</option>
                 <option value="credit">Credit card</option>
                 <option value="other">Other</option>
-              </select>
+              </AppSelect>
             </label>
             <label>
               Currency
@@ -7002,7 +7003,7 @@ function FinanceComposer({
             </label>
             <label>
               Purchase transaction
-              <select
+              <AppSelect
                 value={purchaseTransaction}
                 onChange={(event) => setPurchaseTransaction(event.target.value)}
               >
@@ -7012,7 +7013,7 @@ function FinanceComposer({
                     {item.date} · {item.merchant} · {formatMoney(item.amount)}
                   </option>
                 ))}
-              </select>
+              </AppSelect>
             </label>
             <label>
               Target sale price
@@ -7038,13 +7039,13 @@ function FinanceComposer({
             </label>
             <label>
               Account type
-              <select value={accountType} onChange={(event) => setAccountType(event.target.value)}>
+              <AppSelect value={accountType} onChange={(event) => setAccountType(event.target.value)}>
                 <option>Checking</option>
                 <option>Cash</option>
                 <option>Savings</option>
                 <option>PayPal</option>
                 <option>Other</option>
-              </select>
+              </AppSelect>
             </label>
             <label>
               Currency
@@ -7060,7 +7061,7 @@ function FinanceComposer({
           <>
             <label>
               {type === 'transfer' ? 'From account' : 'Account'}
-              <select
+              <AppSelect
                 required
                 value={account}
                 onChange={(event) => {
@@ -7078,7 +7079,7 @@ function FinanceComposer({
                     {item.name}
                   </option>
                 ))}
-              </select>
+              </AppSelect>
             </label>
           </>
         )}
@@ -7111,7 +7112,7 @@ function FinanceComposer({
           <>
             <label>
               Type
-              <select
+              <AppSelect
                 value={type}
                 disabled={transaction?.kind === 'transfer'}
                 onChange={(event) => setType(event.target.value as TransactionKind)}
@@ -7122,7 +7123,7 @@ function FinanceComposer({
                 {(!transaction || transaction.kind === 'transfer') && (
                   <option value="transfer">Transfer</option>
                 )}
-              </select>
+              </AppSelect>
             </label>
             {!transaction && type !== 'transfer' && (
               <label className="transaction-repeat-toggle">
@@ -7195,7 +7196,7 @@ function FinanceComposer({
                     </label>
                     <label>
                       Budget
-                      <select
+                      <AppSelect
                         value={split.budget}
                         onChange={(event) =>
                           setSplitLines((current) =>
@@ -7213,7 +7214,7 @@ function FinanceComposer({
                               {item.category}
                             </option>
                           ))}
-                      </select>
+                      </AppSelect>
                     </label>
                     {splitLines.length > 2 && (
                       <button
@@ -7261,7 +7262,7 @@ function FinanceComposer({
                       value={repeatInterval}
                       onChange={(event) => setRepeatInterval(event.target.value)}
                     />
-                    <select
+                    <AppSelect
                       value={repeatFrequency}
                       onChange={(event) =>
                         setRepeatFrequency(event.target.value as typeof repeatFrequency)
@@ -7271,7 +7272,7 @@ function FinanceComposer({
                       <option value="weekly">weeks</option>
                       <option value="monthly">months</option>
                       <option value="yearly">years</option>
-                    </select>
+                    </AppSelect>
                   </div>
                 </label>
                 <label>
@@ -7292,7 +7293,7 @@ function FinanceComposer({
               <>
                 <label>
                   To account
-                  <select
+                  <AppSelect
                     required
                     value={destinationAccount}
                     onChange={(event) => setDestinationAccount(event.target.value)}
@@ -7305,7 +7306,7 @@ function FinanceComposer({
                           {item.name}
                         </option>
                       ))}
-                  </select>
+                  </AppSelect>
                 </label>
                 <p className="page-description">Both account balances update together.</p>
               </>
@@ -7314,7 +7315,7 @@ function FinanceComposer({
                 {type === 'adjustment' && (
                   <label>
                     Adjustment
-                    <select
+                    <AppSelect
                       value={adjustmentDirection}
                       onChange={(event) =>
                         setAdjustmentDirection(event.target.value as 'increase' | 'decrease')
@@ -7322,7 +7323,7 @@ function FinanceComposer({
                     >
                       <option value="increase">Increase account balance</option>
                       <option value="decrease">Decrease account balance</option>
-                    </select>
+                    </AppSelect>
                   </label>
                 )}
                 <label>
@@ -7353,14 +7354,14 @@ function FinanceComposer({
                     </label>
                     <label>
                       Budget bucket
-                      <select value={budget} onChange={(event) => setBudget(event.target.value)}>
+                      <AppSelect value={budget} onChange={(event) => setBudget(event.target.value)}>
                         <option value="">No budget</option>
                         {data.budgets.map((item) => (
                           <option value={item.id} key={item.id}>
                             {item.category}
                           </option>
                         ))}
-                      </select>
+                      </AppSelect>
                     </label>
                   </>
                 )}
