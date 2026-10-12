@@ -841,6 +841,19 @@ func validateFinanceLinks(event *core.RequestEvent, collection string, input map
 }
 
 func validateTransactionWrite(app core.App, transaction *core.Record, owner string) error {
+	return validateTransactionWriteWithCheckpointPolicy(app, transaction, owner, false)
+}
+
+func validateScheduledTransactionWrite(app core.App, transaction *core.Record, owner string) error {
+	return validateTransactionWriteWithCheckpointPolicy(app, transaction, owner, true)
+}
+
+func validateTransactionWriteWithCheckpointPolicy(
+	app core.App,
+	transaction *core.Record,
+	owner string,
+	allowCheckpointGap bool,
+) error {
 	account, err := app.FindRecordById("accounts", transaction.GetString("account"))
 	if err != nil || account.GetString("owner") != owner {
 		return fmt.Errorf("account not found")
@@ -867,9 +880,11 @@ func validateTransactionWrite(app core.App, transaction *core.Record, owner stri
 		return err
 	}
 	transactionDate := transaction.GetDateTime("date").Time()
-	for _, window := range checkpointWindows(account, checkpoints, transactions) {
-		if !moneyEqual(window["unexplained"].(float64), 0) && transactionDate.After(window["toDate"].(time.Time)) {
-			return fmt.Errorf("unexplained checkpoint gaps remain; backfill older transactions or reconcile the miscellaneous amount first")
+	if !allowCheckpointGap {
+		for _, window := range checkpointWindows(account, checkpoints, transactions) {
+			if !moneyEqual(window["unexplained"].(float64), 0) && transactionDate.After(window["toDate"].(time.Time)) {
+				return fmt.Errorf("unexplained checkpoint gaps remain; backfill older transactions or reconcile the miscellaneous amount first")
+			}
 		}
 	}
 	return nil

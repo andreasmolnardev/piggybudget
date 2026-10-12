@@ -132,7 +132,7 @@ func runDueRecurringRule(app core.App, ruleID string, today time.Time) (int, err
 			transaction.Set("notes", rule.GetString("notes"))
 			transaction.Set("recurring_rule", rule.Id)
 			transaction.Set("recurring_date", due)
-			if err := validateTransactionWrite(tx, transaction, rule.GetString("owner")); err != nil {
+			if err := validateScheduledTransactionWrite(tx, transaction, rule.GetString("owner")); err != nil {
 				return fmt.Errorf("recurring transaction %s on %s: %w", rule.Id, due.Format("2006-01-02"), err)
 			}
 			if err := tx.Save(transaction); err != nil {

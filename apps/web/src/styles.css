@@ -1291,13 +1291,29 @@ kbd {
   background: transparent;
   box-shadow: none;
 }
-.transaction-recurring-panel .transaction-filter-heading {
+.transaction-recurring-panel > summary {
+  list-style: none;
+  cursor: pointer;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
-.transaction-recurring-panel .transaction-filter-heading > span {
+.transaction-recurring-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.transaction-recurring-summary-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.transaction-recurring-summary-meta > span {
   color: var(--muted);
   font-size: 11px;
+}
+.transaction-recurring-panel[open] > summary {
+  margin-bottom: 10px;
+}
+.transaction-recurring-panel[open] .transaction-recurring-summary-meta > svg {
+  transform: rotate(180deg);
 }
 .recurring-transaction-list {
   padding-top: 10px;

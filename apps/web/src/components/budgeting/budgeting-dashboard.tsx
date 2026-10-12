@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   CircleHelp,
   Filter,
@@ -1638,17 +1639,17 @@ function TransactionsView({
         onRenamePerson={onRenameReceivable}
       />
       <section className="transactions-section">
-        <section
-          className="transaction-recurring-panel"
-          aria-labelledby="recurring-transactions-title"
-        >
-          <div className="transaction-filter-heading">
+        <details className="transaction-recurring-panel">
+          <summary className="transaction-filter-heading">
             <strong id="recurring-transactions-title">Recurring transactions</strong>
-            <span>
-              {data.recurringTransactions.length}{' '}
-              {data.recurringTransactions.length === 1 ? 'rule' : 'rules'}
+            <span className="transaction-recurring-summary-meta">
+              <span>
+                {data.recurringTransactions.length}{' '}
+                {data.recurringTransactions.length === 1 ? 'rule' : 'rules'}
+              </span>
+              <ChevronDown size={16} aria-hidden="true" />
             </span>
-          </div>
+          </summary>
           {data.recurringTransactions.length ? (
             <div className="transaction-list transaction-cards recurring-transaction-list">
               {data.recurringTransactions.map((rule) => (
@@ -1715,7 +1716,7 @@ function TransactionsView({
               {recurringMessage}
             </p>
           )}
-        </section>
+        </details>
         <div className="transaction-date-groups">
           {filtered.length ? (
             [...transactionsByDate].map(([date, transactions]) => (
