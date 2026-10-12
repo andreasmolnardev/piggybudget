@@ -3351,6 +3351,11 @@ div[data-slot='popover-content'].transaction-add-popover {
   cursor: pointer;
 }
 .transaction-add-popover button:hover { background: var(--soft); }
+.transaction-add-import-status {
+  margin: 5px 9px 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
 .transaction-entry { cursor: pointer; text-align: left; }
 .transaction-entry:focus-visible,
 .asset-card:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }

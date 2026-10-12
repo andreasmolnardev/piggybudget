@@ -12,6 +12,8 @@ import {
   CircleAlert,
   Circle,
   CircleHelp,
+  FileDown,
+  FileUp,
   Filter,
   HandCoins,
   Landmark,
@@ -1504,6 +1506,7 @@ function DashboardView({
   userId,
   remote,
   profile,
+  onRefresh,
   onNavigate,
   onAddTransaction,
   onAddAccount,
@@ -1519,6 +1522,7 @@ function DashboardView({
   userId: string;
   remote: boolean;
   profile: UserProfile;
+  onRefresh: () => void;
   onNavigate: (view: BudgetView) => void;
   onAddTransaction: () => void;
   onAddAccount: () => void;
@@ -1609,6 +1613,9 @@ function DashboardView({
         title={`${greeting}, ${firstName}`}
         action={
           <AddFinanceEntryPopover
+            data={data}
+            remote={remote}
+            onRefresh={onRefresh}
             trigger={
               <button className="button button-primary" type="button">
                 <Plus size={16} /> New
@@ -1800,7 +1807,7 @@ function parseCsvRows(source: string) {
 function transactionCsv(transactions: Transaction[]) {
   const values = [
     ['date', 'payee', 'amount', 'type', 'account', 'category', 'notes', 'transfer_id'],
-    ...transactions.map((transaction) => [
+    ...topLevelTransactions(transactions).map((transaction) => [
       transaction.date,
       transaction.merchant,
       transaction.signedAmount ??
@@ -1815,6 +1822,143 @@ function transactionCsv(transactions: Transaction[]) {
   return values
     .map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(','))
     .join('\r\n');
+}
+
+function downloadTransactionCsv(transactions: Transaction[], filename: string) {
+  const blob = new Blob([transactionCsv(transactions)], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function importTransactionCsv(file: File, data: BudgetData) {
+  try {
+    const rows = parseCsvRows(await file.text());
+    const headers = rows.shift()?.map((header) => header.trim().toLowerCase()) ?? [];
+    const column = (name: string) => headers.indexOf(name);
+    if (
+      column('date') < 0 ||
+      column('payee') < 0 ||
+      column('amount') < 0 ||
+      column('account') < 0
+    ) {
+      return { message: 'CSV needs date, payee, amount, and account columns.', imported: 0 };
+    }
+    let imported = 0;
+    const failures: string[] = [];
+    const importedTransfers = new Set<string>();
+    for (const [index, row] of rows.entries()) {
+      const accountValue = row[column('account')]?.trim() ?? '';
+      const account = data.accounts.find(
+        (item) =>
+          item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
+      );
+      const date = row[column('date')]?.trim() ?? '';
+      const parsedDate = new Date(`${date}T00:00:00Z`);
+      const amount = Number(row[column('amount')]);
+      const suppliedType = column('type') >= 0 ? row[column('type')]?.trim().toLowerCase() : '';
+      const type = suppliedType || (amount < 0 ? 'expense' : 'income');
+      if (type === 'transfer') {
+        const transferId =
+          column('transfer_id') >= 0 ? (row[column('transfer_id')]?.trim() ?? '') : '';
+        if (importedTransfers.has(transferId)) continue;
+        if (!transferId) {
+          failures.push(String(index + 2));
+          continue;
+        }
+        const peerIndex = rows.findIndex(
+          (candidate) =>
+            candidate !== row && candidate[column('transfer_id')]?.trim() === transferId,
+        );
+        const peer = peerIndex >= 0 ? rows[peerIndex] : undefined;
+        const peerAmount = Number(peer?.[column('amount')]);
+        const peerAccountValue = peer?.[column('account')]?.trim() ?? '';
+        const peerAccount = data.accounts.find(
+          (item) =>
+            item.id === peerAccountValue ||
+            item.name.toLowerCase() === peerAccountValue.toLowerCase(),
+        );
+        if (
+          !account ||
+          !peerAccount ||
+          !peer ||
+          account.id === peerAccount.id ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          parsedDate.toISOString().slice(0, 10) !== date ||
+          !Number.isFinite(amount) ||
+          !Number.isFinite(peerAmount) ||
+          amount === 0 ||
+          peerAmount === 0 ||
+          Math.sign(amount) === Math.sign(peerAmount)
+        ) {
+          failures.push(String(index + 2));
+          importedTransfers.add(transferId);
+          continue;
+        }
+        const source = amount < 0 ? account : peerAccount;
+        const destination = amount < 0 ? peerAccount : account;
+        const response = await apiFetch('/api/finance/transfers', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${pb.authStore.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            source_account: source.id,
+            destination_account: destination.id,
+            date,
+            amount: Math.abs(amount),
+            notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
+          }),
+        });
+        importedTransfers.add(transferId);
+        if (response.ok) imported += 2;
+        else failures.push(String(index + 2));
+        continue;
+      }
+      if (
+        !account ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        Number.isNaN(parsedDate.getTime()) ||
+        parsedDate.toISOString().slice(0, 10) !== date ||
+        !Number.isFinite(amount) ||
+        amount === 0 ||
+        !['expense', 'income', 'adjustment'].includes(type)
+      ) {
+        failures.push(String(index + 2));
+        continue;
+      }
+      const response = await apiFetch('/api/finance/transactions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${pb.authStore.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          account: account.id,
+          date,
+          amount: type === 'expense' ? -Math.abs(amount) : amount,
+          type,
+          payee: row[column('payee')]?.trim() || 'Imported transaction',
+          category: column('category') >= 0 ? (row[column('category')]?.trim() ?? '') : '',
+          notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
+        }),
+      });
+      if (response.ok) imported += 1;
+      else failures.push(String(index + 2));
+    }
+    const message = failures.length
+      ? `Imported ${imported}; skipped or failed rows ${failures.slice(0, 8).join(', ')}${failures.length > 8 ? ', …' : ''}.`
+      : `Imported ${imported} transactions.`;
+    return { message, imported };
+  } catch {
+    return { message: 'Could not read this CSV file. Check the file and try again.', imported: 0 };
+  }
 }
 
 const emptyTransactionFilters: TransactionFilters = {
@@ -1855,19 +1999,36 @@ function readTransactionViewState(userId: string): {
 
 function AddFinanceEntryPopover({
   trigger,
+  data,
+  remote,
+  onRefresh,
   onAddTransaction,
   onAddAccount,
   onAddCheckpoint,
 }: {
   trigger: ReactNode;
+  data: BudgetData;
+  remote: boolean;
+  onRefresh: () => void;
   onAddTransaction: () => void;
   onAddAccount: () => void;
   onAddCheckpoint: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [csvMessage, setCsvMessage] = useState('');
+  const csvInput = useRef<HTMLInputElement>(null);
   const choose = (action: () => void) => {
     setOpen(false);
     action();
+  };
+  const importCsv = async (file: File) => {
+    setImportingCsv(true);
+    setCsvMessage('');
+    const result = await importTransactionCsv(file, data);
+    setCsvMessage(result.message);
+    if (result.imported) onRefresh();
+    setImportingCsv(false);
   };
 
   return (
@@ -1877,12 +2038,37 @@ function AddFinanceEntryPopover({
         <button type="button" onClick={() => choose(onAddTransaction)}>
           <Plus size={15} /> Add transaction
         </button>
+        <button
+          type="button"
+          disabled={!remote || importingCsv}
+          onClick={() => csvInput.current?.click()}
+        >
+          <FileUp size={15} /> {importingCsv ? 'Importing CSV…' : 'Import CSV'}
+        </button>
+        <input
+          ref={csvInput}
+          type="file"
+          accept=".csv,text/csv"
+          aria-label="Import transactions from CSV"
+          hidden
+          disabled={!remote || importingCsv}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void importCsv(file);
+            event.currentTarget.value = '';
+          }}
+        />
         <button type="button" onClick={() => choose(onAddAccount)}>
           <Landmark size={15} /> Add account
         </button>
         <button type="button" onClick={() => choose(onAddCheckpoint)}>
           <CheckCircle2 size={15} /> Add checkpoint
         </button>
+        {csvMessage && (
+          <p className="transaction-add-import-status" role="status">
+            {csvMessage}
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -1891,6 +2077,7 @@ function AddFinanceEntryPopover({
 function TransactionsView({
   data,
   userId,
+  remote,
   onAddTransaction,
   onAddCheckpoint,
   onAddAccount,
@@ -1904,6 +2091,7 @@ function TransactionsView({
 }: {
   data: BudgetData;
   userId: string;
+  remote: boolean;
   onAddTransaction: () => void;
   onAddCheckpoint: () => void;
   onAddAccount: () => void;
@@ -1935,6 +2123,7 @@ function TransactionsView({
   const [bulkMessage, setBulkMessage] = useState('');
   const [budgetPopoverOpen, setBudgetPopoverOpen] = useState(false);
   const [deletePopoverOpen, setDeletePopoverOpen] = useState(false);
+  const [exportPopoverOpen, setExportPopoverOpen] = useState(false);
   const pageSize = 25;
   useEffect(() => {
     if (stateUserId === userId) return;
@@ -2141,6 +2330,11 @@ function TransactionsView({
     onDeleteTransactionsBatch(selectedTransactions);
     setDeletePopoverOpen(false);
     leaveSelectionMode();
+  };
+  const exportSelectedTransactions = () => {
+    if (!selectedTransactions.length) return;
+    downloadTransactionCsv(selectedTransactions, 'piggybudget-selected-transactions.csv');
+    setExportPopoverOpen(false);
   };
   const transactionsByDate = new Map<string, Transaction[]>();
   pageItems.forEach((transaction) => {
@@ -2405,6 +2599,9 @@ function TransactionsView({
             </div>
             <div className="transaction-header-control">
               <AddFinanceEntryPopover
+                data={data}
+                remote={remote}
+                onRefresh={onRefresh}
                 trigger={
                   <button
                     className="icon-button transaction-header-action transaction-add-trigger"
@@ -2526,6 +2723,33 @@ function TransactionsView({
               </button>
             </div>
             <div className="transaction-selection-actions">
+              <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="icon-button transaction-selection-action"
+                    type="button"
+                    aria-label="Export selected transactions as CSV"
+                    title="Export as CSV"
+                    disabled={!selectedTransactions.length || bulkActionBusy}
+                  >
+                    <FileDown size={16} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="transaction-bulk-popover">
+                  <strong>
+                    Export {selectedTransactions.length} selected transaction
+                    {selectedTransactions.length === 1 ? '' : 's'} as CSV?
+                  </strong>
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    disabled={!selectedTransactions.length}
+                    onClick={exportSelectedTransactions}
+                  >
+                    Export as CSV
+                  </button>
+                </PopoverContent>
+              </Popover>
               <Popover open={budgetPopoverOpen} onOpenChange={setBudgetPopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
@@ -5840,6 +6064,7 @@ export function BudgetingDashboard({
         userId={userId}
         remote={remote}
         profile={profile}
+        onRefresh={onRefresh}
         onNavigate={onNavigate}
         onAddTransaction={() => setComposer('transaction')}
         onAddAccount={() => setComposer('account')}
@@ -5858,6 +6083,7 @@ export function BudgetingDashboard({
       <TransactionsView
         data={data}
         userId={userId}
+        remote={remote}
         onAddTransaction={() => setComposer('transaction')}
         onAddCheckpoint={() => setComposer('checkpoint')}
         onAddAccount={() => setComposer('account')}
@@ -6327,146 +6553,15 @@ function TransactionCsvSettings({
   const [importingCsv, setImportingCsv] = useState(false);
   const [csvMessage, setCsvMessage] = useState('');
   const exportCsv = () => {
-    const blob = new Blob([transactionCsv(data.transactions)], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'piggybudget-transactions.csv';
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadTransactionCsv(data.transactions, 'piggybudget-transactions.csv');
   };
   const importCsv = async (file: File) => {
     setImportingCsv(true);
     setCsvMessage('');
-    try {
-      const rows = parseCsvRows(await file.text());
-      const headers = rows.shift()?.map((header) => header.trim().toLowerCase()) ?? [];
-      const column = (name: string) => headers.indexOf(name);
-      if (
-        column('date') < 0 ||
-        column('payee') < 0 ||
-        column('amount') < 0 ||
-        column('account') < 0
-      ) {
-        setCsvMessage('CSV needs date, payee, amount, and account columns.');
-        return;
-      }
-      let imported = 0;
-      const failures: string[] = [];
-      const importedTransfers = new Set<string>();
-      for (const [index, row] of rows.entries()) {
-        const accountValue = row[column('account')]?.trim() ?? '';
-        const account = data.accounts.find(
-          (item) =>
-            item.id === accountValue || item.name.toLowerCase() === accountValue.toLowerCase(),
-        );
-        const date = row[column('date')]?.trim() ?? '';
-        const parsedDate = new Date(`${date}T00:00:00Z`);
-        const amount = Number(row[column('amount')]);
-        const suppliedType = column('type') >= 0 ? row[column('type')]?.trim().toLowerCase() : '';
-        const type = suppliedType || (amount < 0 ? 'expense' : 'income');
-        if (type === 'transfer') {
-          const transferId =
-            column('transfer_id') >= 0 ? (row[column('transfer_id')]?.trim() ?? '') : '';
-          if (importedTransfers.has(transferId)) continue;
-          if (!transferId) {
-            failures.push(String(index + 2));
-            continue;
-          }
-          const peerIndex = rows.findIndex(
-            (candidate) =>
-              candidate !== row && candidate[column('transfer_id')]?.trim() === transferId,
-          );
-          const peer = peerIndex >= 0 ? rows[peerIndex] : undefined;
-          const peerAmount = Number(peer?.[column('amount')]);
-          const peerAccountValue = peer?.[column('account')]?.trim() ?? '';
-          const peerAccount = data.accounts.find(
-            (item) =>
-              item.id === peerAccountValue ||
-              item.name.toLowerCase() === peerAccountValue.toLowerCase(),
-          );
-          if (
-            !account ||
-            !peerAccount ||
-            !peer ||
-            account.id === peerAccount.id ||
-            !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-            parsedDate.toISOString().slice(0, 10) !== date ||
-            !Number.isFinite(amount) ||
-            !Number.isFinite(peerAmount) ||
-            amount === 0 ||
-            peerAmount === 0 ||
-            Math.sign(amount) === Math.sign(peerAmount)
-          ) {
-            failures.push(String(index + 2));
-            importedTransfers.add(transferId);
-            continue;
-          }
-          const source = amount < 0 ? account : peerAccount;
-          const destination = amount < 0 ? peerAccount : account;
-          const response = await apiFetch('/api/finance/transfers', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${pb.authStore.token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              source_account: source.id,
-              destination_account: destination.id,
-              date,
-              amount: Math.abs(amount),
-              notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
-            }),
-          });
-          importedTransfers.add(transferId);
-          if (response.ok) imported += 2;
-          else failures.push(String(index + 2));
-          continue;
-        }
-        if (
-          !account ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-          Number.isNaN(parsedDate.getTime()) ||
-          parsedDate.toISOString().slice(0, 10) !== date ||
-          !Number.isFinite(amount) ||
-          amount === 0 ||
-          !['expense', 'income', 'adjustment'].includes(type)
-        ) {
-          failures.push(String(index + 2));
-          continue;
-        }
-        const response = await apiFetch('/api/finance/transactions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${pb.authStore.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            account: account.id,
-            date,
-            amount: type === 'expense' ? -Math.abs(amount) : amount,
-            type,
-            payee: row[column('payee')]?.trim() || 'Imported transaction',
-            category: column('category') >= 0 ? (row[column('category')]?.trim() ?? '') : '',
-            notes: column('notes') >= 0 ? (row[column('notes')]?.trim() ?? '') : '',
-          }),
-        });
-        if (response.ok) imported += 1;
-        else failures.push(String(index + 2));
-      }
-      setCsvMessage(
-        failures.length
-          ? `Imported ${imported}; skipped or failed rows ${failures.slice(0, 8).join(', ')}${failures.length > 8 ? ', …' : ''}.`
-          : `Imported ${imported} transactions.`,
-      );
-      if (imported) onRefresh();
-    } catch {
-      setCsvMessage('Could not read this CSV file. Check the file and try again.');
-    } finally {
-      setImportingCsv(false);
-    }
+    const result = await importTransactionCsv(file, data);
+    setCsvMessage(result.message);
+    if (result.imported) onRefresh();
+    setImportingCsv(false);
   };
   return (
     <article className="panel settings-card transaction-csv-settings">
@@ -8307,10 +8402,10 @@ function FinanceComposer({
                   <input
                     type="checkbox"
                     checked={trackAsDebt}
-                  onChange={(event) => {
-                    setTrackAsDebt(event.target.checked);
-                    if (event.target.checked) setSplitting(false);
-                  }}
+                    onChange={(event) => {
+                      setTrackAsDebt(event.target.checked);
+                      if (event.target.checked) setSplitting(false);
+                    }}
                   />
                   {type === 'expense' ? 'Someone owes me money' : 'I owe someone money'}
                 </label>
@@ -8374,10 +8469,10 @@ function FinanceComposer({
                     disabled={Boolean(transaction?.subtransactions?.length)}
                     onChange={(event) => {
                       setSplitting(event.target.checked);
-                    if (event.target.checked) {
-                      setTrackAsDebt(false);
-                      setRepeat(false);
-                    }
+                      if (event.target.checked) {
+                        setTrackAsDebt(false);
+                        setRepeat(false);
+                      }
                     }}
                   />
                   Split into subtransactions
