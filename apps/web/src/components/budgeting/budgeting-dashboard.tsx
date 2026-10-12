@@ -2281,6 +2281,7 @@ function TransactionsView({
     setBulkMessage('');
     setBudgetPopoverOpen(false);
     setDeletePopoverOpen(false);
+    setExportPopoverOpen(false);
   };
   const assignSelectedToBudget = async () => {
     if (!bulkBudgetId || !selectedAreExpenses || bulkActionBusy) return;
@@ -2709,151 +2710,151 @@ function TransactionsView({
             </p>
           )}
         </details>
-        {selectionMode && (
-          <div
-            className="transaction-selection-bar"
-            role="toolbar"
-            aria-label="Selected transactions"
-          >
-            <div className="transaction-selection-summary">
-              <strong>{selectedTransactions.length} selected</strong>
-              <button className="text-button" type="button" onClick={togglePageSelection}>
-                {pageItems.length > 0 &&
-                pageItems.every((transaction) => selectedTransactionIds.has(transaction.id))
-                  ? 'Clear page'
-                  : 'Select page'}
-              </button>
-            </div>
-            <div className="transaction-selection-actions">
-              <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    className="icon-button transaction-selection-action"
-                    type="button"
-                    aria-label="Export selected transactions as CSV"
-                    title="Export as CSV"
-                    disabled={!selectedTransactions.length || bulkActionBusy}
-                  >
-                    <FileDown size={16} />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="transaction-bulk-popover">
-                  <strong>
-                    Export {selectedTransactions.length} selected transaction
-                    {selectedTransactions.length === 1 ? '' : 's'} as CSV?
-                  </strong>
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    disabled={!selectedTransactions.length}
-                    onClick={exportSelectedTransactions}
-                  >
-                    Export as CSV
-                  </button>
-                </PopoverContent>
-              </Popover>
-              <Popover open={budgetPopoverOpen} onOpenChange={setBudgetPopoverOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    className="icon-button transaction-selection-action"
-                    type="button"
-                    aria-label="Assign selected transactions to a budget"
-                    title="Assign to budget"
-                    disabled={!selectedAreExpenses || bulkActionBusy}
-                  >
-                    <Wallet size={16} />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="transaction-bulk-popover">
-                  <strong>Assign to budget</strong>
-                  <label className="transaction-filter-field">
-                    Budget
-                    <AppSelect
-                      aria-label="Budget for selected transactions"
-                      value={bulkBudgetId}
-                      disabled={bulkActionBusy}
-                      onChange={(event) => setBulkBudgetId(event.target.value)}
-                    >
-                      <option value="">Choose a budget</option>
-                      {data.budgets
-                        .filter((budget) => !budget.archived)
-                        .map((budget) => (
-                          <option key={budget.id} value={budget.id}>
-                            {budget.category}
-                          </option>
-                        ))}
-                    </AppSelect>
-                  </label>
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    disabled={!bulkBudgetId || !selectedAreExpenses || bulkActionBusy}
-                    onClick={() => void assignSelectedToBudget()}
-                  >
-                    {bulkActionBusy ? 'Updating…' : 'Assign budget'}
-                  </button>
-                </PopoverContent>
-              </Popover>
-              <Popover open={deletePopoverOpen} onOpenChange={setDeletePopoverOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    className="icon-button transaction-selection-action is-danger"
-                    type="button"
-                    aria-label="Delete selected transactions"
-                    title="Delete selected"
-                    disabled={!selectedTransactions.length || bulkActionBusy}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="transaction-bulk-popover">
-                  <strong>
-                    Delete {selectedTransactions.length} selected transaction
-                    {selectedTransactions.length === 1 ? '' : 's'}?
-                  </strong>
-                  {selectedTransactions.some((transaction) => transaction.splitGroup) && (
-                    <p>Selecting a split transaction deletes all of its parts.</p>
-                  )}
-                  <p>You can undo this for 8 seconds.</p>
-                  <div className="transaction-bulk-popover-actions">
-                    <button
-                      className="button button-quiet"
-                      type="button"
-                      onClick={() => setDeletePopoverOpen(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      className="button button-danger"
-                      type="button"
-                      onClick={deleteSelectedTransactions}
-                    >
-                      Delete selected
-                    </button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <button
-                className="icon-button transaction-selection-close"
-                type="button"
-                aria-label="Exit transaction selection"
-                onClick={leaveSelectionMode}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            {selectedTransactions.length > 0 && !selectedAreExpenses && (
-              <span className="transaction-selection-hint">
-                Select standalone expenses to assign a budget.
-              </span>
-            )}
-            {bulkMessage && (
-              <span className="transaction-selection-message" role="status">
-                {bulkMessage}
-              </span>
-            )}
+        <div
+          className={`transaction-selection-bar${selectionMode ? ' is-visible' : ''}`}
+          role="toolbar"
+          aria-label="Selected transactions"
+          aria-hidden={!selectionMode}
+          inert={!selectionMode}
+        >
+          <div className="transaction-selection-summary">
+            <strong>{selectedTransactions.length} selected</strong>
+            <button className="text-button" type="button" onClick={togglePageSelection}>
+              {pageItems.length > 0 &&
+              pageItems.every((transaction) => selectedTransactionIds.has(transaction.id))
+                ? 'Clear page'
+                : 'Select page'}
+            </button>
           </div>
-        )}
+          <div className="transaction-selection-actions">
+            <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className="icon-button transaction-selection-action"
+                  type="button"
+                  aria-label="Export selected transactions as CSV"
+                  title="Export as CSV"
+                  disabled={!selectedTransactions.length || bulkActionBusy}
+                >
+                  <FileDown size={16} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="transaction-bulk-popover">
+                <strong>
+                  Export {selectedTransactions.length} selected transaction
+                  {selectedTransactions.length === 1 ? '' : 's'} as CSV?
+                </strong>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={!selectedTransactions.length}
+                  onClick={exportSelectedTransactions}
+                >
+                  Export as CSV
+                </button>
+              </PopoverContent>
+            </Popover>
+            <Popover open={budgetPopoverOpen} onOpenChange={setBudgetPopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className="icon-button transaction-selection-action"
+                  type="button"
+                  aria-label="Assign selected transactions to a budget"
+                  title="Assign to budget"
+                  disabled={!selectedAreExpenses || bulkActionBusy}
+                >
+                  <Wallet size={16} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="transaction-bulk-popover">
+                <strong>Assign to budget</strong>
+                <label className="transaction-filter-field">
+                  Budget
+                  <AppSelect
+                    aria-label="Budget for selected transactions"
+                    value={bulkBudgetId}
+                    disabled={bulkActionBusy}
+                    onChange={(event) => setBulkBudgetId(event.target.value)}
+                  >
+                    <option value="">Choose a budget</option>
+                    {data.budgets
+                      .filter((budget) => !budget.archived)
+                      .map((budget) => (
+                        <option key={budget.id} value={budget.id}>
+                          {budget.category}
+                        </option>
+                      ))}
+                  </AppSelect>
+                </label>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={!bulkBudgetId || !selectedAreExpenses || bulkActionBusy}
+                  onClick={() => void assignSelectedToBudget()}
+                >
+                  {bulkActionBusy ? 'Updating…' : 'Assign budget'}
+                </button>
+              </PopoverContent>
+            </Popover>
+            <Popover open={deletePopoverOpen} onOpenChange={setDeletePopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className="icon-button transaction-selection-action is-danger"
+                  type="button"
+                  aria-label="Delete selected transactions"
+                  title="Delete selected"
+                  disabled={!selectedTransactions.length || bulkActionBusy}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="transaction-bulk-popover">
+                <strong>
+                  Delete {selectedTransactions.length} selected transaction
+                  {selectedTransactions.length === 1 ? '' : 's'}?
+                </strong>
+                {selectedTransactions.some((transaction) => transaction.splitGroup) && (
+                  <p>Selecting a split transaction deletes all of its parts.</p>
+                )}
+                <p>You can undo this for 8 seconds.</p>
+                <div className="transaction-bulk-popover-actions">
+                  <button
+                    className="button button-quiet"
+                    type="button"
+                    onClick={() => setDeletePopoverOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="button button-danger"
+                    type="button"
+                    onClick={deleteSelectedTransactions}
+                  >
+                    Delete selected
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <button
+              className="icon-button transaction-selection-close"
+              type="button"
+              aria-label="Exit transaction selection"
+              onClick={leaveSelectionMode}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          {selectedTransactions.length > 0 && !selectedAreExpenses && (
+            <span className="transaction-selection-hint">
+              Select standalone expenses to assign a budget.
+            </span>
+          )}
+          {bulkMessage && (
+            <span className="transaction-selection-message" role="status">
+              {bulkMessage}
+            </span>
+          )}
+        </div>
         <div className="transaction-date-groups">
           {filtered.length ? (
             [...transactionsByDate].map(([date, transactions]) => (
