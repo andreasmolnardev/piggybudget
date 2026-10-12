@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleAlert,
+  Circle,
   CircleHelp,
   Filter,
   HandCoins,
@@ -216,6 +217,9 @@ function TransactionRow({
   onToggleCleared,
   showDate = true,
   dashboardCard = false,
+  selected = false,
+  selectionMode = false,
+  onSelect,
 }: {
   transaction: Transaction;
   onOpen?: () => void;
@@ -225,6 +229,9 @@ function TransactionRow({
   onToggleCleared?: () => void;
   showDate?: boolean;
   dashboardCard?: boolean;
+  selected?: boolean;
+  selectionMode?: boolean;
+  onSelect?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const transactionDetails = dashboardCard
@@ -238,18 +245,29 @@ function TransactionRow({
     <div
       className={`transaction-row transaction-entry${
         dashboardCard ? ' dashboard-recent-transaction' : ''
-      }`}
+      }${selectionMode ? ' is-selection-enabled' : ''}${selected ? ' is-selected' : ''}`}
       role="group"
       aria-label={`${transaction.merchant}, ${formatMoney(transaction.amount)}`}
       tabIndex={0}
-      onClick={onOpen}
+      onClick={() => (selectionMode ? onSelect?.() : onOpen?.())}
       onKeyDown={(event) => {
         if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
-          onOpen?.();
+          if (selectionMode) onSelect?.();
+          else onOpen?.();
         }
       }}
     >
+      {selectionMode && (
+        <input
+          className="transaction-select-checkbox"
+          type="checkbox"
+          aria-label={`Select ${transaction.merchant}`}
+          checked={selected}
+          onChange={onSelect}
+          onClick={(event) => event.stopPropagation()}
+        />
+      )}
       <TransactionIcon kind={transaction.kind} />
       <div className="transaction-main">
         <strong>{transaction.merchant}</strong>
@@ -1833,6 +1851,7 @@ function TransactionsView({
   onToggleCleared,
   onOpenTransaction,
   onRenameReceivable,
+  onDeleteTransactionsBatch,
   onRefresh,
 }: {
   data: BudgetData;
@@ -1845,6 +1864,7 @@ function TransactionsView({
   onToggleCleared: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
+  onDeleteTransactionsBatch: (transactions: Transaction[]) => void;
   onRefresh: () => void;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(
@@ -1858,6 +1878,13 @@ function TransactionsView({
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [recurringMessage, setRecurringMessage] = useState('');
   const [openRecurringMenu, setOpenRecurringMenu] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [bulkBudgetId, setBulkBudgetId] = useState('');
+  const [bulkActionBusy, setBulkActionBusy] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState('');
   const pageSize = 25;
   useEffect(() => {
     if (stateUserId === userId) return;
@@ -1975,6 +2002,87 @@ function TransactionsView({
   }, [data.transactions, filters, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const selectedTransactions = data.transactions.filter((transaction) =>
+    selectedTransactionIds.has(transaction.id),
+  );
+  const selectedAreExpenses =
+    selectedTransactions.length > 0 &&
+    selectedTransactions.every((transaction) => transaction.kind === 'expense');
+  const toggleTransactionSelection = (transactionId: string) => {
+    setSelectedTransactionIds((current) => {
+      const next = new Set(current);
+      if (next.has(transactionId)) next.delete(transactionId);
+      else next.add(transactionId);
+      return next;
+    });
+    setBulkMessage('');
+  };
+  const togglePageSelection = () => {
+    setSelectedTransactionIds((current) => {
+      const next = new Set(current);
+      const allSelected = pageItems.every((transaction) => next.has(transaction.id));
+      pageItems.forEach((transaction) => {
+        if (allSelected) next.delete(transaction.id);
+        else next.add(transaction.id);
+      });
+      return next;
+    });
+    setBulkMessage('');
+  };
+  const leaveSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedTransactionIds(new Set());
+    setBulkBudgetId('');
+    setBulkMessage('');
+  };
+  const assignSelectedToBudget = async () => {
+    if (!bulkBudgetId || !selectedAreExpenses || bulkActionBusy) return;
+    setBulkActionBusy(true);
+    setBulkMessage('');
+    try {
+      const results = await Promise.all(
+        selectedTransactions.map(async (transaction) => {
+          const response = await apiFetch(`/api/finance/transactions/${transaction.id}`, {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ budget: bulkBudgetId }),
+          });
+          return { transaction, response };
+        }),
+      );
+      const failed = results.filter(({ response }) => !response.ok);
+      if (failed.length) {
+        const details = await failed[0].response.text();
+        setBulkMessage(
+          failed.length === results.length
+            ? details || 'Could not assign these transactions to the budget.'
+            : `${results.length - failed.length} assigned; ${failed.length} could not be updated. ${details}`,
+        );
+      } else {
+        const budgetName = data.budgets.find((budget) => budget.id === bulkBudgetId)?.category;
+        setBulkMessage(`Assigned ${results.length} transactions to ${budgetName ?? 'the budget'}.`);
+        setSelectedTransactionIds(new Set());
+        setBulkBudgetId('');
+      }
+      onRefresh();
+    } catch {
+      setBulkMessage('Could not update the selected transactions. Check your connection and try again.');
+      onRefresh();
+    } finally {
+      setBulkActionBusy(false);
+    }
+  };
+  const deleteSelectedTransactions = () => {
+    if (!selectedTransactions.length || bulkActionBusy) return;
+    const hasSelectedSplit = selectedTransactions.some((transaction) => transaction.splitGroup);
+    const message = `Delete ${selectedTransactions.length} selected transaction${selectedTransactions.length === 1 ? '' : 's'}?${hasSelectedSplit ? ' Selecting a split transaction deletes all of its parts.' : ''} You can undo this for 8 seconds.`;
+    if (!window.confirm(message)) return;
+    onDeleteTransactionsBatch(selectedTransactions);
+    leaveSelectionMode();
+  };
   const transactionsByDate = new Map<string, Transaction[]>();
   pageItems.forEach((transaction) => {
     const transactions = transactionsByDate.get(transaction.date) ?? [];
@@ -2208,6 +2316,29 @@ function TransactionsView({
               </Popover>
             </div>
             <div className="transaction-header-control">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className={`icon-button transaction-header-action${selectionMode ? ' is-active' : ''}`}
+                    type="button"
+                    aria-label={selectionMode ? 'Exit transaction selection' : 'Select transactions'}
+                    aria-pressed={selectionMode}
+                    onClick={() => {
+                      if (selectionMode) leaveSelectionMode();
+                      else {
+                        setSelectionMode(true);
+                        setSelectedTransactionIds(new Set());
+                        setBulkMessage('');
+                      }
+                    }}
+                  >
+                    {selectionMode ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{selectionMode ? 'Exit selection' : 'Select transactions'}</TooltipContent>
+              </Tooltip>
+            </div>
+            <div className="transaction-header-control">
               <AddFinanceEntryPopover
                 trigger={
                   <button
@@ -2315,6 +2446,59 @@ function TransactionsView({
             </p>
           )}
         </details>
+        {selectionMode && (
+          <div className="transaction-selection-bar" role="toolbar" aria-label="Selected transactions">
+            <div className="transaction-selection-summary">
+              <strong>{selectedTransactions.length} selected</strong>
+              <button className="text-button" type="button" onClick={togglePageSelection}>
+                {pageItems.length > 0 && pageItems.every((transaction) => selectedTransactionIds.has(transaction.id))
+                  ? 'Clear page'
+                  : 'Select page'}
+              </button>
+            </div>
+            <div className="transaction-selection-actions">
+              <AppSelect
+                aria-label="Budget for selected transactions"
+                value={bulkBudgetId}
+                disabled={!selectedAreExpenses || bulkActionBusy}
+                onChange={(event) => setBulkBudgetId(event.target.value)}
+              >
+                <option value="">Choose budget</option>
+                {data.budgets.filter((budget) => !budget.archived).map((budget) => (
+                  <option key={budget.id} value={budget.id}>{budget.category}</option>
+                ))}
+              </AppSelect>
+              <button
+                className="button button-quiet"
+                type="button"
+                disabled={!bulkBudgetId || !selectedAreExpenses || bulkActionBusy}
+                onClick={() => void assignSelectedToBudget()}
+              >
+                {bulkActionBusy ? 'Updating…' : 'Assign budget'}
+              </button>
+              <button
+                className="button button-danger"
+                type="button"
+                disabled={!selectedTransactions.length || bulkActionBusy}
+                onClick={deleteSelectedTransactions}
+              >
+                <Trash2 size={14} /> Delete selected
+              </button>
+              <button
+                className="icon-button transaction-selection-close"
+                type="button"
+                aria-label="Exit transaction selection"
+                onClick={leaveSelectionMode}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {selectedTransactions.length > 0 && !selectedAreExpenses && (
+              <span className="transaction-selection-hint">Select expenses only to assign a budget.</span>
+            )}
+            {bulkMessage && <span className="transaction-selection-message" role="status">{bulkMessage}</span>}
+          </div>
+        )}
         <div className="transaction-date-groups">
           {filtered.length ? (
             [...transactionsByDate].map(([date, transactions]) => (
@@ -2330,6 +2514,9 @@ function TransactionsView({
                       onDelete={() => onDeleteTransaction(transaction)}
                       onToggleCleared={() => onToggleCleared(transaction)}
                       showDate={false}
+                      selectionMode={selectionMode}
+                      selected={selectedTransactionIds.has(transaction.id)}
+                      onSelect={() => toggleTransactionSelection(transaction.id)}
                     />
                   ))}
                 </div>
@@ -5220,6 +5407,48 @@ export function BudgetingDashboard({
       onRefresh();
     });
   };
+  const deleteTransactionsBatch = (transactions: Transaction[]) => {
+    const splitGroups = new Set<string>();
+    const standalone = new Set<string>();
+    transactions.forEach((transaction) => {
+      if (transaction.splitGroup) splitGroups.add(transaction.splitGroup);
+      else standalone.add(transaction.id);
+    });
+    scheduleDeletion(`${transactions.length} transactions`, async () => {
+      const failures: string[] = [];
+      let deletedCount = 0;
+      const targets = [
+        ...[...splitGroups].map((group) => ({
+          name: 'split transaction',
+          url: `/api/finance/transactions/splits/${encodeURIComponent(group)}`,
+        })),
+        ...[...standalone].map((id) => ({
+          name: 'transaction',
+          url: `/api/finance/transactions/${id}`,
+        })),
+      ];
+      for (const target of targets) {
+        try {
+          const response = await apiFetch(target.url, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${pb.authStore.token}` },
+          });
+          if (response.ok) deletedCount += 1;
+          else failures.push((await response.text()) || `Could not delete a ${target.name}.`);
+        } catch {
+          failures.push(`Could not delete a ${target.name}.`);
+        }
+      }
+      onRefresh();
+      if (failures.length) {
+        window.alert(
+          deletedCount
+            ? `Deleted ${deletedCount} item${deletedCount === 1 ? '' : 's'}, but some transactions could not be deleted: ${failures.join(' ')}`
+            : failures.join(' '),
+        );
+      }
+    });
+  };
   const archiveBudget = async (budget: Budget) => {
     const archived = !budget.archived;
     const response = await apiFetch(`/api/finance/budgets/${budget.id}`, {
@@ -5360,6 +5589,7 @@ export function BudgetingDashboard({
         onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenTransaction={setViewingTransaction}
         onRenameReceivable={renameReceivable}
+        onDeleteTransactionsBatch={deleteTransactionsBatch}
         onRefresh={onRefresh}
       />
     ) : view === 'budgets' ? (

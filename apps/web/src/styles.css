@@ -1558,6 +1558,54 @@ kbd {
   font-size: 11px;
 }
 .transaction-filter-checkbox input { accent-color: var(--primary); }
+.transaction-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+.transaction-selection-summary,
+.transaction-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.transaction-selection-summary strong { white-space: nowrap; }
+.transaction-selection-actions .app-select-trigger { min-width: 156px; }
+.transaction-selection-hint,
+.transaction-selection-message {
+  flex: 1 0 100%;
+  color: var(--muted);
+  font-size: 11px;
+}
+.transaction-selection-message { color: var(--foreground); }
+.transaction-header-action.is-active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--accent);
+}
+.transaction-row.transaction-entry.is-selection-enabled {
+  grid-template-columns: 18px 32px minmax(0, 1fr) auto 21px;
+  cursor: pointer;
+}
+.transaction-row.transaction-entry.is-selection-enabled.is-selected {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+}
+.transaction-select-checkbox {
+  width: 16px;
+  height: 16px;
+  justify-self: center;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.transaction-selection-close { width: 34px; height: 34px; }
 .transaction-filter-field .filter-group {
   width: 100%;
   margin: 0;
@@ -2984,6 +3032,21 @@ h1 {
   .transaction-toolbar-actions {
     width: 100%;
     flex-wrap: wrap;
+  }
+  .transaction-selection-bar,
+  .transaction-selection-actions {
+    align-items: stretch;
+  }
+  .transaction-selection-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .transaction-selection-actions > button,
+  .transaction-selection-actions > .app-select {
+    flex: 1 1 auto;
+  }
+  .transaction-selection-actions .app-select-trigger {
+    width: 100%;
   }
   .search-field {
     width: auto;
