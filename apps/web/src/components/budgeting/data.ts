@@ -84,6 +84,15 @@ export type Account = {
   unexplained?: number;
 };
 
+export type Checkpoint = {
+  id: string;
+  accountId: string;
+  account: string;
+  date: string;
+  balance: number;
+  note?: string;
+};
+
 export type Budget = {
   id: string;
   category: string;
@@ -191,6 +200,7 @@ export type Reconciliation = {
 
 export type BudgetData = {
   transactions: Transaction[];
+  checkpoints: Checkpoint[];
   recurringTransactions: RecurringTransaction[];
   obligations: Obligation[];
   settlements: ObligationSettlement[];
@@ -207,6 +217,7 @@ export type BudgetData = {
 
 export const emptyBudgetData: BudgetData = {
   transactions: [],
+  checkpoints: [],
   recurringTransactions: [],
   obligations: [],
   settlements: [],
@@ -220,6 +231,20 @@ export const emptyBudgetData: BudgetData = {
   recurringGoalContributions: [],
   reconciliation: null,
 };
+
+export function checkpointsMatchingHistory(
+  checkpoints: Checkpoint[],
+  transactions: Transaction[],
+) {
+  const transactionDates = new Set(
+    transactions
+      .filter((transaction) => transaction.accountId)
+      .map((transaction) => `${transaction.accountId}:${transaction.date}`),
+  );
+  return checkpoints.filter((checkpoint) =>
+    transactionDates.has(`${checkpoint.accountId}:${checkpoint.date}`),
+  );
+}
 
 function numberValue(record: RecordModel | undefined, ...keys: string[]) {
   if (!record) return 0;
@@ -268,6 +293,7 @@ function transactionKind(record: RecordModel): TransactionKind {
 export async function loadBudgetData(): Promise<{ data: BudgetData; remote: boolean }> {
   const [
     transactions,
+    checkpoints,
     accounts,
     budgets,
     assets,
@@ -279,6 +305,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     settlements,
   ] = await Promise.all([
     getRecords('transactions'),
+    getRecords('checkpoints'),
     getRecords('accounts'),
     getRecords('budgets'),
     getRecords('assets'),
@@ -373,6 +400,14 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       notes: textValue(record, 'notes') || undefined,
     })),
     transactions: mappedTransactions,
+    checkpoints: checkpoints.map((record) => ({
+      id: record.id,
+      accountId: textValue(record, 'account'),
+      account: textValue(record, 'account'),
+      date: dateValue(record),
+      balance: numberValue(record, 'balance'),
+      note: textValue(record, 'note') || undefined,
+    })),
     accounts: accounts.map((record) => ({
       id: record.id,
       name: textValue(record, 'name', 'title') || 'Unnamed account',
@@ -488,6 +523,10 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
   };
 
   const accountNames = new Map(remoteData.accounts.map((account) => [account.id, account.name]));
+  remoteData.checkpoints = remoteData.checkpoints.map((checkpoint) => ({
+    ...checkpoint,
+    account: accountNames.get(checkpoint.accountId) ?? checkpoint.account,
+  }));
   remoteData.transactions = remoteData.transactions.map((transaction) => ({
     ...transaction,
     account: accountNames.get(transaction.account) ?? transaction.account,
