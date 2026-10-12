@@ -1577,7 +1577,26 @@ kbd {
   gap: 9px;
 }
 .transaction-selection-summary strong { white-space: nowrap; }
-.transaction-selection-actions .app-select-trigger { min-width: 156px; }
+.transaction-selection-action {
+  width: 34px;
+  height: 34px;
+}
+.transaction-selection-action.is-danger { color: var(--danger); }
+.transaction-bulk-popover {
+  display: grid;
+  width: 250px;
+  gap: 12px;
+}
+.transaction-bulk-popover > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.transaction-bulk-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .transaction-selection-hint,
 .transaction-selection-message {
   flex: 1 0 100%;
@@ -3040,13 +3059,6 @@ h1 {
   .transaction-selection-actions {
     width: 100%;
     flex-wrap: wrap;
-  }
-  .transaction-selection-actions > button,
-  .transaction-selection-actions > .app-select {
-    flex: 1 1 auto;
-  }
-  .transaction-selection-actions .app-select-trigger {
-    width: 100%;
   }
   .search-field {
     width: auto;
