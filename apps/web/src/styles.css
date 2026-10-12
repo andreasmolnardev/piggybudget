@@ -1322,20 +1322,34 @@ kbd {
 }
 .transaction-recurring-panel {
   margin: 0 0 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  interpolate-size: allow-keywords;
 }
 .transaction-recurring-panel > summary {
   list-style: none;
   cursor: pointer;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 13px 0;
+  border-bottom: 1px solid transparent;
 }
 .transaction-recurring-panel > summary::-webkit-details-marker {
   display: none;
+}
+.transaction-recurring-panel::details-content {
+  block-size: 0;
+  overflow: clip;
+  opacity: 0;
+  transition:
+    content-visibility 220ms allow-discrete,
+    block-size 220ms ease,
+    opacity 160ms ease;
+}
+.transaction-recurring-panel[open]::details-content {
+  block-size: auto;
+  opacity: 1;
 }
 .transaction-recurring-summary-meta {
   display: inline-flex;
@@ -1347,13 +1361,23 @@ kbd {
   font-size: 11px;
 }
 .transaction-recurring-panel[open] > summary {
-  margin-bottom: 10px;
+  border-bottom-color: var(--border);
+}
+.transaction-recurring-summary-meta > svg {
+  transition: transform 180ms ease;
 }
 .transaction-recurring-panel[open] .transaction-recurring-summary-meta > svg {
   transform: rotate(180deg);
 }
 .recurring-transaction-list {
-  padding-top: 10px;
+  gap: 8px;
+  padding: 12px 0;
+}
+.transaction-recurring-panel > .page-description {
+  margin: 12px 0;
+}
+.transaction-recurring-panel > .page-description:last-child {
+  padding-bottom: 2px;
 }
 .transaction-row.recurring-transaction-row {
   grid-template-columns: 32px minmax(0, 1fr) max-content max-content max-content;
@@ -3248,6 +3272,10 @@ div[data-slot='popover-content'].transaction-add-popover {
 @media (prefers-reduced-motion: reduce) {
   .composer-overlay, .composer-backdrop, .composer-card,
   .topbar-popover, .popover-content { animation-duration: 0.01ms; }
+  .transaction-recurring-panel::details-content,
+  .transaction-recurring-summary-meta > svg {
+    transition-duration: 0.01ms;
+  }
 }
 
 @media (max-width: 700px) {
