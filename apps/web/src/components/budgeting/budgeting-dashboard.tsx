@@ -80,6 +80,19 @@ function preferencesKey(userId: string) {
   return `piggybudget:preferences:${userId}`;
 }
 
+function recurringCadence(rule: Pick<RecurringTransaction, 'frequency' | 'interval'>) {
+  const unit = {
+    daily: 'day',
+    weekly: 'week',
+    monthly: 'month',
+    yearly: 'year',
+  }[rule.frequency];
+  const interval = rule.interval > 1 ? `${rule.interval} ` : '';
+  const plural = rule.interval > 1 ? 's' : '';
+
+  return `Every ${interval}${unit}${plural}`;
+}
+
 function readPreferences(userId = pb.authStore.record?.id ?? ''): UserPreferences {
   try {
     const saved = JSON.parse(
@@ -1637,8 +1650,7 @@ function TransactionsView({
                   <div className="transaction-main">
                     <strong>{rule.merchant}</strong>
                     <span>
-                      {rule.account} · Every {rule.interval > 1 ? `${rule.interval} ` : ''}
-                      {rule.frequency}
+                      {rule.account} · {recurringCadence(rule)}
                     </span>
                   </div>
                   <time>Next {formatDate(rule.nextDate)}</time>
