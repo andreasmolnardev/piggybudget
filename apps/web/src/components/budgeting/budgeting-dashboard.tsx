@@ -3939,7 +3939,6 @@ function BudgetsView({
     <>
       <PageHeader
         title="Budgets"
-        description="Give every dollar a job, then check in as you go."
         action={
           <button className="button button-primary" type="button" onClick={onAddBudget}>
             <Plus size={16} /> New budget
