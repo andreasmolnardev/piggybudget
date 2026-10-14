@@ -329,6 +329,12 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     ),
   ]);
 
+  const receivableSourceTransactionIds = new Set(
+    obligations
+      .filter((record) => textValue(record, 'side') !== 'payable')
+      .map((record) => textValue(record, 'source_transaction'))
+      .filter(Boolean),
+  );
   const mappedTransactions: Transaction[] = transactions.map((record) => ({
     id: record.id,
     merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
@@ -354,7 +360,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     budgetAmount:
       record.budget_amount === undefined || record.budget_amount === null
         ? undefined
-        : numberValue(record, 'budget_amount'),
+        : numberValue(record, 'budget_amount') ||
+          (receivableSourceTransactionIds.has(record.id) ? 0 : undefined),
     incomeAmount:
       record.income_amount === undefined || record.income_amount === null
         ? undefined
