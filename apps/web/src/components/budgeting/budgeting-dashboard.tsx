@@ -7083,7 +7083,6 @@ function SettingsView({
     <>
       <PageHeader
         title="Settings"
-        description="Keep Piggybudget feeling like your own."
         action={
           <button className="button" type="button" onClick={onRefresh}>
             <RefreshCw size={15} /> {remote ? 'Refresh synced data' : 'Try to sync data'}
