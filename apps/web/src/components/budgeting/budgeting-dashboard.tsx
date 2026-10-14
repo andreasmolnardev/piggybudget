@@ -8392,8 +8392,16 @@ function FinanceComposer({
         setError('Enter the person or organization connected to this debt.');
         return;
       }
-      if (!Number.isFinite(debtValue) || debtValue <= 0 || debtValue > numericAmount) {
-        setError('Debt amount must be greater than zero and no more than the transaction amount.');
+      if (
+        !Number.isFinite(debtValue) ||
+        debtValue <= 0 ||
+        (debtSide === 'payable' && debtValue > numericAmount)
+      ) {
+        setError(
+          debtSide === 'payable'
+            ? 'Debt amount must be greater than zero and no more than the transaction amount.'
+            : 'Debt amount must be greater than zero.'
+        );
         return;
       }
       if (transaction || repeat || splitting || !['expense', 'income'].includes(type)) {
