@@ -18,6 +18,7 @@ import {
   HandCoins,
   Landmark,
   MoreHorizontal,
+  Package,
   Plus,
   RefreshCw,
   Search,
@@ -101,6 +102,19 @@ const defaultPreferences: UserPreferences = {
 
 function preferencesKey(userId: string) {
   return `piggybudget:preferences:${userId}`;
+}
+
+function formatBuildTimestamp(timestamp?: string) {
+  if (!timestamp || timestamp === 'unknown') return 'Unavailable';
+
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return timestamp;
+
+  return `${new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(date)} UTC`;
 }
 
 function recurringCadence(rule: Pick<RecurringTransaction, 'frequency' | 'interval'>) {
@@ -7100,6 +7114,20 @@ function SettingsView({
             <button className="text-button" type="button" onClick={onManageAccounts}>
               Manage accounts <ArrowRight size={14} />
             </button>
+          </div>
+        </article>
+        <article className="panel settings-card">
+          <div className="small-panel-icon">
+            <Package size={17} />
+          </div>
+          <div>
+            <h3>Build information</h3>
+            <p>
+              Build ID · {import.meta.env.VITE_BUILD_ID || 'Unavailable'}
+              <br />
+              Image built ·{' '}
+              {formatBuildTimestamp(import.meta.env.VITE_BUILD_TIMESTAMP)}
+            </p>
           </div>
         </article>
         {import.meta.env.DEV && (

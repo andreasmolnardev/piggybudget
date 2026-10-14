@@ -2,11 +2,13 @@
 # does not need to execute a target-architecture binary through QEMU.
 FROM --platform=$BUILDPLATFORM node:22.23.2-alpine3.24 AS web-build
 WORKDIR /src
+ARG VITE_BUILD_ID
+ARG VITE_BUILD_TIMESTAMP
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild esbuild
 COPY apps/web apps/web
-RUN pnpm --filter @piggybudget/web build
+RUN VITE_BUILD_ID="$VITE_BUILD_ID" VITE_BUILD_TIMESTAMP="$VITE_BUILD_TIMESTAMP" pnpm --filter @piggybudget/web build
 
 FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine3.24 AS server-build
 WORKDIR /src
