@@ -49,8 +49,8 @@ function encode(value: string): string {
   return value === '' ? emptyValue : value;
 }
 
-function decode(value: string): string {
-  return value === emptyValue ? '' : value;
+function decode(value: string | null): string {
+  return value === null || value === emptyValue ? '' : value;
 }
 
 function AppSelect({
@@ -131,9 +131,7 @@ function AppSelect({
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
-        {React.Children.map(children, renderOption)}
-      </SelectContent>
+      <SelectContent>{React.Children.map(children, renderOption)}</SelectContent>
     </Select>
   );
 }
