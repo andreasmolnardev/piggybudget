@@ -35,7 +35,7 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
-import { historyDatesForDisplay } from './data';
+import { budgetNameForId, historyDatesForDisplay } from './data';
 import type {
   Account,
   Asset,
@@ -264,6 +264,7 @@ function TransactionRow({
   selected = false,
   selectionMode = false,
   onSelect,
+  budgetName,
 }: {
   transaction: Transaction;
   onOpen?: () => void;
@@ -276,6 +277,7 @@ function TransactionRow({
   selected?: boolean;
   selectionMode?: boolean;
   onSelect?: () => void;
+  budgetName?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const transactionDetails = dashboardCard
@@ -285,10 +287,13 @@ function TransactionRow({
         transaction.subtransactions?.length
           ? `Parent · ${transaction.subtransactions.length} items`
           : transaction.category || 'Uncategorized',
+        ...(budgetName ? [`Budget · ${budgetName}`] : []),
       ].join(' · ')
     : transaction.subtransactions?.length
       ? `Parent · ${transaction.subtransactions.length} items · ${transaction.account}`
-      : `${transaction.category || 'Uncategorized'} · ${transaction.account}`;
+      : `${transaction.category || 'Uncategorized'} · ${transaction.account}${
+          budgetName ? ` · Budget · ${budgetName}` : ''
+        }`;
   return (
     <div
       className={`transaction-row transaction-entry${
@@ -1760,6 +1765,7 @@ function DashboardView({
               <TransactionRow
                 key={transaction.id}
                 transaction={transaction}
+                budgetName={budgetNameForId(data.budgets, transaction.budgetId)}
                 dashboardCard
                 onOpen={() => onOpenTransaction(transaction)}
                 onEdit={() => onEditTransaction(transaction)}
@@ -2906,6 +2912,7 @@ function TransactionsView({
                     <TransactionRow
                       key={transaction.id}
                       transaction={transaction}
+                      budgetName={budgetNameForId(data.budgets, transaction.budgetId)}
                       onOpen={() => onOpenTransaction(transaction)}
                       onEdit={() => onEditTransaction(transaction)}
                       onDelete={() => onDeleteTransaction(transaction)}
@@ -7054,6 +7061,14 @@ function FinanceRecordDetails({
             />
             <DetailRow label="Account" value={transaction.account} />
             <DetailRow label="Category" value={transaction.category || 'Uncategorized'} />
+            {transaction.budgetId && (
+              <DetailRow
+                label="Budget"
+                value={
+                  budgetNameForId(data.budgets, transaction.budgetId) ?? 'Unavailable'
+                }
+              />
+            )}
             {transaction.note && <DetailRow label="Note" value={transaction.note} />}
           </dl>
         )}

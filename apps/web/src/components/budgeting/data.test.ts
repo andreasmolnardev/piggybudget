@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { historyDatesForDisplay, type Checkpoint, type Transaction } from './data';
+import {
+  budgetNameForId,
+  historyDatesForDisplay,
+  type Budget,
+  type Checkpoint,
+  type Transaction,
+} from './data';
+
+describe('budgetNameForId', () => {
+  const budgets = [{ id: 'budget-id', category: 'Groceries' }] as Budget[];
+
+  it('resolves the display name from a budget ID', () => {
+    expect(budgetNameForId(budgets, 'budget-id')).toBe('Groceries');
+  });
+
+  it('returns no name when the budget ID is missing or unknown', () => {
+    expect(budgetNameForId(budgets)).toBeUndefined();
+    expect(budgetNameForId(budgets, 'unknown')).toBeUndefined();
+  });
+});
 
 describe('historyDatesForDisplay', () => {
   it('includes every checkpoint date even when there is no transaction', () => {

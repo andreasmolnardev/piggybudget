@@ -105,6 +105,10 @@ export type Budget = {
   notes?: string;
 };
 
+export function budgetNameForId(budgets: Budget[], budgetId?: string) {
+  return budgetId ? budgets.find((budget) => budget.id === budgetId)?.category : undefined;
+}
+
 export type Asset = {
   id: string;
   name: string;
