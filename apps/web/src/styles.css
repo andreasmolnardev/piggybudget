@@ -3599,3 +3599,32 @@ div[data-slot='popover-content'].transaction-add-popover {
     justify-self: end;
   }
 }
+
+@media (max-width: 1050px) {
+  .dashboard-primary-grid,
+  .dashboard-secondary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard-primary-grid,
+  .dashboard-secondary-grid {
+    gap: 12px;
+  }
+  .dashboard-secondary-grid {
+    margin-top: 12px;
+  }
+  .dashboard-primary-grid .cashflow-panel .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .dashboard-primary-grid .cashflow-panel .select-button {
+    max-width: 100%;
+  }
+  .dashboard-primary-grid .cashflow-panel,
+  .dashboard-primary-grid .helper-panel {
+    min-height: 0;
+  }
+}
