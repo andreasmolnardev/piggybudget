@@ -8869,7 +8869,7 @@ function FinanceComposer({
             </label>
           </>
         )}
-        {!isAsset && (
+        {!isAsset && !isBudget && (
           <label>
             {isAccount
               ? 'Current balance'
@@ -8889,7 +8889,7 @@ function FinanceComposer({
             />
           </label>
         )}
-        {!isAccount && !isAsset && (
+        {!isAccount && !isAsset && !isBudget && (
           <label>
             Date
             <input
