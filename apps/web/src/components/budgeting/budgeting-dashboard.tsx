@@ -35,7 +35,7 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
-import { checkpointsMatchingHistory } from './data';
+import { historyDatesForDisplay } from './data';
 import type {
   Account,
   Asset,
@@ -65,6 +65,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog';
+import { Marker, MarkerContent } from '../ui/marker';
 
 export type BudgetView = SidebarTab;
 
@@ -2376,12 +2377,13 @@ function TransactionsView({
     transactions.push(transaction);
     transactionsByDate.set(transaction.date, transactions);
   });
-  const checkpointsByDate = new Map<string, ReturnType<typeof checkpointsMatchingHistory>>();
-  for (const checkpoint of checkpointsMatchingHistory(data.checkpoints, pageItems)) {
+  const checkpointsByDate = new Map<string, typeof data.checkpoints>();
+  for (const checkpoint of data.checkpoints) {
     const checkpoints = checkpointsByDate.get(checkpoint.date) ?? [];
     checkpoints.push(checkpoint);
     checkpointsByDate.set(checkpoint.date, checkpoints);
   }
+  const historyDates = historyDatesForDisplay(pageItems, data.checkpoints);
   const saveView = () => {
     const name = window.prompt('Name this saved view');
     if (!name?.trim()) return;
@@ -2895,12 +2897,12 @@ function TransactionsView({
           )}
         </div>
         <div className="transaction-date-groups">
-          {filtered.length ? (
-            [...transactionsByDate].map(([date, transactions]) => (
+          {historyDates.length ? (
+            historyDates.map((date) => (
               <section className="transaction-date-group" key={date}>
                 <h3 className="transaction-date-heading">{formatDate(date)}</h3>
                 <div className="transaction-list transaction-table transaction-cards">
-                  {transactions.map((transaction) => (
+                  {(transactionsByDate.get(date) ?? []).map((transaction) => (
                     <TransactionRow
                       key={transaction.id}
                       transaction={transaction}
@@ -2915,13 +2917,16 @@ function TransactionsView({
                     />
                   ))}
                   {(checkpointsByDate.get(date) ?? []).map((checkpoint) => (
-                    <div className="checkpoint-history-row" key={checkpoint.id}>
-                      <span>
-                        <Landmark size={15} />
-                        {checkpoint.account} · End-of-day checkpoint
-                      </span>
-                      <strong>{formatMoney(checkpoint.balance)}</strong>
-                    </div>
+                    <Marker
+                      key={checkpoint.id}
+                      variant="separator"
+                      className="checkpoint-history-marker"
+                    >
+                      <MarkerContent>
+                        {checkpoint.account} · End-of-day checkpoint ·{' '}
+                        {formatMoney(checkpoint.balance)}
+                      </MarkerContent>
+                    </Marker>
                   ))}
                 </div>
               </section>

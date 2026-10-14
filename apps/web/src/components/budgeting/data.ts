@@ -232,18 +232,10 @@ export const emptyBudgetData: BudgetData = {
   reconciliation: null,
 };
 
-export function checkpointsMatchingHistory(
-  checkpoints: Checkpoint[],
-  transactions: Transaction[],
-) {
-  const transactionDates = new Set(
-    transactions
-      .filter((transaction) => transaction.accountId)
-      .map((transaction) => `${transaction.accountId}:${transaction.date}`),
-  );
-  return checkpoints.filter((checkpoint) =>
-    transactionDates.has(`${checkpoint.accountId}:${checkpoint.date}`),
-  );
+export function historyDatesForDisplay(transactions: Transaction[], checkpoints: Checkpoint[]) {
+  return [
+    ...new Set([...transactions.map(({ date }) => date), ...checkpoints.map(({ date }) => date)]),
+  ].sort((a, b) => b.localeCompare(a));
 }
 
 function numberValue(record: RecordModel | undefined, ...keys: string[]) {
