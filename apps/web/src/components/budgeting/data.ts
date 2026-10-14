@@ -76,6 +76,7 @@ export type Account = {
   currency?: string;
   balance: number;
   openingBalance?: number;
+  openingBalanceDate?: string;
   alertBelow?: number;
   isDefault?: boolean;
   archived?: boolean;
@@ -418,6 +419,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       currency: textValue(record, 'currency') || 'USD',
       balance: numberValue(record, 'balance', 'current_balance', 'opening_balance'),
       openingBalance: numberValue(record, 'opening_balance'),
+      openingBalanceDate: optionalDateValue(record, 'opening_balance_date'),
       alertBelow: numberValue(record, 'alert_below') || undefined,
       isDefault: Boolean(record.is_default),
       archived: Boolean(record.archived),

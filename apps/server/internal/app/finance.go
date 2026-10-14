@@ -1093,6 +1093,17 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 		}
 	}
 	checkpointDate := latestCheckpoint.GetDateTime("date").Time()
+	balance = latestCheckpoint.GetFloat("balance")
+	for _, transaction := range transactions {
+		if transaction.GetString("parent_transaction") != "" {
+			continue
+		}
+		if !transaction.GetDateTime("date").Time().After(checkpointDate) {
+			continue
+		}
+		balance += transaction.GetFloat("amount")
+	}
+	result["balance"] = balance
 	checkpointCalculated := opening
 	for _, transaction := range transactions {
 		if transaction.GetString("parent_transaction") != "" {

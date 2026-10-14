@@ -863,6 +863,12 @@ kbd {
   font-size: 14px;
   font-weight: 650;
 }
+.net-worth-gap-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--warning, #a65b1a);
+}
 .net-worth-grid-line {
   stroke: var(--border);
   stroke-dasharray: 3 5;
@@ -885,6 +891,11 @@ kbd {
   stroke: #32b982;
   stroke-width: 2.5;
   outline-offset: 3px;
+}
+.net-worth-point.is-checkpoint {
+  fill: #32b982;
+  stroke: var(--card);
+  stroke-width: 3;
 }
 .money-flow-label {
   fill: var(--foreground);

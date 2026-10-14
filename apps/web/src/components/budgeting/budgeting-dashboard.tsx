@@ -43,6 +43,7 @@ import type {
   AssetPosition,
   Budget,
   BudgetData,
+  Checkpoint,
   Goal,
   GoalContribution,
   Obligation,
@@ -198,6 +199,91 @@ function recognizedIncomeAmount(transaction: Transaction) {
 
 function topLevelTransactions(transactions: Transaction[]) {
   return transactions.filter((transaction) => !transaction.parentTransactionId);
+}
+
+function transactionBalanceDelta(transaction: Transaction) {
+  return (
+    transaction.signedAmount ??
+    (transaction.kind === 'income'
+      ? transaction.amount
+      : transaction.kind === 'expense'
+        ? -transaction.amount
+        : 0)
+  );
+}
+
+function accountBalanceAtEndOfDay(
+  account: Account,
+  transactions: Transaction[],
+  checkpoints: Checkpoint[],
+  date: string,
+  today: string,
+) {
+  const accountTransactions = transactions.filter(
+    (transaction) => transaction.accountId === account.id && !transaction.parentTransactionId,
+  );
+  const transactionDeltaBetween = (start: string, end: string) =>
+    accountTransactions
+      .filter((transaction) => transaction.date > start && transaction.date <= end)
+      .reduce((sum, transaction) => sum + transactionBalanceDelta(transaction), 0);
+  const accountCheckpoints = checkpoints
+    .filter((checkpoint) => checkpoint.accountId === account.id)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const previousCheckpoints = accountCheckpoints.filter((checkpoint) => checkpoint.date <= date);
+  const previousCheckpoint = previousCheckpoints[previousCheckpoints.length - 1];
+  if (previousCheckpoint) {
+    return previousCheckpoint.balance + transactionDeltaBetween(previousCheckpoint.date, date);
+  }
+
+  if (account.openingBalanceDate && account.openingBalanceDate <= date) {
+    return (
+      (account.openingBalance ?? 0) + transactionDeltaBetween(account.openingBalanceDate, date)
+    );
+  }
+
+  const nextCheckpoint = accountCheckpoints[0];
+  if (nextCheckpoint) {
+    return nextCheckpoint.balance - transactionDeltaBetween(date, nextCheckpoint.date);
+  }
+
+  return account.balance - transactionDeltaBetween(date, today);
+}
+
+function checkpointGapCount(
+  accounts: Account[],
+  transactions: Transaction[],
+  checkpoints: Checkpoint[],
+  start: string,
+  end: string,
+) {
+  return accounts.reduce((gapCount, account) => {
+    const accountCheckpoints = checkpoints
+      .filter((checkpoint) => checkpoint.accountId === account.id)
+      .sort((left, right) => left.date.localeCompare(right.date));
+    let previousDate = account.openingBalanceDate ?? '';
+    let previousBalance = account.openingBalance ?? 0;
+
+    for (const checkpoint of accountCheckpoints) {
+      const overlapsRange = checkpoint.date >= start && (!previousDate || previousDate <= end);
+      if (overlapsRange) {
+        const transactionDelta = transactions
+          .filter(
+            (transaction) =>
+              transaction.accountId === account.id &&
+              !transaction.parentTransactionId &&
+              (!previousDate || transaction.date > previousDate) &&
+              transaction.date <= checkpoint.date,
+          )
+          .reduce((sum, transaction) => sum + transactionBalanceDelta(transaction), 0);
+        const unexplained = checkpoint.balance - (previousBalance + transactionDelta);
+        if (Math.abs(unexplained) > 0.005) gapCount += 1;
+      }
+      previousDate = checkpoint.date;
+      previousBalance = checkpoint.balance;
+    }
+
+    return gapCount;
+  }, 0);
 }
 
 export function formatDate(date: string) {
@@ -1246,6 +1332,7 @@ function AccountBalancesChart({ accounts }: { accounts: Account[] }) {
 function NetWorthHistoryChart({
   accounts,
   transactions,
+  checkpoints,
   assets,
   assetPositions,
   assetGroups,
@@ -1256,6 +1343,7 @@ function NetWorthHistoryChart({
 }: {
   accounts: Account[];
   transactions: Transaction[];
+  checkpoints: Checkpoint[];
   assets: Asset[];
   assetPositions: AssetPosition[];
   assetGroups: AssetGroup[];
@@ -1299,29 +1387,33 @@ function NetWorthHistoryChart({
   }
   if (dates.length === 1) dates.push(new Date(end));
 
+  const datePoints = new Map(dates.map((date) => [dateKey(date), date]));
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.date >= dateKey(start) && checkpoint.date <= dateKey(end)) {
+      datePoints.set(checkpoint.date, new Date(`${checkpoint.date}T12:00:00`));
+    }
+  }
+  dates.splice(
+    0,
+    dates.length,
+    ...[...datePoints.values()].sort((left, right) => dateKey(left).localeCompare(dateKey(right))),
+  );
+
   const today = dateKey(new Date());
+  const gapCount = checkpointGapCount(
+    trackedAccounts,
+    transactions,
+    checkpoints,
+    dateKey(start),
+    dateKey(end),
+  );
   const valueAtDate = (date: Date) => {
     const key = dateKey(date);
-    const accountValue = trackedAccounts.reduce((total, account) => {
-      const laterTransactions = transactions
-        .filter(
-          (transaction) =>
-            transaction.accountId === account.id &&
-            transaction.date > key &&
-            transaction.date <= today,
-        )
-        .reduce((sum, transaction) => {
-          const delta =
-            transaction.signedAmount ??
-            (transaction.kind === 'income'
-              ? transaction.amount
-              : transaction.kind === 'expense'
-                ? -transaction.amount
-                : 0);
-          return sum + delta;
-        }, 0);
-      return total + account.balance - laterTransactions;
-    }, 0);
+    const accountValue = trackedAccounts.reduce(
+      (total, account) =>
+        total + accountBalanceAtEndOfDay(account, transactions, checkpoints, key, today),
+      0,
+    );
     const valueAtDateForAsset = (
       source: AssetValuation['source'],
       id: string,
@@ -1391,74 +1483,89 @@ function NetWorthHistoryChart({
   const path = points
     .map((point, index) => `${index ? 'L' : 'M'} ${x(index)} ${y(point.value)}`)
     .join(' ');
+  const checkpointDates = new Set(checkpoints.map((checkpoint) => checkpoint.date));
   const axisValues = [upper, upper - (upper - lower) / 2, lower];
   const labelIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
   const currentValue = points[points.length - 1]?.value ?? 0;
 
   return (
-    <div className="net-worth-history-chart">
-      <div className="net-worth-chart-total">
-        <span>Total net worth</span>
-        <strong>{formatMoney(currentValue)}</strong>
-      </div>
-      <svg
-        viewBox="0 0 720 286"
-        role="img"
-        aria-label={`Total net worth from ${formatDate(dateKey(start))} to ${formatDate(dateKey(end))}. Current total ${formatMoney(currentValue)}.`}
-      >
-        {axisValues.map((value) => (
-          <g key={value}>
-            <line
-              x1={chart.left}
-              x2={chart.right}
-              y1={y(value)}
-              y2={y(value)}
-              className="net-worth-grid-line"
-            />
+    <>
+      <div className="net-worth-history-chart">
+        <div className="net-worth-chart-total">
+          <span>Total net worth</span>
+          <strong>{formatMoney(currentValue)}</strong>
+        </div>
+        <svg
+          viewBox="0 0 720 286"
+          role="img"
+          aria-label={`Total net worth from ${formatDate(dateKey(start))} to ${formatDate(dateKey(end))}. Current total ${formatMoney(currentValue)}.`}
+        >
+          {axisValues.map((value) => (
+            <g key={value}>
+              <line
+                x1={chart.left}
+                x2={chart.right}
+                y1={y(value)}
+                y2={y(value)}
+                className="net-worth-grid-line"
+              />
+              <text
+                x={chart.left - 10}
+                y={y(value) + 4}
+                textAnchor="end"
+                className="net-worth-axis-label"
+              >
+                {formatMoney(value, true)}
+              </text>
+            </g>
+          ))}
+          <path d={path} className="net-worth-line" />
+          {points.map((point, index) => {
+            const isCheckpoint = checkpointDates.has(dateKey(point.date));
+            const pointDate = formatDate(dateKey(point.date));
+            return (
+              <Tooltip key={dateKey(point.date)}>
+                <TooltipTrigger asChild>
+                  <circle
+                    cx={x(index)}
+                    cy={y(point.value)}
+                    r={isCheckpoint ? '5' : '4'}
+                    className={`net-worth-point${isCheckpoint ? ' is-checkpoint' : ''}`}
+                    tabIndex={0}
+                    aria-label={`${pointDate}${isCheckpoint ? ' end-of-day checkpoint' : ''}: ${formatMoney(point.value)}`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {pointDate}
+                  {isCheckpoint ? ' · End-of-day checkpoint' : ''}: {formatMoney(point.value)}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+          {labelIndexes.map((index) => (
             <text
-              x={chart.left - 10}
-              y={y(value) + 4}
-              textAnchor="end"
+              key={index}
+              x={x(index)}
+              y="272"
+              textAnchor="middle"
               className="net-worth-axis-label"
             >
-              {formatMoney(value, true)}
+              {new Intl.DateTimeFormat('en-US', {
+                month: 'short',
+                day: monthly ? undefined : 'numeric',
+              }).format(points[index].date)}
             </text>
-          </g>
-        ))}
-        <path d={path} className="net-worth-line" />
-        {points.map((point, index) => (
-          <Tooltip key={dateKey(point.date)}>
-            <TooltipTrigger asChild>
-              <circle
-                cx={x(index)}
-                cy={y(point.value)}
-                r="4"
-                className="net-worth-point"
-                tabIndex={0}
-                aria-label={`${formatDate(dateKey(point.date))}: ${formatMoney(point.value)}`}
-              />
-            </TooltipTrigger>
-            <TooltipContent>
-              {formatDate(dateKey(point.date))}: {formatMoney(point.value)}
-            </TooltipContent>
-          </Tooltip>
-        ))}
-        {labelIndexes.map((index) => (
-          <text
-            key={index}
-            x={x(index)}
-            y="272"
-            textAnchor="middle"
-            className="net-worth-axis-label"
-          >
-            {new Intl.DateTimeFormat('en-US', {
-              month: 'short',
-              day: monthly ? undefined : 'numeric',
-            }).format(points[index].date)}
-          </text>
-        ))}
-      </svg>
-    </div>
+          ))}
+        </svg>
+      </div>
+      {gapCount > 0 && (
+        <p className="page-description net-worth-gap-warning" role="status">
+          <CircleAlert size={14} /> {gapCount} checkpoint{' '}
+          {gapCount === 1 ? 'window does' : 'windows do'} not match recorded transactions. Net worth
+          uses the checkpoint balances and shows the difference as an unexplained gap.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -1727,6 +1834,7 @@ function DashboardView({
             <NetWorthHistoryChart
               accounts={data.accounts}
               transactions={topLevelTransactions(data.transactions)}
+              checkpoints={data.checkpoints}
               assets={data.assets}
               assetPositions={data.assetPositions}
               assetGroups={data.assetGroups}
@@ -3956,7 +4064,9 @@ function AssetsView({
     assetsWithCost.length +
     activePositions.length -
     positionsWithCost.length;
+  const activeAccounts = data.accounts.filter((account) => !account.archived);
   const totalValue =
+    activeAccounts.reduce((sum, account) => sum + account.balance, 0) +
     standaloneAssets.reduce((sum, asset) => sum + asset.value, 0) +
     activePositions.reduce((sum, position) => sum + position.value, 0);
   const totalCost =
@@ -3968,6 +4078,7 @@ function AssetsView({
   const roi = totalCost ? (trackedReturn / totalCost) * 100 : 0;
   const compositionTotals = new Map<string, number>();
   for (const item of [
+    ...activeAccounts.map((account) => ({ type: account.type || 'Cash', value: account.balance })),
     ...standaloneAssets.map((asset) => ({ type: asset.type || 'Other', value: asset.value })),
     ...activePositions.map((position) => ({
       type: position.type || 'Other',
