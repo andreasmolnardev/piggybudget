@@ -2617,6 +2617,41 @@ kbd {
   font-size: 11px;
   line-height: 1.5;
 }
+.budget-color-picker {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.budget-color-picker legend {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.budget-color-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.budget-color-option {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.budget-color-option[aria-pressed='true'] {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+.budget-color-option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
 .budget-pace-warning {
   color: var(--danger, #b5473c);
 }

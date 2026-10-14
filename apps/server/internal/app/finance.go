@@ -35,7 +35,7 @@ var financeFields = map[string]map[string]bool{
 	},
 	"budgets": {
 		"name": true, "category": true, "amount": true, "unlimited": true, "start_date": true,
-		"end_date": true, "notes": true, "archived": true,
+		"end_date": true, "notes": true, "archived": true, "color": true,
 	},
 	"assets": {
 		"name": true, "type": true, "value": true, "quantity": true, "currency": true, "purchase_date": true,

@@ -5,6 +5,17 @@ export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment';
 export type FinanceRecordType = 'transaction' | 'account' | 'budget' | 'asset' | 'goal';
 export type FinanceRecordTarget = { type: FinanceRecordType; id: string };
 
+export const budgetColorPalette = [
+  { name: 'Sage', value: '#5f8d7e' },
+  { name: 'Terracotta', value: '#d68b5e' },
+  { name: 'Lavender', value: '#8e82b9' },
+  { name: 'Ocean', value: '#6b9ab8' },
+  { name: 'Rose', value: '#d27984' },
+  { name: 'Amber', value: '#c49a45' },
+  { name: 'Teal', value: '#4f9e9a' },
+  { name: 'Slate', value: '#7b8793' },
+] as const;
+
 export type Transaction = {
   id: string;
   merchant: string;
@@ -340,7 +351,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
   const mappedTransactions: Transaction[] = transactions.map((record) => ({
     id: record.id,
     merchant: textValue(record, 'payee', 'description', 'name') || 'Untitled transaction',
-    category: textValue(record, 'category', 'budget'),
+    category: textValue(record, 'category'),
     account: textValue(record, 'account') || 'Unassigned account',
     accountId: textValue(record, 'account'),
     amount: Math.abs(numberValue(record, 'amount', 'value')),
@@ -434,7 +445,9 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       spent: numberValue(record, 'spent', 'used', 'amount_spent'),
       limit: record.unlimited ? 0 : numberValue(record, 'limit', 'amount', 'target') || 1,
       unlimited: record.unlimited,
-      color: ['#5f8d7e', '#d68b5e', '#a78bca', '#6b9ab8'][index % 4],
+      color:
+        textValue(record, 'color') ||
+        budgetColorPalette[index % budgetColorPalette.length].value,
       startDate: optionalDateValue(record, 'start_date') || undefined,
       endDate: optionalDateValue(record, 'end_date') || undefined,
       archived: Boolean(record.archived),

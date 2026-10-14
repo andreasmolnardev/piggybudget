@@ -147,6 +147,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.BoolField{Name: "unlimited"},
 				&core.DateField{Name: "start_date"},
 				&core.DateField{Name: "end_date"},
+				&core.TextField{Name: "color"},
 				&core.TextField{Name: "notes"},
 				&core.BoolField{Name: "archived"},
 			},

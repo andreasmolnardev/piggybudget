@@ -36,7 +36,7 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
-import { budgetNameForId, historyDatesForDisplay } from './data';
+import { budgetColorPalette, budgetNameForId, historyDatesForDisplay } from './data';
 import type {
   Account,
   Asset,
@@ -380,19 +380,24 @@ function TransactionRow({
   budgetName?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const categoryLabel =
+    transaction.category === transaction.budgetId ? '' : transaction.category;
+  const detailCategory = categoryLabel || budgetName || 'Uncategorized';
+  const budgetDetails =
+    budgetName && budgetName !== detailCategory ? [`Budget · ${budgetName}`] : [];
   const transactionDetails = dashboardCard
     ? [
         ...(showDate ? [formatDate(transaction.date)] : []),
         transaction.account,
         transaction.subtransactions?.length
           ? `Parent · ${transaction.subtransactions.length} items`
-          : transaction.category || 'Uncategorized',
-        ...(budgetName ? [`Budget · ${budgetName}`] : []),
+          : detailCategory,
+        ...budgetDetails,
       ].join(' · ')
     : transaction.subtransactions?.length
       ? `Parent · ${transaction.subtransactions.length} items · ${transaction.account}`
-      : `${transaction.category || 'Uncategorized'} · ${transaction.account}${
-          budgetName ? ` · Budget · ${budgetName}` : ''
+      : `${detailCategory} · ${transaction.account}${
+          budgetDetails.length ? ` · ${budgetDetails[0]}` : ''
         }`;
   return (
     <div
@@ -8226,6 +8231,9 @@ function FinanceComposer({
           : '',
   );
   const [budgetUnlimited, setBudgetUnlimited] = useState(Boolean(budgetRecord?.unlimited));
+  const [budgetColor, setBudgetColor] = useState(
+    budgetRecord?.color ?? budgetColorPalette[0].value,
+  );
   const [payee, setPayee] = useState(transaction?.merchant ?? '');
   const [type, setType] = useState<TransactionKind>(transaction?.kind ?? 'expense');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
@@ -8293,7 +8301,7 @@ function FinanceComposer({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const numericAmount = Number(amount);
-    const isUnlimitedBudget = kind === 'budget' && budgetUnlimited;
+    const isUnlimitedBudget = kind === 'budget' && (budgetUnlimited || !amount.trim());
     if (
       kind === 'budget' &&
       data.budgets.some(
@@ -8316,10 +8324,12 @@ function FinanceComposer({
     }
     if (
       kind === 'budget' &&
-      !budgetUnlimited &&
+      !isUnlimitedBudget &&
       (!Number.isFinite(numericAmount) || numericAmount <= 0)
     ) {
-      setError('Enter a monthly limit greater than zero, or choose Unlimited category.');
+      setError(
+        'Enter a monthly limit greater than zero, or leave it blank for an unlimited category.',
+      );
       return;
     }
     if (
@@ -8400,10 +8410,11 @@ function FinanceComposer({
           ? {
               name: category.trim(),
               category: category.trim(),
-              amount: budgetUnlimited ? 0 : numericAmount,
-              unlimited: budgetUnlimited,
-              start_date: budgetUnlimited ? '' : `${date.slice(0, 7)}-01`,
-              end_date: budgetUnlimited
+              amount: isUnlimitedBudget ? 0 : numericAmount,
+              unlimited: isUnlimitedBudget,
+              color: budgetColor,
+              start_date: isUnlimitedBudget ? '' : `${date.slice(0, 7)}-01`,
+              end_date: isUnlimitedBudget
                 ? ''
                 : new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0))
                     .toISOString()
@@ -8668,6 +8679,23 @@ function FinanceComposer({
                 placeholder="e.g. Groceries"
               />
             </label>
+            <fieldset className="budget-color-picker">
+              <legend>Budget color</legend>
+              <div className="budget-color-options" role="group" aria-label="Budget color">
+                {budgetColorPalette.map((color) => (
+                  <button
+                    key={color.value}
+                    aria-label={color.name}
+                    aria-pressed={budgetColor === color.value}
+                    className="budget-color-option"
+                    onClick={() => setBudgetColor(color.value)}
+                    style={{ backgroundColor: color.value }}
+                    title={color.name}
+                    type="button"
+                  />
+                ))}
+              </div>
+            </fieldset>
             {budgetUnlimited ? (
               <p className="budget-form-help">
                 Tracks this category across months without a spending cap. You can assign it to
@@ -8688,12 +8716,11 @@ function FinanceComposer({
                 </label>
                 <p className="budget-form-help">
                   The month chooses when this budget applies. The monthly limit is your planned
-                  spending cap for that month.
+                  spending cap for that month. Leave it blank to make an unlimited category.
                 </p>
                 <label>
-                  Monthly spending limit
+                  Monthly spending limit (optional)
                   <input
-                    required
                     min="0.01"
                     step="0.01"
                     type="number"
