@@ -584,6 +584,9 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 		if err := validateTransactionWrite(event.App, record, user.Id); err != nil {
 			return event.BadRequestError(err.Error(), nil)
 		}
+		if err := validateTransactionCheckpointGap(event.App, record, user.Id); err != nil {
+			return event.BadRequestError(err.Error(), nil)
+		}
 	}
 	if err := event.App.Save(record); err != nil {
 		return err
@@ -973,6 +976,38 @@ func validateTransactionWrite(app core.App, transaction *core.Record, owner stri
 	account, err := app.FindRecordById("accounts", transaction.GetString("account"))
 	if err != nil || account.GetString("owner") != owner {
 		return fmt.Errorf("account not found")
+	}
+	return nil
+}
+
+func validateTransactionCheckpointGap(app core.App, transaction *core.Record, owner string) error {
+	account, err := app.FindRecordById("accounts", transaction.GetString("account"))
+	if err != nil || account.GetString("owner") != owner {
+		return fmt.Errorf("account not found")
+	}
+	transactions, err := app.FindRecordsByFilter("transactions", "owner = {:owner} && account = {:account}", "date,id", 0, 0, dbx.Params{
+		"owner": owner, "account": account.Id,
+	})
+	if err != nil {
+		return err
+	}
+	checkpoints, err := app.FindRecordsByFilter("checkpoints", "owner = {:owner} && account = {:account}", "date", 0, 0, dbx.Params{
+		"owner": owner, "account": account.Id,
+	})
+	if err != nil {
+		return err
+	}
+
+	transactionDate := transaction.GetDateTime("date").Time()
+	for _, window := range checkpointWindows(account, checkpoints, transactions) {
+		gap, _ := window["unexplained"].(float64)
+		checkpointDate, _ := window["toDate"].(time.Time)
+		if !moneyEqual(gap, 0) && transactionDate.After(checkpointDate) {
+			return fmt.Errorf(
+				"resolve the checkpoint gap through %s before adding later transactions",
+				checkpointDate.Format("2006-01-02"),
+			)
+		}
 	}
 	return nil
 }
