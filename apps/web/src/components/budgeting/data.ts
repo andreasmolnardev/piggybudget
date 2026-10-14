@@ -99,6 +99,7 @@ export type Budget = {
   category: string;
   spent: number;
   limit: number;
+  unlimited?: boolean;
   color: string;
   startDate?: string;
   endDate?: string;
@@ -431,7 +432,8 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       id: record.id,
       category: textValue(record, 'category', 'name') || 'Other',
       spent: numberValue(record, 'spent', 'used', 'amount_spent'),
-      limit: numberValue(record, 'limit', 'amount', 'target') || 1,
+      limit: Boolean(record.unlimited) ? 0 : numberValue(record, 'limit', 'amount', 'target') || 1,
+      unlimited: Boolean(record.unlimited),
       color: ['#5f8d7e', '#d68b5e', '#a78bca', '#6b9ab8'][index % 4],
       startDate: optionalDateValue(record, 'start_date') || undefined,
       endDate: optionalDateValue(record, 'end_date') || undefined,

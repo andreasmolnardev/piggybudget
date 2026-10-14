@@ -569,6 +569,7 @@ function BudgetLine({
   onDelete?: () => void;
 }) {
   const percentage = budget.limit ? (budget.spent / budget.limit) * 100 : 0;
+  const pace = budget.unlimited ? null : budgetSpendPace(budget);
   return (
     <div className="budget-line">
       <div className="budget-line-heading">
@@ -587,19 +588,29 @@ function BudgetLine({
             onClick={onOpen}
             aria-label={`Open ${budget.category} budget and transactions`}
           >
-            {formatMoney(budget.spent)} <em>/ {formatMoney(budget.limit)}</em>
+            {formatMoney(budget.spent)} <em>{budget.unlimited ? '· no limit' : `/ ${formatMoney(budget.limit)}`}</em>
           </button>
         ) : (
           <span className="budget-line-amount">
-            {formatMoney(budget.spent)} <em>/ {formatMoney(budget.limit)}</em>
+            {formatMoney(budget.spent)} <em>{budget.unlimited ? '· no limit' : `/ ${formatMoney(budget.limit)}`}</em>
           </span>
         )}
       </div>
-      <ProgressBar value={percentage} color={budget.color} />
-      <small>
-        {Math.max(0, budget.limit - budget.spent) > 0
-          ? `${formatMoney(budget.limit - budget.spent)} left`
-          : 'Over budget'}
+      {!budget.unlimited && <ProgressBar value={percentage} color={budget.color} />}
+      <small
+        className={
+          pace?.status === 'Above pace' || pace?.status === 'Over limit'
+            ? 'budget-pace-warning'
+            : undefined
+        }
+      >
+        {budget.unlimited
+          ? 'Unlimited category'
+          : pace
+            ? `${formatMoney(pace.availablePerDay)} ${pace.dailyLabel} · ${pace.status}`
+            : Math.max(0, budget.limit - budget.spent) > 0
+              ? `${formatMoney(budget.limit - budget.spent)} left`
+              : 'Over budget'}
       </small>
       {(onEdit || onArchive || onDelete) && (
         <div className="budget-line-actions">
@@ -622,6 +633,43 @@ function BudgetLine({
       )}
     </div>
   );
+}
+
+function budgetSpendPace(budget: Budget, today = dateKey(new Date())) {
+  if (budget.unlimited || !budget.startDate || !budget.endDate) return null;
+  const start = Date.parse(`${budget.startDate.slice(0, 10)}T00:00:00Z`);
+  const end = Date.parse(`${budget.endDate.slice(0, 10)}T00:00:00Z`);
+  const current = Date.parse(`${today}T00:00:00Z`);
+  if (![start, end, current].every(Number.isFinite) || end < start) return null;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const daysInPeriod = Math.floor((end - start) / dayMs) + 1;
+  if (current < start) {
+    return {
+      availablePerDay: budget.limit / daysInPeriod,
+      status: 'Starts later',
+      dailyLabel: 'per day',
+    };
+  }
+  if (current > end) {
+    return {
+      availablePerDay: budget.limit / daysInPeriod,
+      status: budget.spent > budget.limit + 0.005 ? 'Over limit' : 'Within limit',
+      dailyLabel: 'average per day',
+    };
+  }
+  const elapsedDays = Math.max(0, Math.min(daysInPeriod, Math.floor((current - start) / dayMs) + 1));
+  const daysRemaining = Math.max(1, daysInPeriod - elapsedDays + 1);
+  const expectedSpent = budget.limit * (elapsedDays / daysInPeriod);
+  const availablePerDay = Math.max(0, budget.limit - budget.spent) / daysRemaining;
+  const status =
+    budget.spent > budget.limit + 0.005
+      ? 'Over limit'
+      : budget.spent > expectedSpent + 0.005
+        ? 'Above pace'
+        : 'On track';
+
+  return { availablePerDay, status, dailyLabel: 'available per day' };
 }
 
 function ReconciliationCard({
@@ -1593,7 +1641,7 @@ function FinanceHelper({
   const largestCategory = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1])[0];
   const largestExpense = [...expenses].sort((a, b) => b.amount - a.amount)[0];
   const remainingBudget = data.budgets.reduce(
-    (sum, budget) => sum + budget.limit - budget.spent,
+    (sum, budget) => sum + (budget.unlimited ? 0 : budget.limit - budget.spent),
     0,
   );
   return (
@@ -1639,7 +1687,7 @@ function FinanceHelper({
       {answer === 'spend' && (
         <div className="helper-answer">
           {data.budgets.length
-            ? `${formatMoney(remainingBudget)} remains across ${data.budgets.length} loaded budgets. This is the sum of each budget limit minus its recorded spending.`
+            ? `${formatMoney(remainingBudget)} remains across limited budgets. Unlimited categories track spending without a cap.`
             : 'Add a budget to see how much remains to spend.'}
           <button className="text-button" type="button" onClick={() => onNavigate('budgets')}>
             Open budgets <ArrowRight size={14} />
@@ -3858,21 +3906,35 @@ function BudgetsView({
         (!budget.startDate || budget.startDate <= range.end) &&
         (!budget.endDate || budget.endDate >= range.start),
     )
-    .map((budget) => ({
-      ...budget,
-      spent: data.transactions
-        .filter((transaction) => transaction.kind === 'expense')
-        .filter((transaction) => transaction.date >= range.start && transaction.date <= range.end)
-        .filter((transaction) =>
-          transaction.budgetId
-            ? transaction.budgetId === budget.id
-            : transaction.category.toLowerCase() === budget.category.toLowerCase(),
-        )
-        .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
-    }));
+    .map((budget) => {
+      const spendStart = budget.startDate && budget.startDate > range.start
+        ? budget.startDate
+        : range.start;
+      const spendEnd = budget.endDate && budget.endDate < range.end
+        ? budget.endDate
+        : range.end;
+      return {
+        ...budget,
+        spent: data.transactions
+          .filter((transaction) => transaction.kind === 'expense')
+          .filter((transaction) => transaction.date >= spendStart && transaction.date <= spendEnd)
+          .filter((transaction) =>
+            transaction.budgetId
+              ? transaction.budgetId === budget.id
+              : transaction.category.toLowerCase() === budget.category.toLowerCase(),
+          )
+          .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
+      };
+    });
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
-  const totalLimit = budgets.reduce((sum, budget) => sum + budget.limit, 0);
-  const percentUsed = totalLimit > 0 ? Math.round((totalSpent / totalLimit) * 100) : 0;
+  const limitedBudgets = budgets.filter((budget) => !budget.unlimited);
+  const limitedSpent = limitedBudgets.reduce((sum, budget) => sum + budget.spent, 0);
+  const totalLimit = limitedBudgets.reduce((sum, budget) => sum + budget.limit, 0);
+  const percentUsed = totalLimit > 0 ? Math.round((limitedSpent / totalLimit) * 100) : 0;
+  const remainingLimit = limitedBudgets.reduce(
+    (sum, budget) => sum + budget.limit - budget.spent,
+    0,
+  );
   return (
     <>
       <PageHeader
@@ -3897,8 +3959,8 @@ function BudgetsView({
         </article>
         <article className="budget-summary-card">
           <span>Left to spend</span>
-          <strong>{formatMoney(totalLimit - totalSpent)}</strong>
-          <small>across {budgets.length} categories</small>
+          <strong>{formatMoney(remainingLimit)}</strong>
+          <small>across {limitedBudgets.length} limited budgets</small>
         </article>
       </div>
       <div className="dashboard-grid budgets-layout">
@@ -7196,8 +7258,11 @@ function FinanceRecordDetails({
           <dl className="transaction-detail-list">
             <DetailRow label="Category" value={budget.category} />
             <DetailRow label="Spent" value={formatMoney(budget.spent)} />
-            <DetailRow label="Limit" value={formatMoney(budget.limit)} />
-            <DetailRow label="Remaining" value={formatMoney(budget.limit - budget.spent)} />
+            <DetailRow label="Limit" value={budget.unlimited ? 'Unlimited' : formatMoney(budget.limit)} />
+            <DetailRow
+              label="Remaining"
+              value={budget.unlimited ? 'No spending cap' : formatMoney(budget.limit - budget.spent)}
+            />
           </dl>
         )}
         {asset && (
@@ -8133,6 +8198,7 @@ function FinanceComposer({
           ? String(budgetRecord.limit)
           : '',
   );
+  const [budgetUnlimited, setBudgetUnlimited] = useState(Boolean(budgetRecord?.unlimited));
   const [payee, setPayee] = useState(transaction?.merchant ?? '');
   const [type, setType] = useState<TransactionKind>(transaction?.kind ?? 'expense');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
@@ -8200,6 +8266,7 @@ function FinanceComposer({
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const numericAmount = Number(amount);
+    const isUnlimitedBudget = kind === 'budget' && budgetUnlimited;
     if (
       kind === 'budget' &&
       data.budgets.some(
@@ -8207,10 +8274,25 @@ function FinanceComposer({
           !item.archived &&
           item.id !== budgetRecord?.id &&
           item.category.trim().toLowerCase() === category.trim().toLowerCase() &&
-          (!item.startDate || item.startDate.slice(0, 7) === date.slice(0, 7)),
+          (isUnlimitedBudget ||
+            item.unlimited ||
+            !item.startDate ||
+            item.startDate.slice(0, 7) === date.slice(0, 7)),
       )
     ) {
-      setError('A budget already exists for this category and month.');
+      setError(
+        isUnlimitedBudget
+          ? 'A budget already exists for this category. Edit it instead.'
+          : 'A budget already exists for this category and month.',
+      );
+      return;
+    }
+    if (
+      kind === 'budget' &&
+      !budgetUnlimited &&
+      (!Number.isFinite(numericAmount) || numericAmount <= 0)
+    ) {
+      setError('Enter a monthly limit greater than zero, or choose Unlimited category.');
       return;
     }
     if (
@@ -8291,11 +8373,14 @@ function FinanceComposer({
           ? {
               name: category.trim(),
               category: category.trim(),
-              amount: numericAmount,
-              start_date: `${date.slice(0, 7)}-01`,
-              end_date: new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0))
-                .toISOString()
-                .slice(0, 10),
+              amount: budgetUnlimited ? 0 : numericAmount,
+              unlimited: budgetUnlimited,
+              start_date: budgetUnlimited ? '' : `${date.slice(0, 7)}-01`,
+              end_date: budgetUnlimited
+                ? ''
+                : new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0))
+                    .toISOString()
+                    .slice(0, 10),
               notes: note,
             }
           : kind === 'checkpoint'
@@ -8515,7 +8600,7 @@ function FinanceComposer({
                 : isBudget
                   ? budgetRecord
                     ? 'Edit budget'
-                    : 'Create a monthly budget'
+                    : 'Add a budget or category'
                   : isAsset
                     ? `${asset ? 'Edit' : 'Add'} asset`
                     : kind === 'checkpoint'
@@ -8538,18 +8623,17 @@ function FinanceComposer({
         {isBudget ? (
           <>
             <label>
-              Budget month
-              <input
-                required
-                type="month"
-                value={date.slice(0, 7)}
-                onChange={(event) => {
-                  if (event.target.value) setDate(`${event.target.value}-01`);
-                }}
-              />
+              Budget type
+              <AppSelect
+                value={budgetUnlimited ? 'unlimited' : 'monthly'}
+                onChange={(event) => setBudgetUnlimited(event.target.value === 'unlimited')}
+              >
+                <option value="monthly">Monthly limit</option>
+                <option value="unlimited">Unlimited category</option>
+              </AppSelect>
             </label>
             <label>
-              Bucket name
+              Category name
               <input
                 required
                 value={category}
@@ -8557,17 +8641,41 @@ function FinanceComposer({
                 placeholder="e.g. Groceries"
               />
             </label>
-            <label>
-              Monthly amount
-              <input
-                required
-                min="0.01"
-                step="0.01"
-                type="number"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-              />
-            </label>
+            {budgetUnlimited ? (
+              <p className="budget-form-help">
+                Tracks this category across months without a spending cap. You can assign it to
+                transactions like any other category.
+              </p>
+            ) : (
+              <>
+                <label>
+                  Applies in
+                  <input
+                    required
+                    type="month"
+                    value={date.slice(0, 7)}
+                    onChange={(event) => {
+                      if (event.target.value) setDate(`${event.target.value}-01`);
+                    }}
+                  />
+                </label>
+                <p className="budget-form-help">
+                  The month chooses when this budget applies. The monthly limit is your planned
+                  spending cap for that month.
+                </p>
+                <label>
+                  Monthly spending limit
+                  <input
+                    required
+                    min="0.01"
+                    step="0.01"
+                    type="number"
+                    value={amount}
+                    onChange={(event) => setAmount(event.target.value)}
+                  />
+                </label>
+              </>
+            )}
           </>
         ) : isAsset ? (
           <>

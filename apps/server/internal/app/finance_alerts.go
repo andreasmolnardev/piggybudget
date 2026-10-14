@@ -53,6 +53,9 @@ func createBudgetOverrunNotifications(app core.App, owner string, transaction *c
 		return err
 	}
 	for _, budget := range budgets {
+		if budget.GetBool("unlimited") {
+			continue
+		}
 		limit := budget.GetFloat("amount")
 		if limit <= 0 {
 			continue

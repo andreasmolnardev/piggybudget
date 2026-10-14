@@ -39,7 +39,9 @@ function resultsFor(data: BudgetData, query: string): SearchResult[] {
       id: `budget-${budget.id}`,
       record: { type: 'budget' as const, id: budget.id },
       title: budget.category,
-      detail: `${formatMoney(budget.spent)} spent of ${formatMoney(budget.limit)}`,
+      detail: budget.unlimited
+        ? `${formatMoney(budget.spent)} spent · unlimited category`
+        : `${formatMoney(budget.spent)} spent of ${formatMoney(budget.limit)}`,
       section: 'Budget',
       tab: 'budgets' as const,
     })),
