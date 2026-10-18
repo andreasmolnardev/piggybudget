@@ -207,8 +207,12 @@ func TestFinanceHTTPAPIRequiresAuthAndScopesRecords(t *testing.T) {
 		t.Fatalf("unexplained gap missing from miscellaneous bucket: %d, %s", status, body)
 	}
 	status, _, body = integrationRequest(t, server, http.MethodPost, "/api/finance/transactions", `{"account":"`+accountID+`","date":"2026-09-02T00:00:00Z","amount":1}`, withContentType(bearerHeaders(ownerToken)))
-	if status != http.StatusBadRequest {
-		t.Fatalf("transaction during unresolved gap = %d, body = %s", status, body)
+	if status != http.StatusCreated {
+		t.Fatalf("transaction after checkpoint with a gap = %d, body = %s", status, body)
+	}
+	status, _, body = integrationRequest(t, server, http.MethodGet, "/api/finance/accounts/"+accountID+"/summary", "", bearerHeaders(ownerToken))
+	if status != http.StatusOK || !containsJSONNumber(body, 131) {
+		t.Fatalf("checkpoint was not used as the current balance baseline: %d, %s", status, body)
 	}
 	status, _, body = integrationRequest(t, server, http.MethodPost, "/api/finance/transactions", `{"account":"`+accountID+`","date":"2026-08-31T00:00:00Z","amount":2}`, withContentType(bearerHeaders(ownerToken)))
 	if status != http.StatusCreated {
