@@ -212,7 +212,9 @@ function recognizedIncomeAmount(transaction: Transaction) {
 }
 
 function topLevelTransactions(transactions: Transaction[]) {
-  return transactions.filter((transaction) => !transaction.parentTransactionId);
+  return transactions.filter(
+    (transaction) => !transaction.parentTransactionId && !transaction.isDraft,
+  );
 }
 
 function transactionBalanceDelta(transaction: Transaction) {
@@ -234,7 +236,10 @@ function accountBalanceAtEndOfDay(
   today: string,
 ) {
   const accountTransactions = transactions.filter(
-    (transaction) => transaction.accountId === account.id && !transaction.parentTransactionId,
+    (transaction) =>
+      transaction.accountId === account.id &&
+      !transaction.parentTransactionId &&
+      !transaction.isDraft,
   );
   const transactionDeltaBetween = (start: string, end: string) =>
     accountTransactions
@@ -285,6 +290,7 @@ function checkpointGapCount(
             (transaction) =>
               transaction.accountId === account.id &&
               !transaction.parentTransactionId &&
+              !transaction.isDraft &&
               (!previousDate || transaction.date > previousDate) &&
               transaction.date <= checkpoint.date,
           )
@@ -429,6 +435,7 @@ function TransactionRow({
       <TransactionIcon kind={transaction.kind} />
       <div className="transaction-main">
         <strong>{transaction.merchant}</strong>
+        {transaction.isDraft && <small className="transaction-draft-label">Draft</small>}
         <span>{transactionDetails}</span>
         {transaction.subtransactions?.length ? (
           <ul className="transaction-subtransactions" aria-label="Subtransactions">
@@ -1648,7 +1655,7 @@ function FinanceHelper({
   onOpenTransaction: (transaction: Transaction) => void;
 }) {
   const [answer, setAnswer] = useState<'changes' | 'spend' | null>(null);
-  const expenses = data.transactions.filter((item) => item.kind === 'expense');
+  const expenses = data.transactions.filter((item) => item.kind === 'expense' && !item.isDraft);
   const categoryTotals = new Map<string, number>();
   for (const transaction of expenses) {
     const category = transaction.category || 'Uncategorized';
@@ -1808,6 +1815,7 @@ function DashboardView({
   const range = periodRange(period, readPreferences().weekStart);
   const currentTransactionEntries = data.transactions.filter(
     (transaction) =>
+      !transaction.isDraft &&
       transaction.date >= dateKey(range.start) && transaction.date <= dateKey(range.end),
   );
   const currentTransactions = topLevelTransactions(currentTransactionEntries);
@@ -2447,10 +2455,12 @@ function TransactionsView({
         matchesReconciled
       );
     };
-    const result = topLevelTransactions(data.transactions).filter(
-      (transaction) =>
-        matchesFilters(transaction) || transaction.subtransactions?.some(matchesFilters),
-    );
+    const result = data.transactions
+      .filter((transaction) => !transaction.parentTransactionId)
+      .filter(
+        (transaction) =>
+          matchesFilters(transaction) || transaction.subtransactions?.some(matchesFilters),
+      );
     return result.sort((a, b) => {
       if (sort === 'date-asc') return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
       if (sort === 'amount-desc') return b.amount - a.amount || b.date.localeCompare(a.date);
@@ -2460,13 +2470,16 @@ function TransactionsView({
   }, [data.transactions, filters, sort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const selectedTransactions = topLevelTransactions(data.transactions).filter((transaction) =>
-    selectedTransactionIds.has(transaction.id),
-  );
+  const selectedTransactions = data.transactions
+    .filter((transaction) => !transaction.parentTransactionId)
+    .filter((transaction) => selectedTransactionIds.has(transaction.id));
   const selectedAreExpenses =
     selectedTransactions.length > 0 &&
     selectedTransactions.every(
-      (transaction) => transaction.kind === 'expense' && !transaction.subtransactions?.length,
+      (transaction) =>
+        transaction.kind === 'expense' &&
+        !transaction.isDraft &&
+        !transaction.subtransactions?.length,
     );
   const toggleTransactionSelection = (transactionId: string) => {
     setSelectedTransactionIds((current) => {
@@ -3127,7 +3140,7 @@ function TransactionsView({
               ? `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, filtered.length)}`
               : 'Showing 0'}{' '}
             of {filtered.length} filtered transactions ·{' '}
-            {topLevelTransactions(data.transactions).length} total
+            {data.transactions.filter((transaction) => !transaction.parentTransactionId).length} total
           </span>
           <div className="transaction-footer-actions">
             <button
@@ -3244,6 +3257,7 @@ function ObligationsPanel({
   const usedSettlementIds = new Set(data.settlements.map((settlement) => settlement.transactionId));
   const linkedOptionsFor = (obligationSide: Obligation['side']) =>
     data.transactions.filter((transaction) => {
+      if (transaction.isDraft) return false;
       if (usedSettlementIds.has(transaction.id)) return false;
       const signed =
         transaction.signedAmount ??
@@ -3545,6 +3559,7 @@ function MoneyLentPanel({
   const people = useMemo(() => {
     const balances = new Map<string, number>();
     for (const transaction of transactions) {
+      if (transaction.isDraft) continue;
       const person = transaction.receivable?.trim();
       if (!person) continue;
       const change = transaction.kind === 'expense' ? transaction.amount : -transaction.amount;
@@ -3556,7 +3571,7 @@ function MoneyLentPanel({
         person,
         balance,
         transactions: transactions.filter(
-          (transaction) => transaction.receivable?.trim() === person,
+          (transaction) => !transaction.isDraft && transaction.receivable?.trim() === person,
         ),
       }));
   }, [transactions]);
@@ -3935,7 +3950,7 @@ function BudgetsView({
       return {
         ...budget,
         spent: data.transactions
-          .filter((transaction) => transaction.kind === 'expense')
+          .filter((transaction) => transaction.kind === 'expense' && !transaction.isDraft)
           .filter((transaction) => transaction.date >= spendStart && transaction.date <= spendEnd)
           .filter((transaction) =>
             transaction.budgetId
@@ -8299,9 +8314,21 @@ function FinanceComposer({
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const saveAsDraft =
+      submitter instanceof HTMLButtonElement && submitter.dataset.saveAsDraft === 'true';
     const numericAmount = Number(amount);
     const isUnlimitedBudget = kind === 'budget' && (budgetUnlimited || !amount.trim());
+    if (saveAsDraft && (type === 'transfer' || splitting || repeat || trackAsDebt)) {
+      setError('Drafts are available for unsplit, non-recurring transactions.');
+      return;
+    }
+    if (saveAsDraft && (!account || !date)) {
+      setError('Choose an account and date to save this draft.');
+      return;
+    }
     if (
+      !saveAsDraft &&
       kind === 'budget' &&
       data.budgets.some(
         (item) =>
@@ -8322,6 +8349,7 @@ function FinanceComposer({
       return;
     }
     if (
+      !saveAsDraft &&
       kind === 'budget' &&
       !isUnlimitedBudget &&
       (!Number.isFinite(numericAmount) || numericAmount <= 0)
@@ -8332,6 +8360,7 @@ function FinanceComposer({
       return;
     }
     if (
+      !saveAsDraft &&
       kind === 'transaction' &&
       type === 'transfer' &&
       (!destinationAccount || account === destinationAccount)
@@ -8340,6 +8369,7 @@ function FinanceComposer({
       return;
     }
     if (
+      !saveAsDraft &&
       repeat &&
       (type === 'transfer' ||
         !Number.isInteger(Number(repeatInterval)) ||
@@ -8349,7 +8379,7 @@ function FinanceComposer({
       setError('Choose a repeat interval from 1 to 365.');
       return;
     }
-    if (splitting) {
+    if (splitting && !saveAsDraft) {
       const splitTotal = splitLines.reduce((sum, split) => sum + Number(split.amount), 0);
       if (
         splitLines.length < 2 ||
@@ -8380,13 +8410,13 @@ function FinanceComposer({
         return;
       }
     }
-    if (repeat && pictureFiles.length) {
+    if (repeat && pictureFiles.length && !saveAsDraft) {
       setError('Remove transaction pictures before saving a recurring rule.');
       return;
     }
     const debtSide: Obligation['side'] = type === 'expense' ? 'receivable' : 'payable';
     const debtValue = debtAmount.trim() ? Number(debtAmount) : numericAmount;
-    if (trackAsDebt) {
+    if (trackAsDebt && !saveAsDraft) {
       if (!debtParty.trim()) {
         setError('Enter the person or organization connected to this debt.');
         return;
@@ -8472,6 +8502,7 @@ function FinanceComposer({
                       .filter(Boolean),
                     receipt,
                     notes: note,
+                    is_draft: saveAsDraft,
                   };
     const recurringBody =
       repeat && kind === 'transaction'
@@ -8517,7 +8548,9 @@ function FinanceComposer({
                 : kind === 'budget'
                   ? budgetRecord?.id
                   : undefined;
-      if (kind === 'transaction' && pictureFiles.length) validateTransactionFiles(pictureFiles);
+      if (kind === 'transaction' && pictureFiles.length && !saveAsDraft) {
+        validateTransactionFiles(pictureFiles);
+      }
       const requestBody = isSplit
         ? {
             account,
@@ -8599,7 +8632,7 @@ function FinanceComposer({
         }
         setSavedDebtTransactionId(createdTransactionId);
       }
-      if (kind === 'transaction' && pictureFiles.length) {
+      if (kind === 'transaction' && pictureFiles.length && !saveAsDraft) {
         const transactionId = createdTransactionId;
         if (!transactionId) throw new Error('Transaction saved, but its ID could not be read.');
         setSavedTransactionId(transactionId);
@@ -9368,6 +9401,25 @@ function FinanceComposer({
           <button className="button" type="button" onClick={() => beginClose()}>
             Cancel
           </button>
+          {kind === 'transaction' && (
+            <button
+              className="button"
+              type="submit"
+              formNoValidate
+              data-save-as-draft="true"
+              disabled={
+                busy ||
+                !canSave ||
+                pictureFiles.length > 0 ||
+                type === 'transfer' ||
+                splitting ||
+                repeat ||
+                trackAsDebt
+              }
+            >
+              Save as Draft
+            </button>
+          )}
           <button className="button button-primary" type="submit" disabled={busy || !canSave}>
             {busy
               ? pictureFiles.length

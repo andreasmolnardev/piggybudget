@@ -28,7 +28,7 @@ var financeFields = map[string]map[string]bool{
 	"transactions": {
 		"account": true, "date": true, "amount": true, "type": true, "payee": true, "description": true,
 		"category": true, "budget": true, "tags": true, "attachments": true, "receipt": true,
-		"asset": true, "receivable": true, "notes": true, "cleared": true, "reconciled": true,
+		"asset": true, "receivable": true, "notes": true, "cleared": true, "reconciled": true, "is_draft": true,
 	},
 	"checkpoints": {
 		"account": true, "date": true, "balance": true, "note": true,
@@ -594,11 +594,13 @@ func createFinanceRecord(event *core.RequestEvent, collection string) error {
 		}
 	}
 	if collection == "transactions" {
-		if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
-			event.App.Logger().Error("create budget alert", "transaction_id", record.Id, "error", err)
+		if !record.GetBool("is_draft") {
+			if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
+				event.App.Logger().Error("create budget alert", "transaction_id", record.Id, "error", err)
+			}
 		}
 	}
-	if collection == "transactions" || collection == "accounts" {
+	if (collection == "transactions" && !record.GetBool("is_draft")) || collection == "accounts" {
 		if err := createAccountLowBalanceNotifications(event.App, user.Id); err != nil {
 			event.App.Logger().Error("create low balance alert", "record_id", record.Id, "error", err)
 		}
@@ -695,11 +697,13 @@ func updateFinanceRecord(event *core.RequestEvent, collection string) error {
 		}
 	}
 	if collection == "transactions" {
-		if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
-			event.App.Logger().Error("update budget alert", "transaction_id", record.Id, "error", err)
+		if !record.GetBool("is_draft") {
+			if err := createBudgetOverrunNotifications(event.App, user.Id, record); err != nil {
+				event.App.Logger().Error("update budget alert", "transaction_id", record.Id, "error", err)
+			}
 		}
 	}
-	if collection == "transactions" || collection == "accounts" {
+	if (collection == "transactions" && !record.GetBool("is_draft")) || collection == "accounts" {
 		if err := createAccountLowBalanceNotifications(event.App, user.Id); err != nil {
 			event.App.Logger().Error("update low balance alert", "record_id", record.Id, "error", err)
 		}
@@ -1043,7 +1047,7 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 	reconciledBalance := opening
 	transactionCount := 0
 	for _, transaction := range transactions {
-		if transaction.GetString("parent_transaction") != "" {
+		if transaction.GetString("parent_transaction") != "" || transaction.GetBool("is_draft") {
 			continue
 		}
 		transactionCount++
@@ -1095,7 +1099,7 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 	checkpointDate := latestCheckpoint.GetDateTime("date").Time()
 	balance = latestCheckpoint.GetFloat("balance")
 	for _, transaction := range transactions {
-		if transaction.GetString("parent_transaction") != "" {
+		if transaction.GetString("parent_transaction") != "" || transaction.GetBool("is_draft") {
 			continue
 		}
 		if !transaction.GetDateTime("date").Time().After(checkpointDate) {
@@ -1106,7 +1110,7 @@ func accountSummary(app core.App, account *core.Record, owner string) (map[strin
 	result["balance"] = balance
 	checkpointCalculated := opening
 	for _, transaction := range transactions {
-		if transaction.GetString("parent_transaction") != "" {
+		if transaction.GetString("parent_transaction") != "" || transaction.GetBool("is_draft") {
 			continue
 		}
 		if !transaction.GetDateTime("date").Time().After(checkpointDate) {
@@ -1137,7 +1141,7 @@ func checkpointWindows(account *core.Record, checkpoints, transactions []*core.R
 		transactionDelta := 0.0
 		allTransactionsReconciled := true
 		for _, transaction := range transactions {
-			if transaction.GetString("parent_transaction") != "" {
+			if transaction.GetString("parent_transaction") != "" || transaction.GetBool("is_draft") {
 				continue
 			}
 			transactionDate := transaction.GetDateTime("date").Time()

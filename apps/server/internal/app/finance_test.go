@@ -90,6 +90,10 @@ func TestAccountSummaryCalculatesBalanceAndReconciliation(t *testing.T) {
 		"owner": user.Id, "account": account.Id, "date": "2026-09-15 00:00:00.000Z",
 		"amount": -10, "reconciled": true,
 	})
+	financeTestRecord(t, testApp, "transactions", map[string]any{
+		"owner": user.Id, "account": account.Id, "date": "2026-09-21 00:00:00.000Z",
+		"amount": -500, "is_draft": true,
+	})
 	financeTestRecord(t, testApp, "checkpoints", map[string]any{
 		"owner": user.Id, "account": account.Id, "date": "2026-09-10 00:00:00.000Z",
 		"balance": 150,
@@ -187,6 +191,14 @@ func TestFinanceHTTPAPIRequiresAuthAndScopesRecords(t *testing.T) {
 	status, _, body = integrationRequest(t, server, http.MethodGet, "/api/finance/accounts/"+accountID+"/summary", "", bearerHeaders(ownerToken))
 	if status != http.StatusOK || !containsJSONNumber(body, 125) {
 		t.Fatalf("account summary = %d, body = %s", status, body)
+	}
+	status, _, body = integrationRequest(t, server, http.MethodPost, "/api/finance/transactions", `{"account":"`+accountID+`","date":"2026-09-01T00:00:00Z","amount":1000,"is_draft":true}`, withContentType(bearerHeaders(ownerToken)))
+	if status != http.StatusCreated || !strings.Contains(body, `"is_draft":true`) {
+		t.Fatalf("create draft transaction = %d, body = %s", status, body)
+	}
+	status, _, body = integrationRequest(t, server, http.MethodGet, "/api/finance/accounts/"+accountID+"/summary", "", bearerHeaders(ownerToken))
+	if status != http.StatusOK || !containsJSONNumber(body, 125) {
+		t.Fatalf("draft transaction changed account balance = %d, body = %s", status, body)
 	}
 
 	status, _, body = integrationRequest(t, server, http.MethodPost, "/api/finance/checkpoints", `{"account":"`+accountID+`","date":"2026-09-01T00:00:00Z","balance":130}`, withContentType(bearerHeaders(ownerToken)))

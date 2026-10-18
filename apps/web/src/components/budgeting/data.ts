@@ -36,6 +36,7 @@ export type Transaction = {
   tags?: string[];
   cleared?: boolean;
   reconciled?: boolean;
+  isDraft?: boolean;
   receipt?: string;
   description?: string;
   receivable?: string;
@@ -367,6 +368,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
     tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
     cleared: Boolean(record.cleared),
     reconciled: Boolean(record.reconciled),
+    isDraft: Boolean(record.is_draft),
     receipt: textValue(record, 'receipt'),
     description: textValue(record, 'description'),
     receivable: textValue(record, 'receivable'),

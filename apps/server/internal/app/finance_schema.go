@@ -68,6 +68,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.DateField{Name: "recurring_date"},
 				&core.BoolField{Name: "cleared"},
 				&core.BoolField{Name: "reconciled"},
+				&core.BoolField{Name: "is_draft"},
 			},
 			indexes: []financeIndex{
 				{"idx_transactions_owner_account_date", "owner, account, date", false},
