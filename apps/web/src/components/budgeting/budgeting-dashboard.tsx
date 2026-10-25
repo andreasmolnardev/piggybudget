@@ -36,7 +36,12 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
-import { budgetColorPalette, budgetNameForId, historyDatesForDisplay } from './data';
+import {
+  budgetColorPalette,
+  budgetNameForId,
+  formatTransactionGroupDate,
+  historyDatesForDisplay,
+} from './data';
 import type {
   Account,
   Asset,
@@ -3094,7 +3099,12 @@ function TransactionsView({
           {historyDates.length ? (
             historyDates.map((date) => (
               <section className="transaction-date-group" key={date}>
-                <h3 className="transaction-date-heading">{formatDate(date)}</h3>
+                <h3 className="transaction-date-heading">
+                  {formatTransactionGroupDate(
+                    date,
+                    readPreferences().dateFormat === 'day-first' ? 'en-GB' : undefined,
+                  )}
+                </h3>
                 <div className="transaction-list transaction-table transaction-cards">
                   {(transactionsByDate.get(date) ?? []).map((transaction) => (
                     <TransactionRow
