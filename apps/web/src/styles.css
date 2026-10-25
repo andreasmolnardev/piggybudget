@@ -2615,6 +2615,35 @@ kbd {
   font-size: 22px;
   letter-spacing: -0.04em;
 }
+.transaction-type-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--soft);
+}
+.transaction-type-tabs button {
+  min-height: 34px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.transaction-type-tabs button.is-active {
+  color: var(--foreground);
+  background: var(--card);
+  box-shadow: 0 1px 3px rgba(20, 28, 23, 0.12);
+}
+.transaction-type-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .composer-card label {
   display: flex;
   flex-direction: column;

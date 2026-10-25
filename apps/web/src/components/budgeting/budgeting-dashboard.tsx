@@ -8838,7 +8838,7 @@ function FinanceComposer({
               />
             </label>
           </>
-        ) : (
+        ) : kind === 'transaction' ? null : (
           <>
             <label>
               {type === 'transfer' ? 'From account' : 'Account'}
@@ -8864,7 +8864,7 @@ function FinanceComposer({
             </label>
           </>
         )}
-        {!isAsset && !isBudget && (
+        {!isAsset && !isBudget && kind !== 'transaction' && (
           <label>
             {isAccount
               ? 'Current balance'
@@ -8884,7 +8884,7 @@ function FinanceComposer({
             />
           </label>
         )}
-        {!isAccount && !isAsset && !isBudget && (
+        {!isAccount && !isAsset && !isBudget && kind !== 'transaction' && (
           <label>
             Date
             <input
@@ -8897,24 +8897,83 @@ function FinanceComposer({
         )}
         {kind === 'transaction' && (
           <>
+            <div className="transaction-type-tabs" role="group" aria-label="Transaction type">
+              {[
+                { value: 'expense', label: 'Expense' },
+                { value: 'income', label: 'Income' },
+                { value: 'adjustment', label: 'Adjustment' },
+                ...((duplicate || !transaction || transaction.kind === 'transfer')
+                  ? [{ value: 'transfer', label: 'Transfer' }]
+                  : []),
+              ].map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  aria-pressed={type === tab.value}
+                  disabled={!duplicate && transaction?.kind === 'transfer'}
+                  className={type === tab.value ? 'is-active' : ''}
+                  onClick={() => {
+                    const nextType = tab.value as TransactionKind;
+                    setType(nextType);
+                    if (!['expense', 'income'].includes(nextType)) setTrackAsDebt(false);
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {type !== 'transfer' && (
+              <label>
+                Payee or source
+                <input
+                  value={payee}
+                  onChange={(event) => setPayee(event.target.value)}
+                  placeholder="e.g. Grocery store"
+                />
+              </label>
+            )}
             <label>
-              Type
+              {type === 'transfer' ? 'From account' : 'Account'}
               <AppSelect
-                value={type}
-                disabled={!duplicate && transaction?.kind === 'transfer'}
+                required
+                value={account}
                 onChange={(event) => {
-                  const nextType = event.target.value as TransactionKind;
-                  setType(nextType);
-                  if (!['expense', 'income'].includes(nextType)) setTrackAsDebt(false);
+                  const nextAccount = event.target.value;
+                  setAccount(nextAccount);
+                  if (nextAccount === destinationAccount) {
+                    setDestinationAccount(
+                      availableAccounts.find((item) => item.id !== nextAccount)?.id ?? '',
+                    );
+                  }
                 }}
               >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-                <option value="adjustment">Balance adjustment</option>
-                {(duplicate || !transaction || transaction.kind === 'transfer') && (
-                  <option value="transfer">Transfer</option>
-                )}
+                {availableAccounts.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.type}
+                  </option>
+                ))}
               </AppSelect>
+            </label>
+            <label>
+              {splitting ? 'Parent transaction total' : 'Amount'}
+              <input
+                required
+                min="0"
+                step="0.01"
+                type="number"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0.00"
+              />
+            </label>
+            <label>
+              Date
+              <input
+                required
+                type="date"
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+              />
             </label>
             {(!transaction || duplicate) && (type === 'expense' || type === 'income') && (
               <>
@@ -9196,14 +9255,6 @@ function FinanceComposer({
                     </AppSelect>
                   </label>
                 )}
-                <label>
-                  Payee or source
-                  <input
-                    value={payee}
-                    onChange={(event) => setPayee(event.target.value)}
-                    placeholder="e.g. Grocery store"
-                  />
-                </label>
                 <label>
                   Description
                   <input
