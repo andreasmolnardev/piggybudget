@@ -3,6 +3,7 @@ import {
   budgetNameForId,
   formatTransactionGroupDate,
   historyDatesForDisplay,
+  transactionEditId,
   type Budget,
   type Checkpoint,
   type Transaction,
@@ -74,5 +75,15 @@ describe('historyDatesForDisplay', () => {
 describe('formatTransactionGroupDate', () => {
   it('shows the weekday with the month and day', () => {
     expect(formatTransactionGroupDate('2022-10-03', 'en-US')).toBe('Mon Oct 3');
+  });
+});
+
+describe('transactionEditId', () => {
+  it('uses no existing ID when making a duplicate', () => {
+    expect(transactionEditId({ id: 'original' } as Transaction, true, null)).toBeUndefined();
+  });
+
+  it('keeps the existing ID when editing a transaction', () => {
+    expect(transactionEditId({ id: 'original' } as Transaction, false, null)).toBe('original');
   });
 });

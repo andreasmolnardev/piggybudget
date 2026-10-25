@@ -256,6 +256,14 @@ export function historyDatesForDisplay(transactions: Transaction[], checkpoints:
   ].sort((a, b) => b.localeCompare(a));
 }
 
+export function transactionEditId(
+  transaction: Transaction | null,
+  duplicate: boolean,
+  savedTransactionId: string | null,
+) {
+  return duplicate ? undefined : (transaction?.id ?? savedTransactionId ?? undefined);
+}
+
 export function formatTransactionGroupDate(date: string, locale?: string) {
   return new Intl.DateTimeFormat(locale, {
     weekday: 'short',

@@ -41,6 +41,7 @@ import {
   budgetNameForId,
   formatTransactionGroupDate,
   historyDatesForDisplay,
+  transactionEditId,
 } from './data';
 import type {
   Account,
@@ -2314,6 +2315,7 @@ function TransactionsView({
   onAddCheckpoint,
   onAddAccount,
   onEditTransaction,
+  onDuplicateTransaction,
   onDeleteTransaction,
   onToggleCleared,
   onOpenTransaction,
@@ -2329,6 +2331,7 @@ function TransactionsView({
   onAddCheckpoint: () => void;
   onAddAccount: () => void;
   onEditTransaction: (transaction: Transaction) => void;
+  onDuplicateTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
   onToggleCleared: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
@@ -3113,6 +3116,7 @@ function TransactionsView({
                       budgetName={budgetNameForId(data.budgets, transaction.budgetId)}
                       onOpen={() => onOpenTransaction(transaction)}
                       onEdit={() => onEditTransaction(transaction)}
+                      onDuplicate={() => onDuplicateTransaction(transaction)}
                       onDelete={() => onDeleteTransaction(transaction)}
                       onToggleCleared={() => onToggleCleared(transaction)}
                       showDate={false}
@@ -6037,6 +6041,7 @@ export function BudgetingDashboard({
     'account' | 'transaction' | 'checkpoint' | 'asset' | 'budget' | null
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -6075,6 +6080,7 @@ export function BudgetingDashboard({
   const closeComposer = () => {
     setComposer(null);
     setEditingTransaction(null);
+    setDuplicatingTransaction(null);
     setEditingAsset(null);
     setEditingBudget(null);
     setPreferredAccountId(null);
@@ -6340,88 +6346,6 @@ export function BudgetingDashboard({
     }
     onRefresh();
   };
-  const duplicateTransaction = async (transaction: Transaction) => {
-    if (transaction.subtransactions?.length) {
-      const response = await apiFetch('/api/finance/transactions/split', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${pb.authStore.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          account: transaction.accountId,
-          date: transaction.date,
-          amount: transaction.amount,
-          type: transaction.kind,
-          payee: transaction.merchant,
-          description: transaction.description ?? '',
-          tags: transaction.tags ?? [],
-          notes: transaction.note ?? '',
-          splits: transaction.subtransactions.map((item) => ({
-            name: item.merchant,
-            amount: item.amount,
-            category: item.category,
-            budget: item.budgetId ?? '',
-          })),
-        }),
-      });
-      if (!response.ok) {
-        window.alert((await response.text()) || 'Could not duplicate this transaction.');
-        return;
-      }
-      onRefresh();
-      return;
-    }
-    const transferPeer = transaction.transferId
-      ? data.transactions.find(
-          (item) => item.transferId === transaction.transferId && item.id !== transaction.id,
-        )
-      : undefined;
-    if (transaction.kind === 'transfer' && !transferPeer) {
-      window.alert('This transfer is missing its paired account entry. Refresh and try again.');
-      return;
-    }
-    const isSource = transaction.kind !== 'transfer' || (transaction.signedAmount ?? -1) < 0;
-    const response = await apiFetch(
-      transaction.kind === 'transfer' ? '/api/finance/transfers' : '/api/finance/transactions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${pb.authStore.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(
-          transaction.kind === 'transfer'
-            ? {
-                source_account: isSource ? transaction.accountId : transferPeer?.accountId,
-                destination_account: isSource ? transferPeer?.accountId : transaction.accountId,
-                date: transaction.date,
-                amount: transaction.amount,
-                notes: transaction.note ?? transaction.description ?? '',
-              }
-            : {
-                account: transaction.accountId,
-                date: transaction.date,
-                amount:
-                  transaction.signedAmount ??
-                  (transaction.kind === 'expense' ? -transaction.amount : transaction.amount),
-                type: transaction.kind,
-                payee: transaction.merchant,
-                description: transaction.description ?? '',
-                category: transaction.category,
-                budget: transaction.budgetId ?? '',
-                tags: transaction.tags ?? [],
-                notes: transaction.note ?? '',
-              },
-        ),
-      },
-    );
-    if (!response.ok) {
-      window.alert((await response.text()) || 'Could not duplicate this transaction.');
-      return;
-    }
-    onRefresh();
-  };
   const renameReceivable = async (person: string, nextName: string) => {
     if (!nextName.trim() || nextName.trim() === person) return false;
     const related = data.transactions.filter(
@@ -6471,11 +6395,16 @@ export function BudgetingDashboard({
         onAddCheckpoint={() => setComposer('checkpoint')}
         onOpenTransaction={setViewingTransaction}
         onEditTransaction={(transaction) => {
+          setDuplicatingTransaction(null);
           setEditingTransaction(transaction);
           setComposer('transaction');
         }}
         onDeleteTransaction={(transaction) => void deleteTransaction(transaction)}
-        onDuplicateTransaction={(transaction) => void duplicateTransaction(transaction)}
+        onDuplicateTransaction={(transaction) => {
+          setEditingTransaction(null);
+          setDuplicatingTransaction(transaction);
+          setComposer('transaction');
+        }}
         onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
@@ -6488,7 +6417,13 @@ export function BudgetingDashboard({
         onAddCheckpoint={() => setComposer('checkpoint')}
         onAddAccount={() => setComposer('account')}
         onEditTransaction={(transaction) => {
+          setDuplicatingTransaction(null);
           setEditingTransaction(transaction);
+          setComposer('transaction');
+        }}
+        onDuplicateTransaction={(transaction) => {
+          setEditingTransaction(null);
+          setDuplicatingTransaction(transaction);
           setComposer('transaction');
         }}
         onDeleteTransaction={(transaction) => void deleteTransaction(transaction)}
@@ -6636,7 +6571,8 @@ export function BudgetingDashboard({
           kind={composer}
           data={data}
           remote={remote}
-          transaction={editingTransaction}
+          transaction={editingTransaction ?? duplicatingTransaction}
+          duplicate={Boolean(duplicatingTransaction)}
           asset={editingAsset}
           budgetRecord={editingBudget}
           preferredAccountId={preferredAccountId}
@@ -8191,6 +8127,7 @@ function FinanceComposer({
   data,
   remote,
   transaction,
+  duplicate,
   asset,
   budgetRecord,
   preferredAccountId,
@@ -8201,6 +8138,7 @@ function FinanceComposer({
   data: BudgetData;
   remote: boolean;
   transaction: Transaction | null;
+  duplicate: boolean;
   asset: Asset | null;
   budgetRecord: Budget | null;
   preferredAccountId: string | null;
@@ -8299,7 +8237,7 @@ function FinanceComposer({
   const [pictureFiles, setPictureFiles] = useState<File[]>([]);
   const [pictureUploadFailed, setPictureUploadFailed] = useState(false);
   const [savedTransactionId, setSavedTransactionId] = useState<string | null>(
-    transaction?.id ?? null,
+    duplicate ? null : (transaction?.id ?? null),
   );
   const [savedDebtTransactionId, setSavedDebtTransactionId] = useState<string | null>(null);
   const [assetName, setAssetName] = useState(asset?.name ?? '');
@@ -8443,7 +8381,12 @@ function FinanceComposer({
         );
         return;
       }
-      if (transaction || repeat || splitting || !['expense', 'income'].includes(type)) {
+      if (
+        (transaction && !duplicate) ||
+        repeat ||
+        splitting ||
+        !['expense', 'income'].includes(type)
+      ) {
         setError('Debt tracking is available for new, unsplit expense or income transactions.');
         return;
       }
@@ -8529,7 +8472,7 @@ function FinanceComposer({
       const isSplit =
         kind === 'transaction' &&
         splitting &&
-        (!transaction || Boolean(transaction.subtransactions?.length));
+        (duplicate || !transaction || Boolean(transaction.subtransactions?.length));
       const resource = isSplit
         ? 'transactions/split'
         : kind === 'account'
@@ -8550,9 +8493,11 @@ function FinanceComposer({
         isSplit || (repeat && kind === 'transaction')
           ? undefined
           : isTransfer
-            ? transaction?.transferId
+            ? duplicate
+              ? undefined
+              : transaction?.transferId
             : kind === 'transaction'
-              ? (transaction?.id ?? savedTransactionId ?? undefined)
+              ? transactionEditId(transaction, duplicate, savedTransactionId)
               : kind === 'asset'
                 ? asset?.id
                 : kind === 'budget'
@@ -8584,7 +8529,7 @@ function FinanceComposer({
             })),
           }
         : recurringBody;
-      const splitGroup = transaction?.splitGroup;
+      const splitGroup = duplicate ? undefined : transaction?.splitGroup;
       const splitParent = isSplit && Boolean(splitGroup);
       const response = await apiFetch(
         splitParent
@@ -8693,7 +8638,7 @@ function FinanceComposer({
                     ? `${asset ? 'Edit' : 'Add'} asset`
                     : kind === 'checkpoint'
                       ? 'Record a checkpoint'
-                      : `${transaction ? 'Edit' : 'Add'} transaction`}
+                      : `${duplicate ? 'Duplicate' : transaction ? 'Edit' : 'Add'} transaction`}
             </h2>
           </div>
           <button
@@ -8956,7 +8901,7 @@ function FinanceComposer({
               Type
               <AppSelect
                 value={type}
-                disabled={transaction?.kind === 'transfer'}
+                disabled={!duplicate && transaction?.kind === 'transfer'}
                 onChange={(event) => {
                   const nextType = event.target.value as TransactionKind;
                   setType(nextType);
@@ -8966,12 +8911,12 @@ function FinanceComposer({
                 <option value="expense">Expense</option>
                 <option value="income">Income</option>
                 <option value="adjustment">Balance adjustment</option>
-                {(!transaction || transaction.kind === 'transfer') && (
+                {(duplicate || !transaction || transaction.kind === 'transfer') && (
                   <option value="transfer">Transfer</option>
                 )}
               </AppSelect>
             </label>
-            {!transaction && (type === 'expense' || type === 'income') && (
+            {(!transaction || duplicate) && (type === 'expense' || type === 'income') && (
               <>
                 <label className="transaction-repeat-toggle">
                   <input
@@ -9019,7 +8964,7 @@ function FinanceComposer({
                 )}
               </>
             )}
-            {!transaction && type !== 'transfer' && (
+            {(!transaction || duplicate) && type !== 'transfer' && (
               <label className="transaction-repeat-toggle">
                 <input
                   type="checkbox"
@@ -9036,12 +8981,12 @@ function FinanceComposer({
               </label>
             )}
             {(type === 'expense' || type === 'income') &&
-              (!transaction || Boolean(transaction.subtransactions?.length)) && (
+              (duplicate || !transaction || Boolean(transaction.subtransactions?.length)) && (
                 <label className="transaction-repeat-toggle">
                   <input
                     type="checkbox"
                     checked={splitting}
-                    disabled={Boolean(transaction?.subtransactions?.length)}
+                    disabled={!duplicate && Boolean(transaction?.subtransactions?.length)}
                     onChange={(event) => {
                       setSplitting(event.target.checked);
                       if (event.target.checked) {
@@ -9445,9 +9390,11 @@ function FinanceComposer({
                       ? 'Save asset'
                       : pictureUploadFailed
                         ? 'Retry picture upload'
-                        : transaction
-                          ? 'Save changes'
-                          : 'Save transaction'}
+                        : duplicate
+                          ? 'Create duplicate'
+                          : transaction
+                            ? 'Save changes'
+                            : 'Save transaction'}
           </button>
         </div>
       </form>
