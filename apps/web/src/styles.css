@@ -2484,10 +2484,43 @@ kbd {
 .goal-add-card small {
   font-size: 10px;
 }
-.settings-grid {
-  position: relative;
+.settings-layout {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 15px;
+}
+.settings-navigation {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.settings-navigation-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 11px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-navigation-item:hover,
+.settings-navigation-item.is-active {
+  color: var(--foreground);
+  background: var(--soft);
+}
+.settings-navigation-item strong { font-size: 11px; font-weight: 650; }
+.settings-navigation-item small { font-size: 9px; line-height: 1.4; }
+.settings-main { min-width: 0; }
+.settings-main-heading { margin: 3px 0 15px; }
+.settings-main-heading h2 { margin: 0 0 5px; font-size: 17px; }
+.settings-main-heading p { margin: 0; color: var(--muted); font-size: 11px; }
+.settings-about-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 15px;
 }
 .settings-card {
@@ -2497,7 +2530,6 @@ kbd {
   min-height: 150px;
 }
 .transaction-csv-settings {
-  grid-column: 1 / -1;
   align-items: flex-start;
 }
 .transaction-csv-settings-content {
@@ -2549,12 +2581,10 @@ kbd {
   font-size: 17px;
 }
 .settings-message {
-  position: absolute;
-  bottom: -50px;
-  left: 0;
   display: flex;
   align-items: center;
   gap: 7px;
+  margin-top: 13px;
   color: var(--primary);
   font-size: 11px;
 }
@@ -3230,6 +3260,10 @@ h1 {
 }
 
 @media (max-width: 700px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-navigation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-navigation-item { min-height: 62px; }
+  .settings-about-grid { grid-template-columns: 1fr; }
   .app-shell {
     display: block;
   }
@@ -3337,7 +3371,7 @@ h1 {
   .stat-grid,
   .budget-summary-grid,
   .goal-grid,
-  .settings-grid {
+  .settings-about-grid {
     grid-template-columns: 1fr;
   }
   .stat-card {

@@ -7120,6 +7120,20 @@ function TransactionCsvSettings({
   );
 }
 
+type SettingsSectionId = 'profile' | 'accounts' | 'preferences' | 'data' | 'about';
+
+const settingsSections: Array<{
+  id: SettingsSectionId;
+  title: string;
+  description: string;
+}> = [
+  { id: 'profile', title: 'Profile and security', description: 'Your name, email, and access' },
+  { id: 'accounts', title: 'Accounts', description: 'Manage linked finance accounts' },
+  { id: 'preferences', title: 'Preferences', description: 'Currency, dates, and appearance' },
+  { id: 'data', title: 'Transaction data', description: 'Import or export a CSV file' },
+  { id: 'about', title: 'About', description: 'Build details and developer tools' },
+];
+
 function SettingsView({
   userId,
   data,
@@ -7144,6 +7158,7 @@ function SettingsView({
   const { setTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('profile');
   const [preferences, setPreferences] = useState(() => readPreferences(userId));
   useEffect(() => setPreferences(readPreferences(userId)), [userId]);
   const savePreferences = (next: UserPreferences) => {
@@ -7154,6 +7169,7 @@ function SettingsView({
     setPreferencesOpen(false);
     onMessage('Preferences saved.');
   };
+  const selectedSection = settingsSections.find((section) => section.id === activeSection)!;
   return (
     <>
       <PageHeader
@@ -7164,91 +7180,122 @@ function SettingsView({
           </button>
         }
       />
-      <section className="settings-grid">
-        <article className="panel settings-card">
-          <div className="profile-large">{profile.initials}</div>
-          <div>
-            <h2>{profile.name}</h2>
-            <p>{profile.email || 'No email on file'}</p>
-            <button className="text-button" type="button" onClick={() => setProfileOpen(true)}>
-              Edit profile <ArrowRight size={14} />
+      <section className="settings-layout">
+        <nav className="panel settings-navigation" aria-label="Settings categories">
+          {settingsSections.map((section) => (
+            <button
+              className={`settings-navigation-item ${activeSection === section.id ? 'is-active' : ''}`}
+              type="button"
+              aria-current={activeSection === section.id ? 'page' : undefined}
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+            >
+              <strong>{section.title}</strong>
+              <small>{section.description}</small>
             </button>
-          </div>
-        </article>
-        <article className="panel settings-card">
-          <div className="small-panel-icon">
-            <Landmark size={17} />
-          </div>
-          <div>
-            <h3>Accounts</h3>
-            <p>
-              {data.accounts.length} account{data.accounts.length === 1 ? '' : 's'} ·{' '}
-              {formatMoney(
-                data.accounts
-                  .filter((account) => !account.archived)
-                  .reduce((sum, account) => sum + account.balance, 0),
-              )}{' '}
-              total balance
-            </p>
-            <button className="text-button" type="button" onClick={onManageAccounts}>
-              Manage accounts <ArrowRight size={14} />
-            </button>
-          </div>
-        </article>
-        <article className="panel settings-card">
-          <div className="small-panel-icon">
-            <Package size={17} />
-          </div>
-          <div>
-            <h3>Build information</h3>
-            <p>
-              Build ID · {import.meta.env.VITE_BUILD_ID || 'Unavailable'}
-              <br />
-              Image built ·{' '}
-              {formatBuildTimestamp(import.meta.env.VITE_BUILD_TIMESTAMP)}
-            </p>
-          </div>
-        </article>
-        {import.meta.env.DEV && (
-          <article className="panel settings-card">
-            <div className="small-panel-icon">
-              <Landmark size={17} />
+          ))}
+        </nav>
+        <div className="settings-main">
+          <header className="settings-main-heading">
+            <h2>{selectedSection.title}</h2>
+            <p>{selectedSection.description}</p>
+          </header>
+          {activeSection === 'profile' && (
+            <article className="panel settings-card">
+              <div className="profile-large">{profile.initials}</div>
+              <div>
+                <h3>{profile.name}</h3>
+                <p>{profile.email || 'No email on file'}</p>
+                <button className="text-button" type="button" onClick={() => setProfileOpen(true)}>
+                  Edit profile and security <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          )}
+          {activeSection === 'accounts' && (
+            <article className="panel settings-card">
+              <div className="small-panel-icon">
+                <Landmark size={17} />
+              </div>
+              <div>
+                <h3>Accounts</h3>
+                <p>
+                  {data.accounts.length} account{data.accounts.length === 1 ? '' : 's'} ·{' '}
+                  {formatMoney(
+                    data.accounts
+                      .filter((account) => !account.archived)
+                      .reduce((sum, account) => sum + account.balance, 0),
+                  )}{' '}
+                  total balance
+                </p>
+                <button className="text-button" type="button" onClick={onManageAccounts}>
+                  Manage accounts <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          )}
+          {activeSection === 'preferences' && (
+            <article className="panel settings-card">
+              <div className="small-panel-icon">
+                <SlidersHorizontal size={17} />
+              </div>
+              <div>
+                <h3>Preferences</h3>
+                <p>
+                  Currency · {preferences.currency}
+                  <br />
+                  Week starts on {preferences.weekStart === 'monday' ? 'Monday' : 'Sunday'}
+                  <br />
+                  Date and number format · {preferences.dateFormat} / {preferences.numberFormat}
+                  <br />
+                  Notifications · {preferences.notifications ? 'On' : 'Off'}
+                </p>
+                <button className="text-button" type="button" onClick={() => setPreferencesOpen(true)}>
+                  Manage preferences <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          )}
+          {activeSection === 'data' && (
+            <TransactionCsvSettings data={data} remote={remote} onRefresh={onRefresh} />
+          )}
+          {activeSection === 'about' && (
+            <div className="settings-about-grid">
+              <article className="panel settings-card">
+                <div className="small-panel-icon">
+                  <Package size={17} />
+                </div>
+                <div>
+                  <h3>Build information</h3>
+                  <p>
+                    Build ID · {import.meta.env.VITE_BUILD_ID || 'Unavailable'}
+                    <br />
+                    Image built · {formatBuildTimestamp(import.meta.env.VITE_BUILD_TIMESTAMP)}
+                  </p>
+                </div>
+              </article>
+              {import.meta.env.DEV && (
+                <article className="panel settings-card">
+                  <div className="small-panel-icon">
+                    <Landmark size={17} />
+                  </div>
+                  <div>
+                    <h3>Developer settings</h3>
+                    <p>Restart the welcome walkthrough and configure the default account.</p>
+                    <button className="text-button" type="button" onClick={onStartOnboarding}>
+                      Start onboarding <ArrowRight size={14} />
+                    </button>
+                  </div>
+                </article>
+              )}
             </div>
-            <div>
-              <h3>Developer settings</h3>
-              <p>Restart the welcome walkthrough and configure the default account.</p>
-              <button className="text-button" type="button" onClick={onStartOnboarding}>
-                Start onboarding <ArrowRight size={14} />
-              </button>
+          )}
+          {settingsMessage && (
+            <div className="settings-message" role="status">
+              <Check size={15} /> {settingsMessage}
             </div>
-          </article>
-        )}
-        <TransactionCsvSettings data={data} remote={remote} onRefresh={onRefresh} />
-        <article className="panel settings-card">
-          <div className="small-panel-icon">
-            <SlidersHorizontal size={17} />
-          </div>
-          <div>
-            <h3>Preferences</h3>
-            <p>
-              Currency · {preferences.currency}
-              <br />
-              Week starts on {preferences.weekStart === 'monday' ? 'Monday' : 'Sunday'}
-              <br />
-              Date and number format · {preferences.dateFormat} / {preferences.numberFormat}
-              <br />
-              Notifications · {preferences.notifications ? 'On' : 'Off'}
-            </p>
-            <button className="text-button" type="button" onClick={() => setPreferencesOpen(true)}>
-              Manage preferences <ArrowRight size={14} />
-            </button>
-          </div>
-        </article>
-        {settingsMessage && (
-          <div className="settings-message">
-            <Check size={15} /> {settingsMessage}
-          </div>
-        )}
+          )}
+        </div>
       </section>
       {profileOpen && (
         <ProfileSettingsDialog
