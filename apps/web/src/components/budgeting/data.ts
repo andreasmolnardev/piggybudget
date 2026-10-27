@@ -117,7 +117,63 @@ export type Budget = {
   endDate?: string;
   archived?: boolean;
   notes?: string;
+  surplusAction?: 'none' | 'carry' | 'push';
+  surplusTarget?: string;
+  deficitAction?: 'none' | 'carry' | 'pull';
+  deficitSource?: string;
 };
+
+export function budgetCarryoverAdjustments(
+  budgets: Budget[],
+  transactions: Transaction[],
+  month: string,
+): Map<string, number> {
+  const previous = new Date(`${month}-01T00:00:00Z`);
+  if (!Number.isFinite(previous.getTime())) return new Map();
+  previous.setUTCMonth(previous.getUTCMonth() - 1);
+  const previousMonth = previous.toISOString().slice(0, 7);
+  const adjustments = new Map<string, number>();
+  const add = (category: string | undefined, amount: number) => {
+    if (category) {
+      const key = category.toLocaleLowerCase();
+      adjustments.set(key, (adjustments.get(key) ?? 0) + amount);
+    }
+  };
+
+  budgets
+    .filter(
+      (budget) =>
+        !budget.archived && !budget.unlimited && budget.startDate?.slice(0, 7) === previousMonth,
+    )
+    .forEach((budget) => {
+      const spent = transactions
+        .filter((transaction) => transaction.kind === 'expense' && !transaction.isDraft)
+        .filter(
+          (transaction) =>
+            transaction.date >= budget.startDate! &&
+            transaction.date <= (budget.endDate ?? `${previousMonth}-31`),
+        )
+        .filter((transaction) =>
+          transaction.budgetId
+            ? transaction.budgetId === budget.id
+            : transaction.category.toLocaleLowerCase() === budget.category.toLocaleLowerCase(),
+        )
+        .reduce((sum, transaction) => sum + (transaction.budgetAmount ?? transaction.amount), 0);
+      const difference = budget.limit - spent;
+      if (difference > 0.005) {
+        if (budget.surplusAction === 'carry') add(budget.category, difference);
+        if (budget.surplusAction === 'push') add(budget.surplusTarget, difference);
+      } else if (difference < -0.005) {
+        const deficit = -difference;
+        if (budget.deficitAction === 'carry') add(budget.category, -deficit);
+        if (budget.deficitAction === 'pull') {
+          add(budget.category, deficit);
+          add(budget.deficitSource, -deficit);
+        }
+      }
+    });
+  return adjustments;
+}
 
 export function budgetNameForId(budgets: Budget[], budgetId?: string) {
   return budgetId ? budgets.find((budget) => budget.id === budgetId)?.category : undefined;
@@ -507,6 +563,10 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       endDate: optionalDateValue(record, 'end_date') || undefined,
       archived: Boolean(record.archived),
       notes: textValue(record, 'notes') || undefined,
+      surplusAction: (textValue(record, 'surplus_action') as Budget['surplusAction']) || 'none',
+      surplusTarget: textValue(record, 'surplus_target') || undefined,
+      deficitAction: (textValue(record, 'deficit_action') as Budget['deficitAction']) || 'none',
+      deficitSource: textValue(record, 'deficit_source') || undefined,
     })),
     assets: assets.map((record, index) => ({
       id: record.id,

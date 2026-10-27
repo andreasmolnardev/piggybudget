@@ -39,6 +39,7 @@ import { parseBulkTransactionJson } from './bulk-transaction-import';
 import { TransactionCategoryInput } from './transaction-category-input';
 import {
   budgetColorPalette,
+  budgetCarryoverAdjustments,
   budgetNameForId,
   formatTransactionGroupDate,
   categorySpendForRange,
@@ -215,6 +216,16 @@ export function formatMoney(value: number, compact = false) {
 
 function budgetedExpenseAmount(transaction: Transaction) {
   return transaction.budgetAmount ?? transaction.amount;
+}
+
+function budgetCategoriesForRollover(budgets: Budget[], category: string) {
+  const current = category.trim().toLocaleLowerCase();
+  return [...new Map(
+    budgets
+      .map((budget) => budget.category.trim())
+      .filter((name) => name && name.toLocaleLowerCase() !== current)
+      .map((name) => [name.toLocaleLowerCase(), name]),
+  ).values()].sort((a, b) => a.localeCompare(b));
 }
 
 function recognizedIncomeAmount(transaction: Transaction) {
@@ -4002,6 +4013,9 @@ function BudgetsView({
   }, [viewState, viewStateKey]);
   const range = selectedBudgetRange(monthValue, period);
   const periodName = budgetPeriodLabel(range, period);
+  const carryoverAdjustments = period === 'month'
+    ? budgetCarryoverAdjustments(data.budgets, data.transactions, monthValue)
+    : new Map<string, number>();
   const budgets = data.budgets
     .filter((budget) => Boolean(budget.archived) === showArchived)
     .filter(
@@ -4028,6 +4042,11 @@ function BudgetsView({
           )
           .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
       };
+    })
+    .map((budget) => {
+      if (period !== 'month' || budget.unlimited) return budget;
+      const adjustment = carryoverAdjustments.get(budget.category.toLocaleLowerCase()) ?? 0;
+      return { ...budget, limit: Math.max(0, budget.limit + adjustment) };
     });
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
   const limitedBudgets = budgets.filter((budget) => !budget.unlimited);
@@ -8354,6 +8373,14 @@ function FinanceComposer({
           : '',
   );
   const [budgetUnlimited, setBudgetUnlimited] = useState(Boolean(budgetRecord?.unlimited));
+  const [surplusAction, setSurplusAction] = useState<NonNullable<Budget['surplusAction']>>(
+    budgetRecord?.surplusAction ?? 'none',
+  );
+  const [surplusTarget, setSurplusTarget] = useState(budgetRecord?.surplusTarget ?? '');
+  const [deficitAction, setDeficitAction] = useState<NonNullable<Budget['deficitAction']>>(
+    budgetRecord?.deficitAction ?? 'none',
+  );
+  const [deficitSource, setDeficitSource] = useState(budgetRecord?.deficitSource ?? '');
   const [budgetColor, setBudgetColor] = useState(
     budgetRecord?.color ?? budgetColorPalette[0].value,
   );
@@ -8519,6 +8546,15 @@ function FinanceComposer({
     }
     if (
       !saveAsDraft &&
+      kind === 'budget' &&
+      ((!isUnlimitedBudget && surplusAction === 'push' && !surplusTarget) ||
+        (!isUnlimitedBudget && deficitAction === 'pull' && !deficitSource))
+    ) {
+      setError('Choose a budget for each surplus or deficit transfer.');
+      return;
+    }
+    if (
+      !saveAsDraft &&
       kind === 'transaction' &&
       type === 'transfer' &&
       (!destinationAccount || account === destinationAccount)
@@ -8620,6 +8656,10 @@ function FinanceComposer({
                     .toISOString()
                     .slice(0, 10),
               notes: note,
+              surplus_action: isUnlimitedBudget ? 'none' : surplusAction,
+              surplus_target: !isUnlimitedBudget && surplusAction === 'push' ? surplusTarget : '',
+              deficit_action: isUnlimitedBudget ? 'none' : deficitAction,
+              deficit_source: !isUnlimitedBudget && deficitAction === 'pull' ? deficitSource : '',
             }
           : kind === 'checkpoint'
             ? { account, date, balance: numericAmount, note }
@@ -8935,6 +8975,66 @@ function FinanceComposer({
                     onChange={(event) => setAmount(event.target.value)}
                   />
                 </label>
+                <label>
+                  End of month surplus
+                  <AppSelect
+                    value={surplusAction}
+                    onChange={(event) =>
+                      setSurplusAction(event.target.value as NonNullable<Budget['surplusAction']>)
+                    }
+                  >
+                    <option value="none">Leave unused funds behind</option>
+                    <option value="carry">Carry into this budget next month</option>
+                    <option value="push">Push into another budget</option>
+                  </AppSelect>
+                </label>
+                {surplusAction === 'push' && (
+                  <label>
+                    Push surplus to
+                    <AppSelect
+                      required
+                      value={surplusTarget}
+                      onChange={(event) => setSurplusTarget(event.target.value)}
+                    >
+                      <option value="">Choose a budget</option>
+                      {budgetCategoriesForRollover(data.budgets, category).map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </AppSelect>
+                  </label>
+                )}
+                <label>
+                  End of month deficit
+                  <AppSelect
+                    value={deficitAction}
+                    onChange={(event) =>
+                      setDeficitAction(event.target.value as NonNullable<Budget['deficitAction']>)
+                    }
+                  >
+                    <option value="none">Leave the overspend behind</option>
+                    <option value="carry">Carry deficit into this budget next month</option>
+                    <option value="pull">Pull from another budget</option>
+                  </AppSelect>
+                </label>
+                {deficitAction === 'pull' && (
+                  <label>
+                    Pull from
+                    <AppSelect
+                      required
+                      value={deficitSource}
+                      onChange={(event) => setDeficitSource(event.target.value)}
+                    >
+                      <option value="">Choose a budget</option>
+                      {budgetCategoriesForRollover(data.budgets, category).map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </AppSelect>
+                  </label>
+                )}
               </>
             )}
           </>

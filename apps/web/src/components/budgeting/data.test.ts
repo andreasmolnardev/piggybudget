@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   budgetNameForId,
+  budgetCarryoverAdjustments,
   categorySpendForRange,
   formatTransactionGroupDate,
   historyDatesForDisplay,
@@ -20,6 +21,58 @@ describe('budgetNameForId', () => {
   it('returns no name when the budget ID is missing or unknown', () => {
     expect(budgetNameForId(budgets)).toBeUndefined();
     expect(budgetNameForId(budgets, 'unknown')).toBeUndefined();
+  });
+});
+
+describe('budgetCarryoverAdjustments', () => {
+  const budgets = [
+    {
+      id: 'food-prev',
+      category: 'Food',
+      limit: 100,
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      surplusAction: 'carry',
+    },
+    {
+      id: 'fun-prev',
+      category: 'Fun',
+      limit: 50,
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      surplusAction: 'push',
+      surplusTarget: 'Food',
+    },
+    {
+      id: 'travel-prev',
+      category: 'Travel',
+      limit: 40,
+      startDate: '2026-09-01',
+      endDate: '2026-09-30',
+      deficitAction: 'pull',
+      deficitSource: 'Food',
+    },
+  ] as Budget[];
+
+  it('carries surplus, pushes surplus, and transfers deficit coverage', () => {
+    const transactions = [
+      { budgetId: 'food-prev', category: 'Food', kind: 'expense', amount: 70, date: '2026-09-10' },
+      { budgetId: 'fun-prev', category: 'Fun', kind: 'expense', amount: 30, date: '2026-09-10' },
+      {
+        budgetId: 'travel-prev',
+        category: 'Travel',
+        kind: 'expense',
+        amount: 55,
+        date: '2026-09-10',
+      },
+    ] as Transaction[];
+
+    expect(budgetCarryoverAdjustments(budgets, transactions, '2026-10')).toEqual(
+      new Map([
+        ['food', 35],
+        ['travel', 15],
+      ]),
+    );
   });
 });
 
