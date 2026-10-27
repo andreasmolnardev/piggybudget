@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   budgetNameForId,
+  categorySpendForRange,
   formatTransactionGroupDate,
   historyDatesForDisplay,
   transactionEditId,
@@ -19,6 +20,29 @@ describe('budgetNameForId', () => {
   it('returns no name when the budget ID is missing or unknown', () => {
     expect(budgetNameForId(budgets)).toBeUndefined();
     expect(budgetNameForId(budgets, 'unknown')).toBeUndefined();
+  });
+});
+
+describe('categorySpendForRange', () => {
+  it('sums expenses in the selected span and keeps budget categories with no spend', () => {
+    const transactions = [
+      { category: 'Food', amount: 12, kind: 'expense', date: '2026-10-04' },
+      { category: 'Food', amount: 8, budgetAmount: 6, kind: 'expense', date: '2026-10-12' },
+      { category: 'Food', amount: 50, kind: 'expense', date: '2026-09-30' },
+      { category: 'Pay', amount: 100, kind: 'income', date: '2026-10-12' },
+      { category: '', amount: 3, kind: 'expense', date: '2026-10-15' },
+      { category: 'Draft', amount: 25, kind: 'expense', date: '2026-10-15', isDraft: true },
+    ] as Transaction[];
+    const budgets = [
+      { id: 'food', category: 'Food' },
+      { id: 'home', category: 'Home' },
+    ] as Budget[];
+
+    expect(categorySpendForRange(transactions, budgets, '2026-10-01', '2026-10-31')).toEqual([
+      { category: 'Food', spent: 18 },
+      { category: 'Home', spent: 0 },
+      { category: 'Uncategorized', spent: 3 },
+    ]);
   });
 });
 

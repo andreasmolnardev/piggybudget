@@ -123,6 +123,41 @@ export function budgetNameForId(budgets: Budget[], budgetId?: string) {
   return budgetId ? budgets.find((budget) => budget.id === budgetId)?.category : undefined;
 }
 
+export function categorySpendForRange(
+  transactions: Transaction[],
+  budgets: Budget[],
+  start: string,
+  end: string,
+) {
+  const names = new Set([
+    ...budgets.map((budget) => budget.category),
+    ...transactions
+      .filter(
+        (transaction) =>
+          transaction.kind === 'expense' &&
+          !transaction.isDraft &&
+          transaction.date >= start &&
+          transaction.date <= end,
+      )
+      .map((transaction) => transaction.category.trim() || 'Uncategorized'),
+  ]);
+  return [...names]
+    .map((category) => ({
+      category,
+      spent: transactions
+        .filter(
+          (transaction) =>
+            transaction.kind === 'expense' &&
+            !transaction.isDraft &&
+            transaction.date >= start &&
+            transaction.date <= end &&
+            (transaction.category.trim() || 'Uncategorized') === category,
+        )
+        .reduce((sum, transaction) => sum + (transaction.budgetAmount ?? transaction.amount), 0),
+    }))
+    .sort((a, b) => a.category.localeCompare(b.category));
+}
+
 export type Asset = {
   id: string;
   name: string;

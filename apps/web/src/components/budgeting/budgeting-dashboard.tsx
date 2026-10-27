@@ -11,7 +11,6 @@ import {
   ChevronDown,
   CircleAlert,
   Circle,
-  CircleHelp,
   FileDown,
   FileUp,
   Filter,
@@ -41,6 +40,7 @@ import {
   budgetColorPalette,
   budgetNameForId,
   formatTransactionGroupDate,
+  categorySpendForRange,
   historyDatesForDisplay,
   transactionEditId,
 } from './data';
@@ -593,18 +593,22 @@ function BudgetLine({
   onOpen,
   onEdit,
   onArchive,
+  selected = false,
   onDelete,
 }: {
   budget: Budget;
   onOpen?: () => void;
   onEdit?: () => void;
   onArchive?: () => void;
+  selected?: boolean;
   onDelete?: () => void;
 }) {
   const percentage = budget.limit ? (budget.spent / budget.limit) * 100 : 0;
   const pace = budget.unlimited ? null : budgetSpendPace(budget);
   return (
-    <div className="budget-line">
+    <div
+      className={`budget-line ${onOpen ? 'budget-line-selectable' : ''} ${selected ? 'is-selected' : ''}`}
+    >
       <div className="budget-line-heading">
         <span className="budget-dot" style={{ background: budget.color }} />
         {onOpen ? (
@@ -705,7 +709,7 @@ function budgetSpendPace(budget: Budget, today = dateKey(new Date())) {
   return { availablePerDay, status, dailyLabel: 'available per day' };
 }
 
-function ReconciliationCard({
+export function ReconciliationCard({
   reconciliation,
   transactions,
   onOpenTransaction,
@@ -3893,10 +3897,7 @@ function BudgetsView({
   onEditBudget,
   onArchiveBudget,
   onDeleteBudget,
-  onOpenBudget,
   onOpenTransaction,
-  onAddTransactionForAccount,
-  onRecordCheckpoint,
 }: {
   userId: string;
   data: BudgetData;
@@ -3904,10 +3905,7 @@ function BudgetsView({
   onEditBudget: (budget: Budget) => void;
   onArchiveBudget: (budget: Budget) => void;
   onDeleteBudget: (budget: Budget) => void;
-  onOpenBudget: (budget: Budget) => void;
   onOpenTransaction: (transaction: Transaction) => void;
-  onAddTransactionForAccount: (accountId: string) => void;
-  onRecordCheckpoint: (accountId: string) => void;
 }) {
   const viewStateKey = `piggybudget:budget-view:${userId}`;
   const [viewState, setViewState] = useState<{
@@ -3929,10 +3927,15 @@ function BudgetsView({
         showArchived: Boolean(saved.showArchived),
       };
     } catch {
-      return { monthValue: dateKey(new Date()).slice(0, 7), period: 'month', showArchived: false };
+      return {
+        monthValue: dateKey(new Date()).slice(0, 7),
+        period: 'month',
+        showArchived: false,
+        selectedBudgetId: '',
+      };
     }
   });
-  const { monthValue, period, showArchived } = viewState;
+  const { monthValue, period, showArchived, selectedBudgetId } = viewState;
   const setMonthValue = (value: string) =>
     setViewState((current) => ({ ...current, monthValue: value }));
   const setPeriod = (value: BudgetPeriod) =>
@@ -3961,6 +3964,7 @@ function BudgetsView({
         : range.start;
       const spendEnd = budget.endDate && budget.endDate < range.end
         ? budget.endDate
+    selectedBudgetId: string;
         : range.end;
       return {
         ...budget,
@@ -3974,6 +3978,7 @@ function BudgetsView({
           )
           .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
       };
+        selectedBudgetId: '',
     });
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
   const limitedBudgets = budgets.filter((budget) => !budget.unlimited);
@@ -3986,6 +3991,8 @@ function BudgetsView({
   );
   return (
     <>
+  const setSelectedBudgetId = (value: string) =>
+    setViewState((current) => ({ ...current, selectedBudgetId: value }));
       <PageHeader
         title="Budgets"
         action={
@@ -4011,10 +4018,30 @@ function BudgetsView({
           <small>across {limitedBudgets.length} limited budgets</small>
         </article>
       </div>
-      <div className="dashboard-grid budgets-layout">
-        <section className="panel">
+      <section className="panel budgets-workspace">
+        <div className="budget-workspace-header">
+          <div className="budget-archive-tabs" role="tablist" aria-label="Budget status">
+            <button
+              className={!showArchived ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={!showArchived}
+              onClick={() => setShowArchived(false)}
+            >
+              Active budgets
+            </button>
+            <button
+              className={showArchived ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={showArchived}
+              onClick={() => setShowArchived(true)}
+            >
+              Archived budgets
+            </button>
+          </div>
           <SectionHeading
-            title={`${periodName} budgets`}
+            title="Budgets"
             action={
               <div className="budget-period-controls">
                 <input
@@ -4031,6 +4058,25 @@ function BudgetsView({
                   value={period}
                   onChange={(event) => setPeriod(event.target.value as BudgetPeriod)}
                 >
+  const categories = categorySpendForRange(data.transactions, data.budgets, range.start, range.end);
+  const selectedBudget = budgets.find((budget) => budget.id === selectedBudgetId);
+  const selectedMonth = selectedBudget
+    ? selectedBudgetRange(monthValue, 'month')
+    : null;
+  const selectedBudgetTransactions = selectedBudget && selectedMonth
+    ? data.transactions
+        .filter((transaction) => transaction.kind === 'expense' && !transaction.isDraft)
+        .filter(
+          (transaction) =>
+            transaction.date >= selectedMonth.start && transaction.date <= selectedMonth.end,
+        )
+        .filter((transaction) =>
+          transaction.budgetId
+            ? transaction.budgetId === selectedBudget.id
+            : transaction.category.toLowerCase() === selectedBudget.category.toLowerCase(),
+        )
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
+    : [];
                   <option value="month">Monthly</option>
                   <option value="quarter">Quarterly</option>
                   <option value="year">Yearly</option>
@@ -4038,62 +4084,88 @@ function BudgetsView({
               </div>
             }
           />
-          <button
-            className="text-button budget-archive-toggle"
-            type="button"
-            onClick={() => setShowArchived(!showArchived)}
-          >
-            {showArchived ? 'Show active budgets' : 'Show archived budgets'}
-          </button>
-          <div className="budget-list budget-list-large">
-            {budgets.map((budget) => (
-              <BudgetLine
-                key={budget.id}
-                budget={budget}
-                onOpen={() => onOpenBudget(budget)}
-                onEdit={() => onEditBudget(budget)}
-                onArchive={() => onArchiveBudget(budget)}
-                onDelete={() => onDeleteBudget(budget)}
-              />
-            ))}
-          </div>
-          {!budgets.length && (
-            <div className="empty-state">
-              <CalendarDays size={20} />
-              <strong>No budgets for {periodName}</strong>
-              <span>Create a budget for this period to track category spending.</span>
-            </div>
-          )}
-          <button className="add-line-button" type="button" onClick={onAddBudget}>
-            <Plus size={15} /> Add category
-          </button>
-        </section>
-        <div className="stacked-cards">
-          <ReconciliationCard
-            reconciliation={data.reconciliation}
-            transactions={data.transactions}
-            onOpenTransaction={onOpenTransaction}
-            onAddTransaction={() =>
-              onAddTransactionForAccount(data.reconciliation?.accountId ?? '')
-            }
-            onRecordCheckpoint={onRecordCheckpoint}
-            compact
-          />
-          <article className="panel unknown-panel">
-            <div className="small-panel-icon">
-              <CircleHelp size={17} />
-            </div>
-            <div>
-              <h3>What is an unknown gap?</h3>
-              <p>
-                It is the space between what your accounts say happened and what you have recorded.
-                Resolve it before the month closes.
-              </p>
-              <p>Review the checkpoint balances and transactions in the reconciliation card.</p>
-            </div>
-          </article>
         </div>
-      </div>
+        <div className={`budgets-workspace-columns ${selectedBudget ? 'has-budget-detail' : ''}`}>
+          <section className="budget-column">
+            <h3>{periodName} budgets</h3>
+            <div className="budget-list budget-list-large">
+              {budgets.map((budget) => (
+                <BudgetLine
+                  key={budget.id}
+                  budget={budget}
+                  selected={budget.id === selectedBudgetId}
+                  onOpen={() => setSelectedBudgetId(budget.id === selectedBudgetId ? '' : budget.id)}
+                  onEdit={() => onEditBudget(budget)}
+                  onArchive={() => onArchiveBudget(budget)}
+                  onDelete={() => onDeleteBudget(budget)}
+                />
+              ))}
+            </div>
+            {!budgets.length && (
+              <div className="empty-state">
+                <CalendarDays size={20} />
+                <strong>No budgets for {periodName}</strong>
+                <span>Create a budget for this period to track category spending.</span>
+              </div>
+            )}
+            <button className="add-line-button" type="button" onClick={onAddBudget}>
+              <Plus size={15} /> Add category
+            </button>
+          </section>
+          <section className="category-spend-column" aria-labelledby="category-spend-title">
+            <h3 id="category-spend-title">Category spend</h3>
+            <p className="page-description">Expenses recorded during {periodName}.</p>
+            <div className="category-spend-list">
+              {categories.map(({ category, spent }) => (
+                <div className="category-spend-row" key={category}>
+                  <span>{category}</span>
+                  <strong>{formatMoney(spent)}</strong>
+                </div>
+              ))}
+              {!categories.length && <p className="page-description">No categories yet.</p>}
+            </div>
+          </section>
+          {selectedBudget && (
+            <section className="budget-transactions-column" aria-live="polite">
+              <div className="budget-transactions-heading">
+                <div>
+                  <h3>{selectedBudget.category}</h3>
+                  <p className="page-description">
+                    Transactions in {budgetPeriodLabel(selectedMonth!, 'month')}
+                  </p>
+                </div>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="Close budget transactions"
+                  onClick={() => setSelectedBudgetId('')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="budget-transaction-list">
+                {selectedBudgetTransactions.map((transaction) => (
+                  <button
+                    className="budget-transaction-row"
+                    key={transaction.id}
+                    type="button"
+                    onClick={() => onOpenTransaction(transaction)}
+                  >
+                    <span>
+                      <strong>{transaction.merchant || transaction.description || 'Transaction'}</strong>
+                      <small>{formatDate(transaction.date)}</small>
+                    </span>
+                    <strong>{formatMoney(budgetedExpenseAmount(transaction))}</strong>
+                  </button>
+                ))}
+                {!selectedBudgetTransactions.length && (
+                  <p className="page-description">No transactions allocated this month.</p>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      </section>
     </>
   );
 }
@@ -6450,16 +6522,6 @@ export function BudgetingDashboard({
         onArchiveBudget={(budget) => void archiveBudget(budget)}
         onDeleteBudget={(budget) => void deleteRecord('budgets', budget.id, budget.category)}
         onOpenTransaction={setViewingTransaction}
-        onAddTransactionForAccount={(accountId) => {
-          setPreferredAccountId(accountId || null);
-          setEditingTransaction(null);
-          setComposer('transaction');
-        }}
-        onRecordCheckpoint={(accountId) => {
-          setPreferredAccountId(accountId);
-          setComposer('checkpoint');
-        }}
-        onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
     ) : view === 'assets' ? (
       <AssetsView
@@ -9428,7 +9490,7 @@ function FinanceComposer({
                           });
                         }}
                       />
-                    </label>
+                    </div>
                     {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
                     <label>
                       Transaction pictures
