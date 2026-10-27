@@ -11,7 +11,6 @@ import {
   ChevronDown,
   CircleAlert,
   Circle,
-  CircleHelp,
   FileDown,
   FileUp,
   Filter,
@@ -37,10 +36,13 @@ import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 import { parseBulkTransactionJson } from './bulk-transaction-import';
+import { TransactionCategoryInput } from './transaction-category-input';
 import {
   budgetColorPalette,
+  budgetCarryoverAdjustments,
   budgetNameForId,
   formatTransactionGroupDate,
+  categorySpendForRange,
   historyDatesForDisplay,
   transactionEditId,
 } from './data';
@@ -197,6 +199,8 @@ type Props = {
   profile: UserProfile;
   recordTarget: FinanceRecordTarget | null;
   onRecordTargetHandled: () => void;
+  transactionSearchTerm: string;
+  onTransactionSearchHandled: () => void;
 };
 
 export function formatMoney(value: number, compact = false) {
@@ -212,6 +216,16 @@ export function formatMoney(value: number, compact = false) {
 
 function budgetedExpenseAmount(transaction: Transaction) {
   return transaction.budgetAmount ?? transaction.amount;
+}
+
+function budgetCategoriesForRollover(budgets: Budget[], category: string) {
+  const current = category.trim().toLocaleLowerCase();
+  return [...new Map(
+    budgets
+      .map((budget) => budget.category.trim())
+      .filter((name) => name && name.toLocaleLowerCase() !== current)
+      .map((name) => [name.toLocaleLowerCase(), name]),
+  ).values()].sort((a, b) => a.localeCompare(b));
 }
 
 function recognizedIncomeAmount(transaction: Transaction) {
@@ -590,12 +604,14 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
 
 function BudgetLine({
   budget,
+  selected = false,
   onOpen,
   onEdit,
   onArchive,
   onDelete,
 }: {
   budget: Budget;
+  selected?: boolean;
   onOpen?: () => void;
   onEdit?: () => void;
   onArchive?: () => void;
@@ -604,7 +620,9 @@ function BudgetLine({
   const percentage = budget.limit ? (budget.spent / budget.limit) * 100 : 0;
   const pace = budget.unlimited ? null : budgetSpendPace(budget);
   return (
-    <div className="budget-line">
+    <div
+      className={`budget-line ${onOpen ? 'budget-line-selectable' : ''} ${selected ? 'is-selected' : ''}`}
+    >
       <div className="budget-line-heading">
         <span className="budget-dot" style={{ background: budget.color }} />
         {onOpen ? (
@@ -705,7 +723,7 @@ function budgetSpendPace(budget: Budget, today = dateKey(new Date())) {
   return { availablePerDay, status, dailyLabel: 'available per day' };
 }
 
-function ReconciliationCard({
+export function ReconciliationCard({
   reconciliation,
   transactions,
   onOpenTransaction,
@@ -2324,6 +2342,8 @@ function TransactionsView({
   onDeleteTransactionsBatch,
   onDeleteRecurringRule,
   onRefresh,
+  transactionSearchTerm,
+  onTransactionSearchHandled,
 }: {
   data: BudgetData;
   userId: string;
@@ -2340,6 +2360,8 @@ function TransactionsView({
   onDeleteTransactionsBatch: (transactions: Transaction[]) => void;
   onDeleteRecurringRule: (rule: RecurringTransaction) => void;
   onRefresh: () => void;
+  transactionSearchTerm: string;
+  onTransactionSearchHandled: () => void;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(
     () => readTransactionViewState(userId).filters,
@@ -2359,10 +2381,16 @@ function TransactionsView({
   const [bulkBudgetId, setBulkBudgetId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
   const [bulkMessage, setBulkMessage] = useState('');
+  const [textSearch, setTextSearch] = useState('');
   const [budgetPopoverOpen, setBudgetPopoverOpen] = useState(false);
   const [deletePopoverOpen, setDeletePopoverOpen] = useState(false);
   const [exportPopoverOpen, setExportPopoverOpen] = useState(false);
   const pageSize = 25;
+  useEffect(() => {
+    if (!transactionSearchTerm) return;
+    setTextSearch(transactionSearchTerm);
+    onTransactionSearchHandled();
+  }, [onTransactionSearchHandled, transactionSearchTerm]);
   useEffect(() => {
     if (stateUserId === userId) return;
     const saved = readTransactionViewState(userId);
@@ -2453,6 +2481,20 @@ function TransactionsView({
       const matchesReconciled =
         filters.reconciled === 'all' ||
         Boolean(transaction.reconciled) === (filters.reconciled === 'reconciled');
+      const term = textSearch.trim().toLocaleLowerCase();
+      const matchesText =
+        !term ||
+        [
+          transaction.merchant,
+          transaction.description,
+          transaction.category,
+          transaction.account,
+          transaction.note,
+          ...(transaction.tags ?? []),
+        ]
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(term);
       return (
         matchesAccount &&
         matchesKind &&
@@ -2461,7 +2503,8 @@ function TransactionsView({
         matchesDate &&
         matchesAmount &&
         matchesCleared &&
-        matchesReconciled
+        matchesReconciled &&
+        matchesText
       );
     };
     const result = data.transactions
@@ -2476,7 +2519,7 @@ function TransactionsView({
       if (sort === 'amount-asc') return a.amount - b.amount || b.date.localeCompare(a.date);
       return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
     });
-  }, [data.transactions, filters, sort]);
+  }, [data.transactions, filters, sort, textSearch]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
   const selectedTransactions = data.transactions
@@ -2864,6 +2907,25 @@ function TransactionsView({
           </div>
         }
       />
+      {textSearch && (
+        <div className="transaction-text-search">
+          <Search size={16} />
+          <input
+            aria-label="Search transactions"
+            value={textSearch}
+            onChange={(event) => setTextSearch(event.target.value)}
+            placeholder="Search transactions"
+          />
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="Clear transaction search"
+            onClick={() => setTextSearch('')}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
       <section className="transactions-section">
         <div hidden={selectionMode}>
           <ObligationsPanel data={data} onRefresh={onRefresh} onOpenTransaction={onOpenTransaction} />
@@ -3893,10 +3955,7 @@ function BudgetsView({
   onEditBudget,
   onArchiveBudget,
   onDeleteBudget,
-  onOpenBudget,
   onOpenTransaction,
-  onAddTransactionForAccount,
-  onRecordCheckpoint,
 }: {
   userId: string;
   data: BudgetData;
@@ -3904,16 +3963,14 @@ function BudgetsView({
   onEditBudget: (budget: Budget) => void;
   onArchiveBudget: (budget: Budget) => void;
   onDeleteBudget: (budget: Budget) => void;
-  onOpenBudget: (budget: Budget) => void;
   onOpenTransaction: (transaction: Transaction) => void;
-  onAddTransactionForAccount: (accountId: string) => void;
-  onRecordCheckpoint: (accountId: string) => void;
 }) {
   const viewStateKey = `piggybudget:budget-view:${userId}`;
   const [viewState, setViewState] = useState<{
     monthValue: string;
     period: BudgetPeriod;
     showArchived: boolean;
+    selectedBudgetId: string;
   }>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(viewStateKey) ?? '{}') as {
@@ -3927,18 +3984,26 @@ function BudgetsView({
           : dateKey(new Date()).slice(0, 7),
         period: ['month', 'quarter', 'year'].includes(saved.period ?? '') ? saved.period! : 'month',
         showArchived: Boolean(saved.showArchived),
+        selectedBudgetId: '',
       };
     } catch {
-      return { monthValue: dateKey(new Date()).slice(0, 7), period: 'month', showArchived: false };
+      return {
+        monthValue: dateKey(new Date()).slice(0, 7),
+        period: 'month',
+        showArchived: false,
+        selectedBudgetId: '',
+      };
     }
   });
-  const { monthValue, period, showArchived } = viewState;
+  const { monthValue, period, showArchived, selectedBudgetId } = viewState;
   const setMonthValue = (value: string) =>
     setViewState((current) => ({ ...current, monthValue: value }));
   const setPeriod = (value: BudgetPeriod) =>
     setViewState((current) => ({ ...current, period: value }));
   const setShowArchived = (value: boolean) =>
     setViewState((current) => ({ ...current, showArchived: value }));
+  const setSelectedBudgetId = (value: string) =>
+    setViewState((current) => ({ ...current, selectedBudgetId: value }));
   useEffect(() => {
     try {
       sessionStorage.setItem(viewStateKey, JSON.stringify(viewState));
@@ -3948,6 +4013,9 @@ function BudgetsView({
   }, [viewState, viewStateKey]);
   const range = selectedBudgetRange(monthValue, period);
   const periodName = budgetPeriodLabel(range, period);
+  const carryoverAdjustments = period === 'month'
+    ? budgetCarryoverAdjustments(data.budgets, data.transactions, monthValue)
+    : new Map<string, number>();
   const budgets = data.budgets
     .filter((budget) => Boolean(budget.archived) === showArchived)
     .filter(
@@ -3974,6 +4042,11 @@ function BudgetsView({
           )
           .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
       };
+    })
+    .map((budget) => {
+      if (period !== 'month' || budget.unlimited) return budget;
+      const adjustment = carryoverAdjustments.get(budget.category.toLocaleLowerCase()) ?? 0;
+      return { ...budget, limit: Math.max(0, budget.limit + adjustment) };
     });
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
   const limitedBudgets = budgets.filter((budget) => !budget.unlimited);
@@ -3984,6 +4057,25 @@ function BudgetsView({
     (sum, budget) => sum + budget.limit - budget.spent,
     0,
   );
+  const categories = categorySpendForRange(data.transactions, data.budgets, range.start, range.end);
+  const selectedBudget = budgets.find((budget) => budget.id === selectedBudgetId);
+  const selectedMonth = selectedBudget
+    ? selectedBudgetRange(monthValue, 'month')
+    : null;
+  const selectedBudgetTransactions = selectedBudget && selectedMonth
+    ? data.transactions
+        .filter((transaction) => transaction.kind === 'expense' && !transaction.isDraft)
+        .filter(
+          (transaction) =>
+            transaction.date >= selectedMonth.start && transaction.date <= selectedMonth.end,
+        )
+        .filter((transaction) =>
+          transaction.budgetId
+            ? transaction.budgetId === selectedBudget.id
+            : transaction.category.toLowerCase() === selectedBudget.category.toLowerCase(),
+        )
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
+    : [];
   return (
     <>
       <PageHeader
@@ -4011,10 +4103,30 @@ function BudgetsView({
           <small>across {limitedBudgets.length} limited budgets</small>
         </article>
       </div>
-      <div className="dashboard-grid budgets-layout">
-        <section className="panel">
+      <section className="panel budgets-workspace">
+        <div className="budget-workspace-header">
+          <div className="budget-archive-tabs" role="tablist" aria-label="Budget status">
+            <button
+              className={!showArchived ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={!showArchived}
+              onClick={() => setShowArchived(false)}
+            >
+              Active budgets
+            </button>
+            <button
+              className={showArchived ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={showArchived}
+              onClick={() => setShowArchived(true)}
+            >
+              Archived budgets
+            </button>
+          </div>
           <SectionHeading
-            title={`${periodName} budgets`}
+            title="Budgets"
             action={
               <div className="budget-period-controls">
                 <input
@@ -4038,62 +4150,88 @@ function BudgetsView({
               </div>
             }
           />
-          <button
-            className="text-button budget-archive-toggle"
-            type="button"
-            onClick={() => setShowArchived(!showArchived)}
-          >
-            {showArchived ? 'Show active budgets' : 'Show archived budgets'}
-          </button>
-          <div className="budget-list budget-list-large">
-            {budgets.map((budget) => (
-              <BudgetLine
-                key={budget.id}
-                budget={budget}
-                onOpen={() => onOpenBudget(budget)}
-                onEdit={() => onEditBudget(budget)}
-                onArchive={() => onArchiveBudget(budget)}
-                onDelete={() => onDeleteBudget(budget)}
-              />
-            ))}
-          </div>
-          {!budgets.length && (
-            <div className="empty-state">
-              <CalendarDays size={20} />
-              <strong>No budgets for {periodName}</strong>
-              <span>Create a budget for this period to track category spending.</span>
-            </div>
-          )}
-          <button className="add-line-button" type="button" onClick={onAddBudget}>
-            <Plus size={15} /> Add category
-          </button>
-        </section>
-        <div className="stacked-cards">
-          <ReconciliationCard
-            reconciliation={data.reconciliation}
-            transactions={data.transactions}
-            onOpenTransaction={onOpenTransaction}
-            onAddTransaction={() =>
-              onAddTransactionForAccount(data.reconciliation?.accountId ?? '')
-            }
-            onRecordCheckpoint={onRecordCheckpoint}
-            compact
-          />
-          <article className="panel unknown-panel">
-            <div className="small-panel-icon">
-              <CircleHelp size={17} />
-            </div>
-            <div>
-              <h3>What is an unknown gap?</h3>
-              <p>
-                It is the space between what your accounts say happened and what you have recorded.
-                Resolve it before the month closes.
-              </p>
-              <p>Review the checkpoint balances and transactions in the reconciliation card.</p>
-            </div>
-          </article>
         </div>
-      </div>
+        <div className={`budgets-workspace-columns ${selectedBudget ? 'has-budget-detail' : ''}`}>
+          <section className="budget-column">
+            <h3>{periodName} budgets</h3>
+            <div className="budget-list budget-list-large">
+              {budgets.map((budget) => (
+                <BudgetLine
+                  key={budget.id}
+                  budget={budget}
+                  selected={budget.id === selectedBudgetId}
+                  onOpen={() => setSelectedBudgetId(budget.id === selectedBudgetId ? '' : budget.id)}
+                  onEdit={() => onEditBudget(budget)}
+                  onArchive={() => onArchiveBudget(budget)}
+                  onDelete={() => onDeleteBudget(budget)}
+                />
+              ))}
+            </div>
+            {!budgets.length && (
+              <div className="empty-state">
+                <CalendarDays size={20} />
+                <strong>No budgets for {periodName}</strong>
+                <span>Create a budget for this period to track category spending.</span>
+              </div>
+            )}
+            <button className="add-line-button" type="button" onClick={onAddBudget}>
+              <Plus size={15} /> Add category
+            </button>
+          </section>
+          <section className="category-spend-column" aria-labelledby="category-spend-title">
+            <h3 id="category-spend-title">Category spend</h3>
+            <p className="page-description">Expenses recorded during {periodName}.</p>
+            <div className="category-spend-list">
+              {categories.map(({ category, spent }) => (
+                <div className="category-spend-row" key={category}>
+                  <span>{category}</span>
+                  <strong>{formatMoney(spent)}</strong>
+                </div>
+              ))}
+              {!categories.length && <p className="page-description">No categories yet.</p>}
+            </div>
+          </section>
+          {selectedBudget && (
+            <section className="budget-transactions-column" aria-live="polite">
+              <div className="budget-transactions-heading">
+                <div>
+                  <h3>{selectedBudget.category}</h3>
+                  <p className="page-description">
+                    Transactions in {budgetPeriodLabel(selectedMonth!, 'month')}
+                  </p>
+                </div>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="Close budget transactions"
+                  onClick={() => setSelectedBudgetId('')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="budget-transaction-list">
+                {selectedBudgetTransactions.map((transaction) => (
+                  <button
+                    className="budget-transaction-row"
+                    key={transaction.id}
+                    type="button"
+                    onClick={() => onOpenTransaction(transaction)}
+                  >
+                    <span>
+                      <strong>{transaction.merchant || transaction.description || 'Transaction'}</strong>
+                      <small>{formatDate(transaction.date)}</small>
+                    </span>
+                    <strong>{formatMoney(budgetedExpenseAmount(transaction))}</strong>
+                  </button>
+                ))}
+                {!selectedBudgetTransactions.length && (
+                  <p className="page-description">No transactions allocated this month.</p>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      </section>
     </>
   );
 }
@@ -6033,6 +6171,8 @@ export function BudgetingDashboard({
   profile,
   recordTarget,
   onRecordTargetHandled,
+  transactionSearchTerm,
+  onTransactionSearchHandled,
 }: Props) {
   const [settingsMessage, setSettingsMessage] = useState('');
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -6434,6 +6574,8 @@ export function BudgetingDashboard({
         onDeleteTransactionsBatch={deleteTransactionsBatch}
         onDeleteRecurringRule={(rule) => setRecurringDeletePrompt({ kind: 'schedule', rule })}
         onRefresh={onRefresh}
+        transactionSearchTerm={transactionSearchTerm}
+        onTransactionSearchHandled={onTransactionSearchHandled}
       />
     ) : view === 'budgets' ? (
       <BudgetsView
@@ -6450,16 +6592,6 @@ export function BudgetingDashboard({
         onArchiveBudget={(budget) => void archiveBudget(budget)}
         onDeleteBudget={(budget) => void deleteRecord('budgets', budget.id, budget.category)}
         onOpenTransaction={setViewingTransaction}
-        onAddTransactionForAccount={(accountId) => {
-          setPreferredAccountId(accountId || null);
-          setEditingTransaction(null);
-          setComposer('transaction');
-        }}
-        onRecordCheckpoint={(accountId) => {
-          setPreferredAccountId(accountId);
-          setComposer('checkpoint');
-        }}
-        onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
     ) : view === 'assets' ? (
       <AssetsView
@@ -7007,6 +7139,20 @@ function TransactionCsvSettings({
   );
 }
 
+type SettingsSectionId = 'profile' | 'accounts' | 'preferences' | 'data' | 'about';
+
+const settingsSections: Array<{
+  id: SettingsSectionId;
+  title: string;
+  description: string;
+}> = [
+  { id: 'profile', title: 'Profile and security', description: 'Your name, email, and access' },
+  { id: 'accounts', title: 'Accounts', description: 'Manage linked finance accounts' },
+  { id: 'preferences', title: 'Preferences', description: 'Currency, dates, and appearance' },
+  { id: 'data', title: 'Transaction data', description: 'Import or export a CSV file' },
+  { id: 'about', title: 'About', description: 'Build details and developer tools' },
+];
+
 function SettingsView({
   userId,
   data,
@@ -7031,6 +7177,7 @@ function SettingsView({
   const { setTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('profile');
   const [preferences, setPreferences] = useState(() => readPreferences(userId));
   useEffect(() => setPreferences(readPreferences(userId)), [userId]);
   const savePreferences = (next: UserPreferences) => {
@@ -7041,6 +7188,7 @@ function SettingsView({
     setPreferencesOpen(false);
     onMessage('Preferences saved.');
   };
+  const selectedSection = settingsSections.find((section) => section.id === activeSection)!;
   return (
     <>
       <PageHeader
@@ -7051,91 +7199,122 @@ function SettingsView({
           </button>
         }
       />
-      <section className="settings-grid">
-        <article className="panel settings-card">
-          <div className="profile-large">{profile.initials}</div>
-          <div>
-            <h2>{profile.name}</h2>
-            <p>{profile.email || 'No email on file'}</p>
-            <button className="text-button" type="button" onClick={() => setProfileOpen(true)}>
-              Edit profile <ArrowRight size={14} />
+      <section className="settings-layout">
+        <nav className="panel settings-navigation" aria-label="Settings categories">
+          {settingsSections.map((section) => (
+            <button
+              className={`settings-navigation-item ${activeSection === section.id ? 'is-active' : ''}`}
+              type="button"
+              aria-current={activeSection === section.id ? 'page' : undefined}
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+            >
+              <strong>{section.title}</strong>
+              <small>{section.description}</small>
             </button>
-          </div>
-        </article>
-        <article className="panel settings-card">
-          <div className="small-panel-icon">
-            <Landmark size={17} />
-          </div>
-          <div>
-            <h3>Accounts</h3>
-            <p>
-              {data.accounts.length} account{data.accounts.length === 1 ? '' : 's'} ·{' '}
-              {formatMoney(
-                data.accounts
-                  .filter((account) => !account.archived)
-                  .reduce((sum, account) => sum + account.balance, 0),
-              )}{' '}
-              total balance
-            </p>
-            <button className="text-button" type="button" onClick={onManageAccounts}>
-              Manage accounts <ArrowRight size={14} />
-            </button>
-          </div>
-        </article>
-        <article className="panel settings-card">
-          <div className="small-panel-icon">
-            <Package size={17} />
-          </div>
-          <div>
-            <h3>Build information</h3>
-            <p>
-              Build ID · {import.meta.env.VITE_BUILD_ID || 'Unavailable'}
-              <br />
-              Image built ·{' '}
-              {formatBuildTimestamp(import.meta.env.VITE_BUILD_TIMESTAMP)}
-            </p>
-          </div>
-        </article>
-        {import.meta.env.DEV && (
-          <article className="panel settings-card">
-            <div className="small-panel-icon">
-              <Landmark size={17} />
+          ))}
+        </nav>
+        <div className="settings-main">
+          <header className="settings-main-heading">
+            <h2>{selectedSection.title}</h2>
+            <p>{selectedSection.description}</p>
+          </header>
+          {activeSection === 'profile' && (
+            <article className="panel settings-card">
+              <div className="profile-large">{profile.initials}</div>
+              <div>
+                <h3>{profile.name}</h3>
+                <p>{profile.email || 'No email on file'}</p>
+                <button className="text-button" type="button" onClick={() => setProfileOpen(true)}>
+                  Edit profile and security <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          )}
+          {activeSection === 'accounts' && (
+            <article className="panel settings-card">
+              <div className="small-panel-icon">
+                <Landmark size={17} />
+              </div>
+              <div>
+                <h3>Accounts</h3>
+                <p>
+                  {data.accounts.length} account{data.accounts.length === 1 ? '' : 's'} ·{' '}
+                  {formatMoney(
+                    data.accounts
+                      .filter((account) => !account.archived)
+                      .reduce((sum, account) => sum + account.balance, 0),
+                  )}{' '}
+                  total balance
+                </p>
+                <button className="text-button" type="button" onClick={onManageAccounts}>
+                  Manage accounts <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          )}
+          {activeSection === 'preferences' && (
+            <article className="panel settings-card">
+              <div className="small-panel-icon">
+                <SlidersHorizontal size={17} />
+              </div>
+              <div>
+                <h3>Preferences</h3>
+                <p>
+                  Currency · {preferences.currency}
+                  <br />
+                  Week starts on {preferences.weekStart === 'monday' ? 'Monday' : 'Sunday'}
+                  <br />
+                  Date and number format · {preferences.dateFormat} / {preferences.numberFormat}
+                  <br />
+                  Notifications · {preferences.notifications ? 'On' : 'Off'}
+                </p>
+                <button className="text-button" type="button" onClick={() => setPreferencesOpen(true)}>
+                  Manage preferences <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          )}
+          {activeSection === 'data' && (
+            <TransactionCsvSettings data={data} remote={remote} onRefresh={onRefresh} />
+          )}
+          {activeSection === 'about' && (
+            <div className="settings-about-grid">
+              <article className="panel settings-card">
+                <div className="small-panel-icon">
+                  <Package size={17} />
+                </div>
+                <div>
+                  <h3>Build information</h3>
+                  <p>
+                    Build ID · {import.meta.env.VITE_BUILD_ID || 'Unavailable'}
+                    <br />
+                    Image built · {formatBuildTimestamp(import.meta.env.VITE_BUILD_TIMESTAMP)}
+                  </p>
+                </div>
+              </article>
+              {import.meta.env.DEV && (
+                <article className="panel settings-card">
+                  <div className="small-panel-icon">
+                    <Landmark size={17} />
+                  </div>
+                  <div>
+                    <h3>Developer settings</h3>
+                    <p>Restart the welcome walkthrough and configure the default account.</p>
+                    <button className="text-button" type="button" onClick={onStartOnboarding}>
+                      Start onboarding <ArrowRight size={14} />
+                    </button>
+                  </div>
+                </article>
+              )}
             </div>
-            <div>
-              <h3>Developer settings</h3>
-              <p>Restart the welcome walkthrough and configure the default account.</p>
-              <button className="text-button" type="button" onClick={onStartOnboarding}>
-                Start onboarding <ArrowRight size={14} />
-              </button>
+          )}
+          {settingsMessage && (
+            <div className="settings-message" role="status">
+              <Check size={15} /> {settingsMessage}
             </div>
-          </article>
-        )}
-        <TransactionCsvSettings data={data} remote={remote} onRefresh={onRefresh} />
-        <article className="panel settings-card">
-          <div className="small-panel-icon">
-            <SlidersHorizontal size={17} />
-          </div>
-          <div>
-            <h3>Preferences</h3>
-            <p>
-              Currency · {preferences.currency}
-              <br />
-              Week starts on {preferences.weekStart === 'monday' ? 'Monday' : 'Sunday'}
-              <br />
-              Date and number format · {preferences.dateFormat} / {preferences.numberFormat}
-              <br />
-              Notifications · {preferences.notifications ? 'On' : 'Off'}
-            </p>
-            <button className="text-button" type="button" onClick={() => setPreferencesOpen(true)}>
-              Manage preferences <ArrowRight size={14} />
-            </button>
-          </div>
-        </article>
-        {settingsMessage && (
-          <div className="settings-message">
-            <Check size={15} /> {settingsMessage}
-          </div>
-        )}
+          )}
+        </div>
       </section>
       {profileOpen && (
         <ProfileSettingsDialog
@@ -8194,6 +8373,14 @@ function FinanceComposer({
           : '',
   );
   const [budgetUnlimited, setBudgetUnlimited] = useState(Boolean(budgetRecord?.unlimited));
+  const [surplusAction, setSurplusAction] = useState<NonNullable<Budget['surplusAction']>>(
+    budgetRecord?.surplusAction ?? 'none',
+  );
+  const [surplusTarget, setSurplusTarget] = useState(budgetRecord?.surplusTarget ?? '');
+  const [deficitAction, setDeficitAction] = useState<NonNullable<Budget['deficitAction']>>(
+    budgetRecord?.deficitAction ?? 'none',
+  );
+  const [deficitSource, setDeficitSource] = useState(budgetRecord?.deficitSource ?? '');
   const [budgetColor, setBudgetColor] = useState(
     budgetRecord?.color ?? budgetColorPalette[0].value,
   );
@@ -8233,6 +8420,15 @@ function FinanceComposer({
   const [receivable] = useState(transaction?.receivable ?? '');
   const [purchaseTransaction, setPurchaseTransaction] = useState(asset?.purchaseTransaction ?? '');
   const [category, setCategory] = useState(transaction?.category ?? budgetRecord?.category ?? '');
+  const categoryOptions = [...new Map(
+    [
+      ...data.budgets.map((item) => item.category),
+      ...data.transactions.map((item) => item.category),
+    ]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => [item.toLocaleLowerCase(), item]),
+  ).values()].sort((a, b) => a.localeCompare(b));
   const [budget, setBudget] = useState(transaction?.budgetId ?? '');
   const [tags, setTags] = useState(transaction?.tags?.join(', ') ?? '');
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
@@ -8350,6 +8546,15 @@ function FinanceComposer({
     }
     if (
       !saveAsDraft &&
+      kind === 'budget' &&
+      ((!isUnlimitedBudget && surplusAction === 'push' && !surplusTarget) ||
+        (!isUnlimitedBudget && deficitAction === 'pull' && !deficitSource))
+    ) {
+      setError('Choose a budget for each surplus or deficit transfer.');
+      return;
+    }
+    if (
+      !saveAsDraft &&
       kind === 'transaction' &&
       type === 'transfer' &&
       (!destinationAccount || account === destinationAccount)
@@ -8451,6 +8656,10 @@ function FinanceComposer({
                     .toISOString()
                     .slice(0, 10),
               notes: note,
+              surplus_action: isUnlimitedBudget ? 'none' : surplusAction,
+              surplus_target: !isUnlimitedBudget && surplusAction === 'push' ? surplusTarget : '',
+              deficit_action: isUnlimitedBudget ? 'none' : deficitAction,
+              deficit_source: !isUnlimitedBudget && deficitAction === 'pull' ? deficitSource : '',
             }
           : kind === 'checkpoint'
             ? { account, date, balance: numericAmount, note }
@@ -8766,6 +8975,66 @@ function FinanceComposer({
                     onChange={(event) => setAmount(event.target.value)}
                   />
                 </label>
+                <label>
+                  End of month surplus
+                  <AppSelect
+                    value={surplusAction}
+                    onChange={(event) =>
+                      setSurplusAction(event.target.value as NonNullable<Budget['surplusAction']>)
+                    }
+                  >
+                    <option value="none">Leave unused funds behind</option>
+                    <option value="carry">Carry into this budget next month</option>
+                    <option value="push">Push into another budget</option>
+                  </AppSelect>
+                </label>
+                {surplusAction === 'push' && (
+                  <label>
+                    Push surplus to
+                    <AppSelect
+                      required
+                      value={surplusTarget}
+                      onChange={(event) => setSurplusTarget(event.target.value)}
+                    >
+                      <option value="">Choose a budget</option>
+                      {budgetCategoriesForRollover(data.budgets, category).map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </AppSelect>
+                  </label>
+                )}
+                <label>
+                  End of month deficit
+                  <AppSelect
+                    value={deficitAction}
+                    onChange={(event) =>
+                      setDeficitAction(event.target.value as NonNullable<Budget['deficitAction']>)
+                    }
+                  >
+                    <option value="none">Leave the overspend behind</option>
+                    <option value="carry">Carry deficit into this budget next month</option>
+                    <option value="pull">Pull from another budget</option>
+                  </AppSelect>
+                </label>
+                {deficitAction === 'pull' && (
+                  <label>
+                    Pull from
+                    <AppSelect
+                      required
+                      value={deficitSource}
+                      onChange={(event) => setDeficitSource(event.target.value)}
+                    >
+                      <option value="">Choose a budget</option>
+                      {budgetCategoriesForRollover(data.budgets, category).map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </AppSelect>
+                  </label>
+                )}
               </>
             )}
           </>
@@ -9353,14 +9622,14 @@ function FinanceComposer({
                 </label>
                 {!splitting && (
                   <>
-                    <label>
-                      Category
-                      <input
+                    <div className="transaction-category-field">
+                      <span>Category</span>
+                      <TransactionCategoryInput
                         value={category}
-                        onChange={(event) => setCategory(event.target.value)}
-                        placeholder="e.g. Groceries"
+                        options={categoryOptions}
+                        onChange={setCategory}
                       />
-                    </label>
+                    </div>
                     <label>
                       Budget bucket
                       <AppSelect value={budget} onChange={(event) => setBudget(event.target.value)}>

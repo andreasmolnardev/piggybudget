@@ -27,6 +27,7 @@ func TestEnsureFinanceCollectionsCreatesOwnedCollections(t *testing.T) {
 	}
 	expectedFields := map[string][]string{
 		"transactions": {"type", "budget", "tags", "attachments", "receipt", "asset", "receivable"},
+		"budgets":      {"surplus_action", "surplus_target", "deficit_action", "deficit_source"},
 		"assets":       {"type", "quantity", "purchase_date", "purchase_price", "purchase_transaction", "target_sale_price", "status"},
 	}
 	for _, name := range financeCollections {
