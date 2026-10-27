@@ -36,7 +36,14 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
-import { budgetColorPalette, budgetNameForId, historyDatesForDisplay } from './data';
+import { parseBulkTransactionJson } from './bulk-transaction-import';
+import {
+  budgetColorPalette,
+  budgetNameForId,
+  formatTransactionGroupDate,
+  historyDatesForDisplay,
+  transactionEditId,
+} from './data';
 import type {
   Account,
   Asset,
@@ -2309,6 +2316,7 @@ function TransactionsView({
   onAddCheckpoint,
   onAddAccount,
   onEditTransaction,
+  onDuplicateTransaction,
   onDeleteTransaction,
   onToggleCleared,
   onOpenTransaction,
@@ -2324,6 +2332,7 @@ function TransactionsView({
   onAddCheckpoint: () => void;
   onAddAccount: () => void;
   onEditTransaction: (transaction: Transaction) => void;
+  onDuplicateTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (transaction: Transaction) => void;
   onToggleCleared: (transaction: Transaction) => void;
   onOpenTransaction: (transaction: Transaction) => void;
@@ -3094,7 +3103,12 @@ function TransactionsView({
           {historyDates.length ? (
             historyDates.map((date) => (
               <section className="transaction-date-group" key={date}>
-                <h3 className="transaction-date-heading">{formatDate(date)}</h3>
+                <h3 className="transaction-date-heading">
+                  {formatTransactionGroupDate(
+                    date,
+                    readPreferences().dateFormat === 'day-first' ? 'en-GB' : undefined,
+                  )}
+                </h3>
                 <div className="transaction-list transaction-table transaction-cards">
                   {(transactionsByDate.get(date) ?? []).map((transaction) => (
                     <TransactionRow
@@ -3103,6 +3117,7 @@ function TransactionsView({
                       budgetName={budgetNameForId(data.budgets, transaction.budgetId)}
                       onOpen={() => onOpenTransaction(transaction)}
                       onEdit={() => onEditTransaction(transaction)}
+                      onDuplicate={() => onDuplicateTransaction(transaction)}
                       onDelete={() => onDeleteTransaction(transaction)}
                       onToggleCleared={() => onToggleCleared(transaction)}
                       showDate={false}
@@ -6027,6 +6042,7 @@ export function BudgetingDashboard({
     'account' | 'transaction' | 'checkpoint' | 'asset' | 'budget' | null
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
@@ -6065,6 +6081,7 @@ export function BudgetingDashboard({
   const closeComposer = () => {
     setComposer(null);
     setEditingTransaction(null);
+    setDuplicatingTransaction(null);
     setEditingAsset(null);
     setEditingBudget(null);
     setPreferredAccountId(null);
@@ -6330,88 +6347,6 @@ export function BudgetingDashboard({
     }
     onRefresh();
   };
-  const duplicateTransaction = async (transaction: Transaction) => {
-    if (transaction.subtransactions?.length) {
-      const response = await apiFetch('/api/finance/transactions/split', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${pb.authStore.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          account: transaction.accountId,
-          date: transaction.date,
-          amount: transaction.amount,
-          type: transaction.kind,
-          payee: transaction.merchant,
-          description: transaction.description ?? '',
-          tags: transaction.tags ?? [],
-          notes: transaction.note ?? '',
-          splits: transaction.subtransactions.map((item) => ({
-            name: item.merchant,
-            amount: item.amount,
-            category: item.category,
-            budget: item.budgetId ?? '',
-          })),
-        }),
-      });
-      if (!response.ok) {
-        window.alert((await response.text()) || 'Could not duplicate this transaction.');
-        return;
-      }
-      onRefresh();
-      return;
-    }
-    const transferPeer = transaction.transferId
-      ? data.transactions.find(
-          (item) => item.transferId === transaction.transferId && item.id !== transaction.id,
-        )
-      : undefined;
-    if (transaction.kind === 'transfer' && !transferPeer) {
-      window.alert('This transfer is missing its paired account entry. Refresh and try again.');
-      return;
-    }
-    const isSource = transaction.kind !== 'transfer' || (transaction.signedAmount ?? -1) < 0;
-    const response = await apiFetch(
-      transaction.kind === 'transfer' ? '/api/finance/transfers' : '/api/finance/transactions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${pb.authStore.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(
-          transaction.kind === 'transfer'
-            ? {
-                source_account: isSource ? transaction.accountId : transferPeer?.accountId,
-                destination_account: isSource ? transferPeer?.accountId : transaction.accountId,
-                date: transaction.date,
-                amount: transaction.amount,
-                notes: transaction.note ?? transaction.description ?? '',
-              }
-            : {
-                account: transaction.accountId,
-                date: transaction.date,
-                amount:
-                  transaction.signedAmount ??
-                  (transaction.kind === 'expense' ? -transaction.amount : transaction.amount),
-                type: transaction.kind,
-                payee: transaction.merchant,
-                description: transaction.description ?? '',
-                category: transaction.category,
-                budget: transaction.budgetId ?? '',
-                tags: transaction.tags ?? [],
-                notes: transaction.note ?? '',
-              },
-        ),
-      },
-    );
-    if (!response.ok) {
-      window.alert((await response.text()) || 'Could not duplicate this transaction.');
-      return;
-    }
-    onRefresh();
-  };
   const renameReceivable = async (person: string, nextName: string) => {
     if (!nextName.trim() || nextName.trim() === person) return false;
     const related = data.transactions.filter(
@@ -6461,11 +6396,16 @@ export function BudgetingDashboard({
         onAddCheckpoint={() => setComposer('checkpoint')}
         onOpenTransaction={setViewingTransaction}
         onEditTransaction={(transaction) => {
+          setDuplicatingTransaction(null);
           setEditingTransaction(transaction);
           setComposer('transaction');
         }}
         onDeleteTransaction={(transaction) => void deleteTransaction(transaction)}
-        onDuplicateTransaction={(transaction) => void duplicateTransaction(transaction)}
+        onDuplicateTransaction={(transaction) => {
+          setEditingTransaction(null);
+          setDuplicatingTransaction(transaction);
+          setComposer('transaction');
+        }}
         onToggleCleared={(transaction) => void toggleTransactionCleared(transaction)}
         onOpenBudget={(budget) => setRecordDetailsTarget({ type: 'budget', id: budget.id })}
       />
@@ -6478,7 +6418,13 @@ export function BudgetingDashboard({
         onAddCheckpoint={() => setComposer('checkpoint')}
         onAddAccount={() => setComposer('account')}
         onEditTransaction={(transaction) => {
+          setDuplicatingTransaction(null);
           setEditingTransaction(transaction);
+          setComposer('transaction');
+        }}
+        onDuplicateTransaction={(transaction) => {
+          setEditingTransaction(null);
+          setDuplicatingTransaction(transaction);
           setComposer('transaction');
         }}
         onDeleteTransaction={(transaction) => void deleteTransaction(transaction)}
@@ -6626,7 +6572,8 @@ export function BudgetingDashboard({
           kind={composer}
           data={data}
           remote={remote}
-          transaction={editingTransaction}
+          transaction={editingTransaction ?? duplicatingTransaction}
+          duplicate={Boolean(duplicatingTransaction)}
           asset={editingAsset}
           budgetRecord={editingBudget}
           preferredAccountId={preferredAccountId}
@@ -8181,6 +8128,7 @@ function FinanceComposer({
   data,
   remote,
   transaction,
+  duplicate,
   asset,
   budgetRecord,
   preferredAccountId,
@@ -8191,6 +8139,7 @@ function FinanceComposer({
   data: BudgetData;
   remote: boolean;
   transaction: Transaction | null;
+  duplicate: boolean;
   asset: Asset | null;
   budgetRecord: Budget | null;
   preferredAccountId: string | null;
@@ -8250,6 +8199,8 @@ function FinanceComposer({
   );
   const [payee, setPayee] = useState(transaction?.merchant ?? '');
   const [type, setType] = useState<TransactionKind>(transaction?.kind ?? 'expense');
+  const [bulkJsonOpen, setBulkJsonOpen] = useState(false);
+  const [bulkJson, setBulkJson] = useState('');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
     (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
@@ -8289,7 +8240,7 @@ function FinanceComposer({
   const [pictureFiles, setPictureFiles] = useState<File[]>([]);
   const [pictureUploadFailed, setPictureUploadFailed] = useState(false);
   const [savedTransactionId, setSavedTransactionId] = useState<string | null>(
-    transaction?.id ?? null,
+    duplicate ? null : (transaction?.id ?? null),
   );
   const [savedDebtTransactionId, setSavedDebtTransactionId] = useState<string | null>(null);
   const [assetName, setAssetName] = useState(asset?.name ?? '');
@@ -8317,6 +8268,44 @@ function FinanceComposer({
     const submitter = (event.nativeEvent as SubmitEvent).submitter;
     const saveAsDraft =
       submitter instanceof HTMLButtonElement && submitter.dataset.saveAsDraft === 'true';
+    if (kind === 'transaction' && bulkJsonOpen) {
+      let imported = 0;
+      setBusy(true);
+      setError('');
+      try {
+        const transactions = parseBulkTransactionJson(
+          bulkJson,
+          data.accounts.filter((item) => !item.archived),
+          data.budgets,
+        );
+        for (let index = 0; index < transactions.length; index += 1) {
+          const response = await apiFetch('/api/finance/transactions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${pb.authStore.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(transactions[index]),
+          });
+          if (!response.ok) {
+            const message = (await response.text()) || 'Could not save this transaction.';
+            throw new Error(`Transaction ${index + 1}: ${message}`);
+          }
+          imported += 1;
+        }
+        beginClose(onSaved);
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : 'Could not import transactions.';
+        setError(
+          imported
+            ? `Imported ${imported} transaction${imported === 1 ? '' : 's'} before stopping. ${message} Remove the imported rows before retrying.`
+            : message,
+        );
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const numericAmount = Number(amount);
     const isUnlimitedBudget = kind === 'budget' && (budgetUnlimited || !amount.trim());
     if (saveAsDraft && (type === 'transfer' || splitting || repeat || trackAsDebt)) {
@@ -8433,7 +8422,12 @@ function FinanceComposer({
         );
         return;
       }
-      if (transaction || repeat || splitting || !['expense', 'income'].includes(type)) {
+      if (
+        (transaction && !duplicate) ||
+        repeat ||
+        splitting ||
+        !['expense', 'income'].includes(type)
+      ) {
         setError('Debt tracking is available for new, unsplit expense or income transactions.');
         return;
       }
@@ -8519,7 +8513,7 @@ function FinanceComposer({
       const isSplit =
         kind === 'transaction' &&
         splitting &&
-        (!transaction || Boolean(transaction.subtransactions?.length));
+        (duplicate || !transaction || Boolean(transaction.subtransactions?.length));
       const resource = isSplit
         ? 'transactions/split'
         : kind === 'account'
@@ -8540,9 +8534,11 @@ function FinanceComposer({
         isSplit || (repeat && kind === 'transaction')
           ? undefined
           : isTransfer
-            ? transaction?.transferId
+            ? duplicate
+              ? undefined
+              : transaction?.transferId
             : kind === 'transaction'
-              ? (transaction?.id ?? savedTransactionId ?? undefined)
+              ? transactionEditId(transaction, duplicate, savedTransactionId)
               : kind === 'asset'
                 ? asset?.id
                 : kind === 'budget'
@@ -8574,7 +8570,7 @@ function FinanceComposer({
             })),
           }
         : recurringBody;
-      const splitGroup = transaction?.splitGroup;
+      const splitGroup = duplicate ? undefined : transaction?.splitGroup;
       const splitParent = isSplit && Boolean(splitGroup);
       const response = await apiFetch(
         splitParent
@@ -8659,7 +8655,9 @@ function FinanceComposer({
         : isBudget
           ? Boolean(category.trim())
           : kind === 'transaction'
-            ? Boolean(account && (type !== 'transfer' || destinationAccount !== account))
+            ? bulkJsonOpen
+              ? data.accounts.some((item) => !item.archived)
+              : Boolean(account && (type !== 'transfer' || destinationAccount !== account))
             : Boolean(account));
   return (
     <div className={`composer-overlay ${closing ? 'is-closing' : ''}`} onAnimationEnd={finishClose}>
@@ -8683,7 +8681,7 @@ function FinanceComposer({
                     ? `${asset ? 'Edit' : 'Add'} asset`
                     : kind === 'checkpoint'
                       ? 'Record a checkpoint'
-                      : `${transaction ? 'Edit' : 'Add'} transaction`}
+                      : `${duplicate ? 'Duplicate' : transaction ? 'Edit' : 'Add'} transaction`}
             </h2>
           </div>
           <button
@@ -8883,7 +8881,7 @@ function FinanceComposer({
               />
             </label>
           </>
-        ) : (
+        ) : kind === 'transaction' ? null : (
           <>
             <label>
               {type === 'transfer' ? 'From account' : 'Account'}
@@ -8909,7 +8907,7 @@ function FinanceComposer({
             </label>
           </>
         )}
-        {!isAsset && !isBudget && (
+        {!isAsset && !isBudget && kind !== 'transaction' && (
           <label>
             {isAccount
               ? 'Current balance'
@@ -8929,7 +8927,7 @@ function FinanceComposer({
             />
           </label>
         )}
-        {!isAccount && !isAsset && !isBudget && (
+        {!isAccount && !isAsset && !isBudget && kind !== 'transaction' && (
           <label>
             Date
             <input
@@ -8942,26 +8940,130 @@ function FinanceComposer({
         )}
         {kind === 'transaction' && (
           <>
+            <div
+              className={`transaction-type-tabs${!transaction && !duplicate ? ' has-bulk-json' : ''}`}
+              role="group"
+              aria-label="Transaction type"
+            >
+              {[
+                { value: 'expense', label: 'Expense' },
+                { value: 'income', label: 'Income' },
+                { value: 'adjustment', label: 'Adjustment' },
+                ...((duplicate || !transaction || transaction.kind === 'transfer')
+                  ? [{ value: 'transfer', label: 'Transfer' }]
+                  : []),
+                ...(!transaction && !duplicate
+                  ? [{ value: 'bulk-json', label: 'Bulk JSON' }]
+                  : []),
+              ].map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  aria-pressed={bulkJsonOpen ? tab.value === 'bulk-json' : type === tab.value}
+                  disabled={!duplicate && transaction?.kind === 'transfer'}
+                  className={
+                    (bulkJsonOpen ? tab.value === 'bulk-json' : type === tab.value)
+                      ? 'is-active'
+                      : ''
+                  }
+                  onClick={() => {
+                    if (tab.value === 'bulk-json') {
+                      setBulkJsonOpen(true);
+                      return;
+                    }
+                    setBulkJsonOpen(false);
+                    const nextType = tab.value as TransactionKind;
+                    setType(nextType);
+                    if (!['expense', 'income'].includes(nextType)) setTrackAsDebt(false);
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {bulkJsonOpen && (
+              <>
+                <label className="bulk-json-label">
+                  Transactions JSON
+                  <textarea
+                    required
+                    rows={12}
+                    value={bulkJson}
+                    onChange={(event) => setBulkJson(event.target.value)}
+                    placeholder={
+                      '[\n  { "date": "2026-10-25", "amount": 18.5, "type": "expense", "account": "Everyday checking" }\n]'
+                    }
+                  />
+                </label>
+                <p className="bulk-json-help">
+                  Paste a JSON array of transactions.{' '}
+                  <a
+                    href="https://github.com/andreasmolnardev/piggybudget/blob/main/docs/BULK-TRANSACTION-IMPORT.md"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Read the format guide
+                  </a>
+                  .
+                </p>
+              </>
+            )}
+            {!bulkJsonOpen && (
+              <>
+            {type !== 'transfer' && (
+              <label>
+                Payee or source
+                <input
+                  value={payee}
+                  onChange={(event) => setPayee(event.target.value)}
+                  placeholder="e.g. Grocery store"
+                />
+              </label>
+            )}
             <label>
-              Type
+              {type === 'transfer' ? 'From account' : 'Account'}
               <AppSelect
-                value={type}
-                disabled={transaction?.kind === 'transfer'}
+                required
+                value={account}
                 onChange={(event) => {
-                  const nextType = event.target.value as TransactionKind;
-                  setType(nextType);
-                  if (!['expense', 'income'].includes(nextType)) setTrackAsDebt(false);
+                  const nextAccount = event.target.value;
+                  setAccount(nextAccount);
+                  if (nextAccount === destinationAccount) {
+                    setDestinationAccount(
+                      availableAccounts.find((item) => item.id !== nextAccount)?.id ?? '',
+                    );
+                  }
                 }}
               >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-                <option value="adjustment">Balance adjustment</option>
-                {(!transaction || transaction.kind === 'transfer') && (
-                  <option value="transfer">Transfer</option>
-                )}
+                {availableAccounts.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.type}
+                  </option>
+                ))}
               </AppSelect>
             </label>
-            {!transaction && (type === 'expense' || type === 'income') && (
+            <label>
+              {splitting ? 'Parent transaction total' : 'Amount'}
+              <input
+                required
+                min="0"
+                step="0.01"
+                type="number"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0.00"
+              />
+            </label>
+            <label>
+              Date
+              <input
+                required
+                type="date"
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+              />
+            </label>
+            {(!transaction || duplicate) && (type === 'expense' || type === 'income') && (
               <>
                 <label className="transaction-repeat-toggle">
                   <input
@@ -9009,7 +9111,7 @@ function FinanceComposer({
                 )}
               </>
             )}
-            {!transaction && type !== 'transfer' && (
+            {(!transaction || duplicate) && type !== 'transfer' && (
               <label className="transaction-repeat-toggle">
                 <input
                   type="checkbox"
@@ -9026,12 +9128,12 @@ function FinanceComposer({
               </label>
             )}
             {(type === 'expense' || type === 'income') &&
-              (!transaction || Boolean(transaction.subtransactions?.length)) && (
+              (duplicate || !transaction || Boolean(transaction.subtransactions?.length)) && (
                 <label className="transaction-repeat-toggle">
                   <input
                     type="checkbox"
                     checked={splitting}
-                    disabled={Boolean(transaction?.subtransactions?.length)}
+                    disabled={!duplicate && Boolean(transaction?.subtransactions?.length)}
                     onChange={(event) => {
                       setSplitting(event.target.checked);
                       if (event.target.checked) {
@@ -9242,14 +9344,6 @@ function FinanceComposer({
                   </label>
                 )}
                 <label>
-                  Payee or source
-                  <input
-                    value={payee}
-                    onChange={(event) => setPayee(event.target.value)}
-                    placeholder="e.g. Grocery store"
-                  />
-                </label>
-                <label>
                   Description
                   <input
                     value={description}
@@ -9383,9 +9477,11 @@ function FinanceComposer({
                 )}
               </>
             )}
+              </>
+            )}
           </>
         )}{' '}
-        {!isAccount && (
+        {!isAccount && !(kind === 'transaction' && bulkJsonOpen) && (
           <label>
             Note
             <textarea
@@ -9401,7 +9497,7 @@ function FinanceComposer({
           <button className="button" type="button" onClick={() => beginClose()}>
             Cancel
           </button>
-          {kind === 'transaction' && (
+          {kind === 'transaction' && !bulkJsonOpen && (
             <button
               className="button"
               type="submit"
@@ -9422,9 +9518,11 @@ function FinanceComposer({
           )}
           <button className="button button-primary" type="submit" disabled={busy || !canSave}>
             {busy
-              ? pictureFiles.length
-                ? `Uploading ${uploadProgress}%…`
-                : 'Saving…'
+              ? bulkJsonOpen
+                ? 'Importing…'
+                : pictureFiles.length
+                  ? `Uploading ${uploadProgress}%…`
+                  : 'Saving…'
               : isAccount
                 ? 'Save account'
                 : isBudget
@@ -9435,9 +9533,13 @@ function FinanceComposer({
                       ? 'Save asset'
                       : pictureUploadFailed
                         ? 'Retry picture upload'
-                        : transaction
-                          ? 'Save changes'
-                          : 'Save transaction'}
+                        : duplicate
+                          ? 'Create duplicate'
+                          : transaction
+                            ? 'Save changes'
+                            : bulkJsonOpen
+                              ? 'Import transactions'
+                              : 'Save transaction'}
           </button>
         </div>
       </form>

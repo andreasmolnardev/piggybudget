@@ -33,16 +33,42 @@ type OptionProps = {
   value?: string | number;
 };
 
+export type OptionEntry = { value: string; label: string };
+
 const emptyValue = '__piggybudget_empty_option__';
 
 function optionText(children: React.ReactNode): string {
   return React.Children.toArray(children)
-    .map((child) => (typeof child === 'string' || typeof child === 'number' ? child : ''))
+    .map((child) => {
+      if (typeof child === 'string' || typeof child === 'number') return child;
+      if (React.isValidElement(child)) {
+        return optionText((child.props as { children?: React.ReactNode }).children);
+      }
+      return '';
+    })
     .join('');
 }
 
 function optionValue(props: OptionProps): string {
   return String(props.value ?? optionText(props.children));
+}
+
+function optionEntries(children: React.ReactNode): OptionEntry[] {
+  return React.Children.toArray(children).flatMap((child) => {
+    if (!React.isValidElement(child)) return [];
+    if (child.type === 'option') {
+      const props = child.props as OptionProps;
+      return [{ value: optionValue(props), label: optionText(props.children) }];
+    }
+    if (child.type === 'optgroup') {
+      return optionEntries((child.props as { children?: React.ReactNode }).children);
+    }
+    return [];
+  });
+}
+
+export function selectedOptionLabel(options: OptionEntry[], value: string) {
+  return options.find((option) => option.value === value)?.label ?? value;
 }
 
 function encode(value: string): string {
@@ -68,21 +94,9 @@ function AppSelect({
   title,
   value,
 }: AppSelectProps) {
-  const options = React.Children.toArray(children).flatMap((child) => {
-    if (!React.isValidElement(child)) return [];
-    if (child.type === 'option') return [optionValue(child.props as OptionProps)];
-    if (child.type === 'optgroup') {
-      return React.Children.toArray((child.props as { children?: React.ReactNode }).children)
-        .map((option) =>
-          React.isValidElement(option) && option.type === 'option'
-            ? optionValue(option.props as OptionProps)
-            : null,
-        )
-        .filter((option): option is string => option !== null);
-    }
-    return [];
-  });
-  const initialValue = defaultValue ?? options[0] ?? '';
+  const options = optionEntries(children);
+  const initialValue = defaultValue ?? options[0]?.value ?? '';
+  const selectedValue = value ?? initialValue;
 
   const renderOption = (child: React.ReactNode, index: number) => {
     if (!React.isValidElement(child)) return null;
@@ -129,7 +143,7 @@ function AppSelect({
         aria-labelledby={ariaLabelledBy}
         title={title}
       >
-        <SelectValue />
+        <SelectValue>{selectedOptionLabel(options, selectedValue)}</SelectValue>
       </SelectTrigger>
       <SelectContent>{React.Children.map(children, renderOption)}</SelectContent>
     </Select>
