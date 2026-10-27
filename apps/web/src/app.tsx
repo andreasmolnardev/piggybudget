@@ -116,6 +116,7 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchClosing, setSearchClosing] = useState(false);
   const [searchTarget, setSearchTarget] = useState<FinanceRecordTarget | null>(null);
+  const [transactionSearchTerm, setTransactionSearchTerm] = useState('');
   const budgetQuery = useQuery(budgetDataQueryOptions(userId));
   const data = budgetQuery.data?.data ?? emptyBudgetData;
   const remote = budgetQuery.data?.remote ?? false;
@@ -202,6 +203,7 @@ export function App() {
 
   const closeSearch = () => setSearchClosing(true);
   const handleSearchTargetHandled = useCallback(() => setSearchTarget(null), []);
+  const handleTransactionSearchHandled = useCallback(() => setTransactionSearchTerm(''), []);
 
   const onNavigate = (tab: SidebarTab) => {
     scrollPositions.current.set(pathname, window.scrollY);
@@ -264,6 +266,8 @@ export function App() {
               profile={profile}
               recordTarget={searchTarget}
               onRecordTargetHandled={handleSearchTargetHandled}
+              transactionSearchTerm={transactionSearchTerm}
+              onTransactionSearchHandled={handleTransactionSearchHandled}
             />
           </div>
         </div>
@@ -281,6 +285,10 @@ export function App() {
         <FinanceSearch
           data={data}
           onClose={closeSearch}
+          onSearchTransactions={(query) => {
+            setTransactionSearchTerm(query);
+            onNavigate('transactions');
+          }}
           onSelect={({ record, tab }) => {
             setSearchTarget(record);
             onNavigate(tab);

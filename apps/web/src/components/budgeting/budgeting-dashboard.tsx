@@ -198,6 +198,8 @@ type Props = {
   profile: UserProfile;
   recordTarget: FinanceRecordTarget | null;
   onRecordTargetHandled: () => void;
+  transactionSearchTerm: string;
+  onTransactionSearchHandled: () => void;
 };
 
 export function formatMoney(value: number, compact = false) {
@@ -591,17 +593,17 @@ function ProgressBar({ value, color }: { value: number; color: string }) {
 
 function BudgetLine({
   budget,
+  selected = false,
   onOpen,
   onEdit,
   onArchive,
-  selected = false,
   onDelete,
 }: {
   budget: Budget;
+  selected?: boolean;
   onOpen?: () => void;
   onEdit?: () => void;
   onArchive?: () => void;
-  selected?: boolean;
   onDelete?: () => void;
 }) {
   const percentage = budget.limit ? (budget.spent / budget.limit) * 100 : 0;
@@ -2329,6 +2331,8 @@ function TransactionsView({
   onDeleteTransactionsBatch,
   onDeleteRecurringRule,
   onRefresh,
+  transactionSearchTerm,
+  onTransactionSearchHandled,
 }: {
   data: BudgetData;
   userId: string;
@@ -2345,6 +2349,8 @@ function TransactionsView({
   onDeleteTransactionsBatch: (transactions: Transaction[]) => void;
   onDeleteRecurringRule: (rule: RecurringTransaction) => void;
   onRefresh: () => void;
+  transactionSearchTerm: string;
+  onTransactionSearchHandled: () => void;
 }) {
   const [filters, setFilters] = useState<TransactionFilters>(
     () => readTransactionViewState(userId).filters,
@@ -2364,10 +2370,16 @@ function TransactionsView({
   const [bulkBudgetId, setBulkBudgetId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
   const [bulkMessage, setBulkMessage] = useState('');
+  const [textSearch, setTextSearch] = useState('');
   const [budgetPopoverOpen, setBudgetPopoverOpen] = useState(false);
   const [deletePopoverOpen, setDeletePopoverOpen] = useState(false);
   const [exportPopoverOpen, setExportPopoverOpen] = useState(false);
   const pageSize = 25;
+  useEffect(() => {
+    if (!transactionSearchTerm) return;
+    setTextSearch(transactionSearchTerm);
+    onTransactionSearchHandled();
+  }, [onTransactionSearchHandled, transactionSearchTerm]);
   useEffect(() => {
     if (stateUserId === userId) return;
     const saved = readTransactionViewState(userId);
@@ -2458,6 +2470,20 @@ function TransactionsView({
       const matchesReconciled =
         filters.reconciled === 'all' ||
         Boolean(transaction.reconciled) === (filters.reconciled === 'reconciled');
+      const term = textSearch.trim().toLocaleLowerCase();
+      const matchesText =
+        !term ||
+        [
+          transaction.merchant,
+          transaction.description,
+          transaction.category,
+          transaction.account,
+          transaction.note,
+          ...(transaction.tags ?? []),
+        ]
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(term);
       return (
         matchesAccount &&
         matchesKind &&
@@ -2466,7 +2492,8 @@ function TransactionsView({
         matchesDate &&
         matchesAmount &&
         matchesCleared &&
-        matchesReconciled
+        matchesReconciled &&
+        matchesText
       );
     };
     const result = data.transactions
@@ -2481,7 +2508,7 @@ function TransactionsView({
       if (sort === 'amount-asc') return a.amount - b.amount || b.date.localeCompare(a.date);
       return b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
     });
-  }, [data.transactions, filters, sort]);
+  }, [data.transactions, filters, sort, textSearch]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
   const selectedTransactions = data.transactions
@@ -2869,6 +2896,25 @@ function TransactionsView({
           </div>
         }
       />
+      {textSearch && (
+        <div className="transaction-text-search">
+          <Search size={16} />
+          <input
+            aria-label="Search transactions"
+            value={textSearch}
+            onChange={(event) => setTextSearch(event.target.value)}
+            placeholder="Search transactions"
+          />
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="Clear transaction search"
+            onClick={() => setTextSearch('')}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
       <section className="transactions-section">
         <div hidden={selectionMode}>
           <ObligationsPanel data={data} onRefresh={onRefresh} onOpenTransaction={onOpenTransaction} />
@@ -3913,6 +3959,7 @@ function BudgetsView({
     monthValue: string;
     period: BudgetPeriod;
     showArchived: boolean;
+    selectedBudgetId: string;
   }>(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(viewStateKey) ?? '{}') as {
@@ -3926,6 +3973,7 @@ function BudgetsView({
           : dateKey(new Date()).slice(0, 7),
         period: ['month', 'quarter', 'year'].includes(saved.period ?? '') ? saved.period! : 'month',
         showArchived: Boolean(saved.showArchived),
+        selectedBudgetId: '',
       };
     } catch {
       return {
@@ -3943,6 +3991,8 @@ function BudgetsView({
     setViewState((current) => ({ ...current, period: value }));
   const setShowArchived = (value: boolean) =>
     setViewState((current) => ({ ...current, showArchived: value }));
+  const setSelectedBudgetId = (value: string) =>
+    setViewState((current) => ({ ...current, selectedBudgetId: value }));
   useEffect(() => {
     try {
       sessionStorage.setItem(viewStateKey, JSON.stringify(viewState));
@@ -3965,7 +4015,6 @@ function BudgetsView({
         : range.start;
       const spendEnd = budget.endDate && budget.endDate < range.end
         ? budget.endDate
-    selectedBudgetId: string;
         : range.end;
       return {
         ...budget,
@@ -3979,7 +4028,6 @@ function BudgetsView({
           )
           .reduce((sum, transaction) => sum + budgetedExpenseAmount(transaction), 0),
       };
-        selectedBudgetId: '',
     });
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
   const limitedBudgets = budgets.filter((budget) => !budget.unlimited);
@@ -3990,10 +4038,27 @@ function BudgetsView({
     (sum, budget) => sum + budget.limit - budget.spent,
     0,
   );
+  const categories = categorySpendForRange(data.transactions, data.budgets, range.start, range.end);
+  const selectedBudget = budgets.find((budget) => budget.id === selectedBudgetId);
+  const selectedMonth = selectedBudget
+    ? selectedBudgetRange(monthValue, 'month')
+    : null;
+  const selectedBudgetTransactions = selectedBudget && selectedMonth
+    ? data.transactions
+        .filter((transaction) => transaction.kind === 'expense' && !transaction.isDraft)
+        .filter(
+          (transaction) =>
+            transaction.date >= selectedMonth.start && transaction.date <= selectedMonth.end,
+        )
+        .filter((transaction) =>
+          transaction.budgetId
+            ? transaction.budgetId === selectedBudget.id
+            : transaction.category.toLowerCase() === selectedBudget.category.toLowerCase(),
+        )
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
+    : [];
   return (
     <>
-  const setSelectedBudgetId = (value: string) =>
-    setViewState((current) => ({ ...current, selectedBudgetId: value }));
       <PageHeader
         title="Budgets"
         action={
@@ -4059,25 +4124,6 @@ function BudgetsView({
                   value={period}
                   onChange={(event) => setPeriod(event.target.value as BudgetPeriod)}
                 >
-  const categories = categorySpendForRange(data.transactions, data.budgets, range.start, range.end);
-  const selectedBudget = budgets.find((budget) => budget.id === selectedBudgetId);
-  const selectedMonth = selectedBudget
-    ? selectedBudgetRange(monthValue, 'month')
-    : null;
-  const selectedBudgetTransactions = selectedBudget && selectedMonth
-    ? data.transactions
-        .filter((transaction) => transaction.kind === 'expense' && !transaction.isDraft)
-        .filter(
-          (transaction) =>
-            transaction.date >= selectedMonth.start && transaction.date <= selectedMonth.end,
-        )
-        .filter((transaction) =>
-          transaction.budgetId
-            ? transaction.budgetId === selectedBudget.id
-            : transaction.category.toLowerCase() === selectedBudget.category.toLowerCase(),
-        )
-        .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
-    : [];
                   <option value="month">Monthly</option>
                   <option value="quarter">Quarterly</option>
                   <option value="year">Yearly</option>
@@ -6106,6 +6152,8 @@ export function BudgetingDashboard({
   profile,
   recordTarget,
   onRecordTargetHandled,
+  transactionSearchTerm,
+  onTransactionSearchHandled,
 }: Props) {
   const [settingsMessage, setSettingsMessage] = useState('');
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -6507,6 +6555,8 @@ export function BudgetingDashboard({
         onDeleteTransactionsBatch={deleteTransactionsBatch}
         onDeleteRecurringRule={(rule) => setRecurringDeletePrompt({ kind: 'schedule', rule })}
         onRefresh={onRefresh}
+        transactionSearchTerm={transactionSearchTerm}
+        onTransactionSearchHandled={onTransactionSearchHandled}
       />
     ) : view === 'budgets' ? (
       <BudgetsView
@@ -9500,7 +9550,7 @@ function FinanceComposer({
                           });
                         }}
                       />
-                    </div>
+                    </label>
                     {receiptScanMessage && <p role="status">{receiptScanMessage}</p>}
                     <label>
                       Transaction pictures

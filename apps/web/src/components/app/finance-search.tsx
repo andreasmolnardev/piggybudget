@@ -14,19 +14,18 @@ type SearchResult = {
   tab: SidebarTab;
 };
 
+type TransactionSearchResult = {
+  id: 'transaction-search';
+  kind: 'transaction-search';
+  title: 'Search transactions';
+  detail: string;
+};
+
 function resultsFor(data: BudgetData, query: string): SearchResult[] {
   const term = query.trim().toLocaleLowerCase();
   if (!term) return [];
   const matches = (text: string) => text.toLocaleLowerCase().includes(term);
   const results: SearchResult[] = [
-    ...data.transactions.map((transaction) => ({
-      id: `transaction-${transaction.id}`,
-      record: { type: 'transaction' as const, id: transaction.id },
-      title: transaction.merchant,
-      detail: `${transaction.category} · ${transaction.account} · ${transaction.date} · ${formatMoney(transaction.amount)}`,
-      section: 'Transaction',
-      tab: 'transactions' as const,
-    })),
     ...data.accounts.map((account) => ({
       id: `account-${account.id}`,
       record: { type: 'account' as const, id: account.id },
@@ -70,24 +69,38 @@ export function FinanceSearch({
   data,
   onClose,
   onSelect,
+  onSearchTransactions,
 }: {
   data: BudgetData;
   onClose: () => void;
   onSelect: (result: { record: FinanceRecordTarget; tab: SidebarTab }) => void;
+  onSearchTransactions: (query: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | FinanceRecordType>('all');
   const [activeIndex, setActiveIndex] = useState(0);
-  const results = useMemo(
-    () =>
-      resultsFor(data, query).filter(
-        (result) => typeFilter === 'all' || result.record.type === typeFilter,
-      ).slice(0, 10),
-    [data, query, typeFilter],
-  );
+  const results = useMemo(() => {
+    const transactionSearch: TransactionSearchResult[] =
+      typeFilter === 'all' || typeFilter === 'transaction'
+        ? [{
+            id: 'transaction-search',
+            kind: 'transaction-search',
+            title: 'Search transactions',
+            detail: `Show transactions matching “${query.trim()}”`,
+          }]
+        : [];
+    const records = resultsFor(data, query).filter(
+      (result) => typeFilter === 'all' || result.record.type === typeFilter,
+    );
+    return [...transactionSearch, ...records].slice(0, 10);
+  }, [data, query, typeFilter]);
   useEffect(() => setActiveIndex(0), [query, typeFilter]);
-  const selectResult = (result: SearchResult) => {
+  const selectResult = (result: SearchResult | TransactionSearchResult) => {
     onClose();
+    if ('kind' in result) {
+      onSearchTransactions(query.trim());
+      return;
+    }
     onSelect({ record: result.record, tab: result.tab });
   };
 
@@ -127,7 +140,7 @@ export function FinanceSearch({
                 selectResult(results[activeIndex]);
               }
             }}
-            placeholder="Search transactions, accounts, budgets, assets, goals…"
+            placeholder="Search accounts, budgets, assets, goals…"
           />
           <AppSelect
             className="finance-search-type"
@@ -165,7 +178,7 @@ export function FinanceSearch({
                   <span className="finance-search-copy">
                     <strong>{result.title}</strong>
                     <small>
-                      {result.section} · {result.detail}
+                      {'section' in result ? result.section : 'Transaction search'} · {result.detail}
                     </small>
                   </span>
                   <ArrowRight size={14} />
@@ -177,7 +190,7 @@ export function FinanceSearch({
           )
         ) : (
           <p className="search-hint">
-            Search loaded transactions, accounts, budgets, assets, and goals.
+            Search loaded accounts, budgets, assets, and goals.
           </p>
         )}
       </div>

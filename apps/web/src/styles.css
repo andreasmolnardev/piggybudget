@@ -1391,7 +1391,28 @@ kbd {
 }
 .budget-line-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .budget-line-actions .button-danger { font-size: 10px; }
-.budget-archive-toggle { margin: 14px 0 10px; }
+.transaction-text-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(100%, 420px);
+  margin: -5px 0 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--card);
+}
+.transaction-text-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--foreground);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
 
 /* Transactions */
 .transactions-section {
