@@ -36,6 +36,7 @@ import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
 import { parseBulkTransactionJson } from './bulk-transaction-import';
+import { TransactionCategoryInput } from './transaction-category-input';
 import {
   budgetColorPalette,
   budgetNameForId,
@@ -8295,6 +8296,15 @@ function FinanceComposer({
   const [receivable] = useState(transaction?.receivable ?? '');
   const [purchaseTransaction, setPurchaseTransaction] = useState(asset?.purchaseTransaction ?? '');
   const [category, setCategory] = useState(transaction?.category ?? budgetRecord?.category ?? '');
+  const categoryOptions = [...new Map(
+    [
+      ...data.budgets.map((item) => item.category),
+      ...data.transactions.map((item) => item.category),
+    ]
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => [item.toLocaleLowerCase(), item]),
+  ).values()].sort((a, b) => a.localeCompare(b));
   const [budget, setBudget] = useState(transaction?.budgetId ?? '');
   const [tags, setTags] = useState(transaction?.tags?.join(', ') ?? '');
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
@@ -9415,14 +9425,14 @@ function FinanceComposer({
                 </label>
                 {!splitting && (
                   <>
-                    <label>
-                      Category
-                      <input
+                    <div className="transaction-category-field">
+                      <span>Category</span>
+                      <TransactionCategoryInput
                         value={category}
-                        onChange={(event) => setCategory(event.target.value)}
-                        placeholder="e.g. Groceries"
+                        options={categoryOptions}
+                        onChange={setCategory}
                       />
-                    </label>
+                    </div>
                     <label>
                       Budget bucket
                       <AppSelect value={budget} onChange={(event) => setBudget(event.target.value)}>
