@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CircleAlert, CircleCheck, CloudOff, RefreshCw, X } from 'lucide-react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FinanceSearch } from './components/app/finance-search';
+import { CommandPalette } from './components/patterns/command-palette';
 import { Sidebar, type SidebarTab } from './components/sidebar';
 import { BudgetingDashboard } from './components/budgeting/budgeting-dashboard';
-import { emptyBudgetData, type FinanceRecordTarget } from './components/budgeting/data';
+import { emptyBudgetData, type BudgetData, type FinanceRecordTarget } from './components/budgeting/data';
 import { budgetDataQueryKey, budgetDataQueryOptions } from './components/budgeting/query';
 import { pb } from './api/pocketbase';
 import { profileFromRecord, type UserProfile } from './profile';
 import { Tooltip, TooltipContent, TooltipTrigger } from './components/ui/tooltip';
+import { financeApplication, financeLayout, financeViewForPath } from './app-definition';
+import { defineAction, defineSearchProvider, renderLayout, renderShell } from './lib/slopstack';
+import { useAuthentication } from './lib/slopstack';
+import { authenticationStore } from './auth';
 
 const routeForTab: Record<
   SidebarTab,
@@ -23,22 +28,12 @@ const routeForTab: Record<
   settings: '/settings',
 };
 
-const pageLabels: Record<SidebarTab, string> = {
-  dashboard: 'Dashboard',
-  transactions: 'Transactions',
-  budgets: 'Budgets',
-  assets: 'Assets',
-  goals: 'Goals',
-  settings: 'Settings',
-};
+const pageLabels = Object.fromEntries(
+  (financeApplication.views ?? []).map((view) => [view.id, view.label]),
+) as Record<SidebarTab, string>;
 
 function tabForPath(pathname: string): SidebarTab {
-  if (pathname === '/transactions') return 'transactions';
-  if (pathname === '/budgets') return 'budgets';
-  if (pathname === '/assets') return 'assets';
-  if (pathname === '/goals') return 'goals';
-  if (pathname === '/settings') return 'settings';
-  return 'dashboard';
+  return financeViewForPath(pathname).id as SidebarTab;
 }
 
 function Header({
@@ -48,6 +43,8 @@ function Header({
   refreshing,
   syncError,
   onRefresh,
+  data,
+  onNavigate,
 }: {
   activeTab: SidebarTab;
   profileName: string;
@@ -55,7 +52,38 @@ function Header({
   refreshing: boolean;
   syncError: boolean;
   onRefresh: () => void;
+  data: BudgetData;
+  onNavigate: (path: SidebarTab) => void;
 }) {
+  const providers = useMemo(() => [defineSearchProvider({
+    id: 'finance-records',
+    label: 'Finance records',
+    minQueryLength: 2,
+    search: async (query: string) => {
+      const term = query.toLocaleLowerCase();
+      const results = [
+        ...data.accounts.map((record) => ({ id: `account-${record.id}`, title: record.name, description: `${record.type} account`, href: '/transactions' })),
+        ...data.budgets.map((record) => ({ id: `budget-${record.id}`, title: record.category, description: 'Budget category', href: '/budgets' })),
+        ...data.assets.map((record) => ({ id: `asset-${record.id}`, title: record.name, description: `${record.type} asset`, href: '/assets' })),
+        ...data.goals.map((record) => ({ id: `goal-${record.id}`, title: record.name, description: 'Savings goal', href: '/goals' })),
+        ...data.transactions.map((record) => ({ id: `transaction-${record.id}`, title: record.merchant, description: `${record.category} · ${record.date}`, href: '/transactions' })),
+      ];
+      return results.filter((result) => `${result.title} ${result.description}`.toLocaleLowerCase().includes(term));
+    },
+  })], [data]);
+  const navigation = useMemo(() => (financeApplication.shell?.navigation ?? []).map((item) => ({
+    id: item.id,
+    title: item.label,
+    href: financeApplication.views?.find((view) => view.id === item.view)?.path,
+  })), []);
+  const actions = useMemo(() => [defineAction({
+    id: 'refresh-finance-data',
+    label: 'Refresh saved finance data',
+    description: 'Reload accounts, transactions, budgets, assets, and goals.',
+    keywords: ['sync', 'reload', 'refresh'],
+    access: { authenticated: true },
+    execute: () => onRefresh(),
+  })], [onRefresh]);
   const syncState = refreshing ? 'syncing' : syncError ? 'error' : remote ? 'synced' : 'offline';
   const SyncIcon = {
     syncing: RefreshCw,
@@ -79,6 +107,13 @@ function Header({
         <strong>{pageLabels[activeTab]}</strong>
       </div>
       <div className="topbar-actions">
+        <CommandPalette
+          providers={providers}
+          navigation={navigation}
+          actions={actions}
+          onNavigate={(href) => onNavigate(tabForPath(href))}
+          shortcutLabel="Ctrl K"
+        />
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -106,11 +141,12 @@ function AppError({ children }: { children: ReactNode }) {
 export function App() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const authentication = useAuthentication(authenticationStore);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const scrollPositions = useRef(new Map<string, number>());
   const previousTab = useRef(tabForPath(pathname));
   const tabPageRef = useRef<HTMLDivElement>(null);
-  const [userId, setUserId] = useState(pb.authStore.record?.id ?? '');
+  const userId = authentication.session?.user.id ?? '';
   const [profile, setProfile] = useState<UserProfile>(() => profileFromRecord(pb.authStore.record));
   const [dataErrorDismissed, setDataErrorDismissed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -148,7 +184,6 @@ export function App() {
   useEffect(
     () =>
       pb.authStore.onChange((_token, record) => {
-        setUserId(record?.id ?? '');
         setProfile(profileFromRecord(record));
         if (!record) {
           queryClient.removeQueries({ queryKey: ['budget-data'] });
@@ -189,18 +224,6 @@ export function App() {
     return () => window.clearTimeout(timeout);
   }, [searchClosing]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setSearchClosing(false);
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
-
   const closeSearch = () => setSearchClosing(true);
   const handleSearchTargetHandled = useCallback(() => setSearchTarget(null), []);
   const handleTransactionSearchHandled = useCallback(() => setTransactionSearchTerm(''), []);
@@ -221,7 +244,7 @@ export function App() {
     return () => window.removeEventListener('piggybudget:refresh', refresh);
   }, [refresh]);
 
-  return (
+  return renderShell(financeApplication.shell!, (
     <div className="app-shell">
       <Sidebar
         activeTab={activeTab}
@@ -239,6 +262,8 @@ export function App() {
           refreshing={budgetQuery.isFetching}
           syncError={budgetQuery.isError}
           onRefresh={refresh}
+          data={data}
+          onNavigate={(tab) => onNavigate(tab)}
         />
         <div className="content-wrap">
           {dataError && (
@@ -255,20 +280,27 @@ export function App() {
             </AppError>
           )}
           <div ref={tabPageRef} className="tab-page-transition">
-            <BudgetingDashboard
-              view={activeTab}
-              userId={userId}
-              data={data}
-              remote={remote}
-              loading={loading}
-              onRefresh={refresh}
-              onNavigate={onNavigate}
-              profile={profile}
-              recordTarget={searchTarget}
-              onRecordTargetHandled={handleSearchTargetHandled}
-              transactionSearchTerm={transactionSearchTerm}
-              onTransactionSearchHandled={handleTransactionSearchHandled}
-            />
+            {renderLayout(financeLayout, {
+              content: {
+                kind: 'view',
+                content: (
+                  <BudgetingDashboard
+                    view={activeTab}
+                    userId={userId}
+                    data={data}
+                    remote={remote}
+                    loading={loading}
+                    onRefresh={refresh}
+                    onNavigate={onNavigate}
+                    profile={profile}
+                    recordTarget={searchTarget}
+                    onRecordTargetHandled={handleSearchTargetHandled}
+                    transactionSearchTerm={transactionSearchTerm}
+                    onTransactionSearchHandled={handleTransactionSearchHandled}
+                  />
+                ),
+              },
+            })}
           </div>
         </div>
         <footer className="app-footer">
@@ -297,5 +329,5 @@ export function App() {
         </div>
       )}
     </div>
-  );
+  ));
 }

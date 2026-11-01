@@ -1,5 +1,6 @@
 import type { RecordModel } from 'pocketbase';
 import { apiRequest } from '../../api/client';
+import { financeResourceClients } from '../../resources/finance';
 
 export type TransactionKind = 'expense' | 'income' | 'transfer' | 'adjustment';
 export type FinanceRecordType = 'transaction' | 'account' | 'budget' | 'asset' | 'goal';
@@ -399,6 +400,11 @@ function optionalDateValue(record: RecordModel, ...keys: string[]) {
 }
 
 async function getRecords(collection: string): Promise<RecordModel[]> {
+  if (collection in financeResourceClients) {
+    const resource = financeResourceClients[collection as keyof typeof financeResourceClients];
+    const { items } = await resource.list({ page: 1, pageSize: 500 });
+    return items as RecordModel[];
+  }
   const records = await apiRequest<unknown>(`/api/finance/${collection}`);
   return Array.isArray(records) ? (records as RecordModel[]) : [];
 }

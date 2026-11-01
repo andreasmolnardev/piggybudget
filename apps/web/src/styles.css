@@ -3843,3 +3843,7 @@ div[data-slot='popover-content'].transaction-add-popover {
     min-height: 0;
   }
 }
+/* Slopstack's shell runtime composes the product's existing responsive shell. */
+.finance-shell-frame {
+  display: contents;
+}

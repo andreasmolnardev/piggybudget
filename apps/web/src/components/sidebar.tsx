@@ -31,6 +31,7 @@ import { FinanceNotifications } from './app/finance-notifications';
 import type { BudgetData } from './budgeting/data';
 import { pb } from '../api/pocketbase';
 import type { UserProfile } from '../profile';
+import { financeApplication } from '../app-definition';
 
 export type SidebarTab = 'dashboard' | 'transactions' | 'budgets' | 'assets' | 'goals' | 'settings';
 
@@ -43,13 +44,18 @@ type SidebarProps = {
   onSearch: () => void;
 };
 
-const items: { id: SidebarTab; label: string; icon: LucideIcon }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'transactions', label: 'Transactions', icon: Banknote },
-  { id: 'budgets', label: 'Budgets', icon: WalletCards },
-  { id: 'assets', label: 'Assets', icon: BarChart3 },
-  { id: 'goals', label: 'Goals', icon: Goal },
-];
+const navigationIcons: Record<SidebarTab, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  transactions: Banknote,
+  budgets: WalletCards,
+  assets: BarChart3,
+  goals: Goal,
+  settings: Settings,
+};
+
+const items = (financeApplication.shell?.navigation ?? [])
+  .filter((item) => item.id !== 'settings')
+  .map(({ id, label }) => ({ id: id as SidebarTab, label, icon: navigationIcons[id as SidebarTab] }));
 
 function notificationsPreference(userId: string) {
   try {

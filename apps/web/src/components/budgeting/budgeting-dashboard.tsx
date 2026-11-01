@@ -35,6 +35,12 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
+import { financePreferencesStore } from '../../app-definition';
+import { financeResources } from '../../resources/finance';
+import { ResourceForm } from '../../lib/slopstack';
+import { ResourceDataView } from '../patterns/resource-data-view';
+import { ResourceQueryControls } from '../patterns/resource-query-controls';
+import type { ResourceQuery } from '../../lib/slopstack';
 import { parseBulkTransactionJson } from './bulk-transaction-import';
 import { TransactionCategoryInput } from './transaction-category-input';
 import {
@@ -7181,7 +7187,9 @@ function SettingsView({
   const [preferences, setPreferences] = useState(() => readPreferences(userId));
   useEffect(() => setPreferences(readPreferences(userId)), [userId]);
   const savePreferences = (next: UserPreferences) => {
-    localStorage.setItem(preferencesKey(userId), JSON.stringify(next));
+    void financePreferencesStore(userId).update(next).catch((error: unknown) => {
+      onMessage(error instanceof Error ? error.message : 'Could not save preferences.');
+    });
     setPreferences(next);
     setTheme(next.theme);
     window.dispatchEvent(new CustomEvent('piggybudget:preferences', { detail: next }));
@@ -7526,6 +7534,10 @@ function AccountsSettingsDialog({
 }) {
   const [editing, setEditing] = useState<Account | null>(null);
   const [error, setError] = useState('');
+  const [accountQuery, setAccountQuery] = useState<ResourceQuery>({ sort: 'name', page: 1, pageSize: 500 });
+  const visibleAccounts = accounts
+    .filter((account) => !accountQuery.search || `${account.name} ${account.type} ${account.currency ?? ''}`.toLocaleLowerCase().includes(accountQuery.search.toLocaleLowerCase()))
+    .sort((left, right) => String(left[accountQuery.sort === 'type' ? 'type' : 'name']).localeCompare(String(right[accountQuery.sort === 'type' ? 'type' : 'name'])));
 
   const patchAccount = async (account: Account, values: Record<string, unknown>) => {
     if (values.is_default === true) {
@@ -7587,9 +7599,20 @@ function AccountsSettingsDialog({
             {error}
           </p>
         )}
+        <ResourceQueryControls
+          resource={financeResources.accounts}
+          value={accountQuery}
+          onChange={setAccountQuery}
+          total={visibleAccounts.length}
+        />
         <div className="account-manager-list">
-          {accounts.length ? (
-            accounts.map((account) => (
+          {visibleAccounts.length ? (
+            <ResourceDataView
+              rows={visibleAccounts}
+              columns={[]}
+              getRowKey={(account) => account.id}
+              mode="cards"
+              renderItem={(account) => (
               <article
                 className={`account-manager-row ${account.archived ? 'is-archived' : ''}`}
                 key={account.id}
@@ -7649,7 +7672,8 @@ function AccountsSettingsDialog({
                   )}
                 </div>
               </article>
-            ))
+              )}
+            />
           ) : (
             <p className="page-description">
               Add an account to track its balance and reconcile statements.
@@ -7693,52 +7717,29 @@ function AccountEditor({
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => Promise<void>;
 }) {
-  const [name, setName] = useState(account.name);
   const normalizedType = account.type.toLowerCase();
-  const [type, setType] = useState(
-    normalizedType.includes('credit')
-      ? 'credit'
-      : ['cash', 'savings', 'checking'].includes(normalizedType)
-        ? normalizedType
-        : 'other',
-  );
-  const [currency, setCurrency] = useState(account.currency ?? 'USD');
-  const [openingBalance, setOpeningBalance] = useState(String(account.openingBalance ?? 0));
-  const [alertBelow, setAlertBelow] = useState(String(account.alertBelow ?? ''));
-  const [notes, setNotes] = useState(account.notes ?? '');
-  const [isDefault, setIsDefault] = useState(Boolean(account.isDefault && !account.archived));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      await onSave({
-        name: name.trim(),
-        type,
-        currency: currency.trim().toUpperCase(),
-        opening_balance: Number(openingBalance),
-        alert_below: Number(alertBelow) || 0,
-        notes: notes.trim(),
-        is_default: !account.archived && isDefault,
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : `Could not update ${account.name}.`);
-    } finally {
-      setBusy(false);
-    }
+  const normalizedAccountType = normalizedType.includes('credit')
+    ? 'credit'
+    : ['cash', 'savings', 'checking'].includes(normalizedType)
+      ? normalizedType
+      : 'other';
+  const accountFormResource = {
+    ...financeResources.accounts,
+    fields: financeResources.accounts.fields.filter((field) => field.name !== 'archived'),
+  };
+  const initialValues = {
+    name: account.name,
+    type: normalizedAccountType,
+    currency: account.currency ?? 'USD',
+    opening_balance: account.openingBalance ?? 0,
+    alert_below: account.alertBelow ?? 0,
+    notes: account.notes ?? '',
+    is_default: Boolean(account.isDefault && !account.archived),
   };
   return (
     <div className="composer-overlay account-editor-overlay">
       <button className="composer-backdrop" type="button" onClick={onClose} aria-label="Close" />
-      <form
-        className="composer-card"
-        onSubmit={(event) => void submit(event)}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="account-editor-title"
-      >
+      <section className="composer-card" role="dialog" aria-modal="true" aria-labelledby="account-editor-title">
         <div className="composer-heading">
           <div>
             <h2 id="account-editor-title">Edit account</h2>
@@ -7748,89 +7749,28 @@ function AccountEditor({
             <X size={18} />
           </button>
         </div>
-        <label>
-          Account name
-          <input
-            required
-            maxLength={100}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label>
-          Account type
-          <AppSelect value={type} onChange={(event) => setType(event.target.value)}>
-            <option value="checking">Checking</option>
-            <option value="cash">Cash</option>
-            <option value="savings">Savings</option>
-            <option value="credit">Credit card</option>
-            <option value="other">Other</option>
-          </AppSelect>
-        </label>
-        <label>
-          Currency
-          <input
-            required
-            maxLength={3}
-            minLength={3}
-            pattern="[A-Za-z]{3}"
-            value={currency}
-            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-          />
-        </label>
-        <label>
-          Opening balance
-          <input
-            required
-            type="number"
-            step="0.01"
-            value={openingBalance}
-            onChange={(event) => setOpeningBalance(event.target.value)}
-          />
-        </label>
-        <label>
-          Low balance alert (optional)
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={alertBelow}
-            onChange={(event) => setAlertBelow(event.target.value)}
-            placeholder="Disabled"
-          />
-        </label>
-        <label>
-          Notes
-          <textarea
-            rows={3}
-            maxLength={1000}
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-          />
-        </label>
-        <label className="transaction-filter-checkbox">
-          <input
-            type="checkbox"
-            checked={isDefault}
-            disabled={account.archived}
-            onChange={(event) => setIsDefault(event.target.checked)}
-          />
-          Default account
-        </label>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
         <div className="composer-actions">
           <button className="button" type="button" onClick={onClose}>
             Cancel
           </button>
-          <button className="button button-primary" type="submit" disabled={busy}>
-            {busy ? 'Saving…' : 'Save account'}
-          </button>
+          <span className="resource-form-submit" />
         </div>
-      </form>
+        <ResourceForm
+          resource={accountFormResource}
+          initialValues={initialValues}
+          submitLabel="Save account"
+          onSubmit={async (values) => {
+            await onSave({
+              ...values,
+              name: String(values.name).trim(),
+              currency: String(values.currency).trim().toUpperCase(),
+              alert_below: Number(values.alert_below) || 0,
+              notes: String(values.notes ?? '').trim(),
+              is_default: !account.archived && values.is_default === true,
+            });
+          }}
+        />
+      </section>
     </div>
   );
 }

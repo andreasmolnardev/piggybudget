@@ -5,7 +5,10 @@ import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from './components/ui/tooltip';
 import { router } from './router';
 import { queryClient } from './queryClient';
+import { authenticationStore } from './auth';
 import './styles.css';
+
+void authenticationStore.initialize();
 
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
