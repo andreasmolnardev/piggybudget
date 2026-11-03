@@ -19,6 +19,7 @@
     "generate:api": "go run ./apps/server/cmd/piggybudget openapi export",
     "generate:client": "pnpm --filter @piggybudget/web generate:client",
     "test:compatibility": "sh scripts/backup-restore-smoke-test.sh",
+    "test:e2e": "sh scripts/e2e.sh",
     "format": "prettier --write ."
   },
   "devDependencies": {
