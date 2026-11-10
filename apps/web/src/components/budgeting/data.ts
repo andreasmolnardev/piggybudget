@@ -115,6 +115,7 @@ export type Budget = {
   color: string;
   startDate?: string;
   endDate?: string;
+  recurringMonthly?: boolean;
   archived?: boolean;
   notes?: string;
   surplusAction?: 'none' | 'carry' | 'push';
@@ -561,6 +562,7 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
         budgetColorPalette[index % budgetColorPalette.length].value,
       startDate: optionalDateValue(record, 'start_date') || undefined,
       endDate: optionalDateValue(record, 'end_date') || undefined,
+      recurringMonthly: Boolean(record.recurring_monthly),
       archived: Boolean(record.archived),
       notes: textValue(record, 'notes') || undefined,
       surplusAction: (textValue(record, 'surplus_action') as Budget['surplusAction']) || 'none',

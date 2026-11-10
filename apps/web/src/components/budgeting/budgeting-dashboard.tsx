@@ -4021,7 +4021,7 @@ function BudgetsView({
     .filter(
       (budget) =>
         (!budget.startDate || budget.startDate <= range.end) &&
-        (!budget.endDate || budget.endDate >= range.start),
+        (budget.recurringMonthly || !budget.endDate || budget.endDate >= range.start),
     )
     .map((budget) => {
       const spendStart = budget.startDate && budget.startDate > range.start
@@ -8373,6 +8373,7 @@ function FinanceComposer({
           : '',
   );
   const [budgetUnlimited, setBudgetUnlimited] = useState(Boolean(budgetRecord?.unlimited));
+  const [budgetRecurringMonthly, setBudgetRecurringMonthly] = useState(Boolean(budgetRecord?.recurringMonthly));
   const [surplusAction, setSurplusAction] = useState<NonNullable<Budget['surplusAction']>>(
     budgetRecord?.surplusAction ?? 'none',
   );
@@ -8648,9 +8649,10 @@ function FinanceComposer({
               category: category.trim(),
               amount: isUnlimitedBudget ? 0 : numericAmount,
               unlimited: isUnlimitedBudget,
+              recurring_monthly: !isUnlimitedBudget && budgetRecurringMonthly,
               color: budgetColor,
               start_date: isUnlimitedBudget ? '' : `${date.slice(0, 7)}-01`,
-              end_date: isUnlimitedBudget
+              end_date: isUnlimitedBudget || budgetRecurringMonthly
                 ? ''
                 : new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0))
                     .toISOString()
@@ -8960,6 +8962,14 @@ function FinanceComposer({
                       if (event.target.value) setDate(`${event.target.value}-01`);
                     }}
                   />
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={budgetRecurringMonthly}
+                    onChange={(event) => setBudgetRecurringMonthly(event.target.checked)}
+                  />
+                  Repeat every month
                 </label>
                 <p className="budget-form-help">
                   The month chooses when this budget applies. The monthly limit is your planned
