@@ -146,6 +146,7 @@ func EnsureFinanceCollections(app core.App) error {
 				&core.TextField{Name: "category"},
 				&core.NumberField{Name: "amount"},
 				&core.BoolField{Name: "unlimited"},
+				&core.BoolField{Name: "recurring_monthly"},
 				&core.DateField{Name: "start_date"},
 				&core.DateField{Name: "end_date"},
 				&core.TextField{Name: "color"},
