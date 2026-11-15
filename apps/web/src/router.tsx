@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 import { App } from './app';
 import { AuthScreen } from './components/app/auth-screen';
 import { pb } from './api/pocketbase';
+import { SsoAdminPage } from './components/app/sso-admin';
 
 const rootRoute = createRootRoute({ component: Outlet });
 
@@ -62,10 +63,17 @@ const registerRoute = createRoute({
   component: () => <AuthRoute mode="register" />,
 });
 
+const ssoAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/sso',
+  component: SsoAdminPage,
+});
+
 const routeTree = rootRoute.addChildren([
   authenticatedRoute.addChildren(financeRoutes),
   loginRoute,
   registerRoute,
+  ssoAdminRoute,
 ]);
 
 export const router = createRouter({ routeTree });

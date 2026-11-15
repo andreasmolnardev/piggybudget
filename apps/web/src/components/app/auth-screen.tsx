@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Check, Eye, EyeOff } from 'lucide-react';
 import { apiRequest } from '../../api/client';
 import { pb } from '../../api/pocketbase';
+import { enabledSsoProviders } from '../../auth-policy';
 
 export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
   const [email, setEmail] = useState('');
@@ -13,7 +14,9 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
   const [registrationMode, setRegistrationMode] = useState<'disabled' | 'approval' | 'otp'>(
     'approval',
   );
-  const [ssoProviders, setSsoProviders] = useState<{ name: string; displayName: string }[]>([]);
+  const [requireVerifiedEmail, setRequireVerifiedEmail] = useState(false);
+  const [ssoOnly, setSsoOnly] = useState(false);
+  const [ssoProviders, setSsoProviders] = useState<{ name: string; displayName?: string }[]>([]);
   const [ssoBusy, setSsoBusy] = useState(false);
   const [resetMode, setResetMode] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -61,11 +64,8 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
       .collection('users')
       .listAuthMethods()
       .then((methods) => {
-        if (methods.oauth2.enabled) {
-          setSsoProviders(
-            methods.oauth2.providers.map(({ name, displayName }) => ({ name, displayName })),
-          );
-        }
+        const providers = enabledSsoProviders(methods);
+        setSsoProviders(providers);
       })
       .catch(() => setSsoProviders([]));
   }, [mode]);
@@ -74,6 +74,11 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
     void apiRequest<{ mode: 'disabled' | 'approval' | 'otp' }>('/api/auth/registration-policy')
       .then((policy) => setRegistrationMode(policy.mode))
       .catch(() => setError('Could not load registration settings.'));
+  }, [mode]);
+  useEffect(() => {
+    void apiRequest<{ requireVerifiedEmail: boolean; ssoOnly: boolean }>('/api/auth/policy')
+      .then((policy) => { setRequireVerifiedEmail(policy.requireVerifiedEmail); setSsoOnly(policy.ssoOnly); })
+      .catch(() => undefined);
   }, [mode]);
   const handleSso = async (provider: string) => {
     setSsoBusy(true);
@@ -118,9 +123,14 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
         setMessage('If an account uses that email, a password reset link will arrive shortly.');
         return;
       }
-      if (mode === 'register') {
+        if (mode === 'register') {
         if (registrationMode === 'disabled') return;
         await pb.collection('users').create({ email, password, passwordConfirm: password });
+        if (requireVerifiedEmail) {
+          await pb.collection('users').requestVerification(email.trim());
+          setMessage('Account created. Check your email to verify it before signing in. An administrator must still approve access.');
+          return;
+        }
         setMessage(
           registrationMode === 'otp'
             ? 'Account created. Read the activation code in the server logs, then ask an administrator to activate your account.'
@@ -173,7 +183,7 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
                 onChange={(event) => setEmail(event.target.value)}
               />
             </label>
-            {mode === 'register' || !resetMode ? (
+            {(mode === 'register' || !resetMode) && !(mode === 'login' && ssoOnly && ssoProviders.length > 0) ? (
               <label>
                 Password
                 <span className="auth-password-input">
@@ -202,7 +212,7 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
           </>
         )}
         {error && <div className="auth-error">{error}</div>}
-        {!disabled && (
+        {!disabled && (!(mode === 'login' && ssoOnly && ssoProviders.length > 0) || resetMode) && (
           <button className="button button-primary auth-submit" disabled={busy || ssoBusy}>
             {busy
               ? mode === 'register'
@@ -246,6 +256,7 @@ export function AuthScreen({ mode }: { mode: 'login' | 'register' }) {
             ))}
           </div>
         )}
+        {mode === 'login' && ssoOnly && ssoProviders.length === 0 && <div className="auth-message">SSO is required, but no sign-in provider is available. Contact an administrator.</div>}
         {resetMode ? (
           <button
             className="auth-text-action"

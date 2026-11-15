@@ -61,6 +61,7 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 		return fmt.Errorf("register ownership request hooks: %w", err)
 	}
 	registerFinanceHooks(pb)
+	registerSSOAuthHooks(pb, config)
 	if err := audit.RegisterRequestHooks(pb, audit.PocketBaseRecorder{App: pb}, audit.RequestHookConfig{
 		Collections: []string{
 			"accounts", "transactions", "checkpoints", "budgets", "assets", "goals",
@@ -86,6 +87,16 @@ func Register(pb *pocketbase.PocketBase, config Config, api huma.API) error {
 	})
 
 	pb.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		e.Router.BindFunc(func(event *core.RequestEvent) error {
+			if event.Auth == nil || event.Auth.Collection().Name != "users" {
+				return event.Next()
+			}
+			latest, err := event.App.FindRecordById("users", event.Auth.Id)
+			if err != nil || latest.GetBool("disabled") {
+				return event.UnauthorizedError("account is disabled", err)
+			}
+			return event.Next()
+		})
 		registerRoutes(e, config, api)
 		return e.Next()
 	})
@@ -223,6 +234,12 @@ func registerRoutes(e *core.ServeEvent, config Config, api huma.API) {
 }
 
 func registerAuthRoutes(e *core.ServeEvent, config Config) {
+	e.Router.GET("/api/admin/sso/oidc2", ssoAdminSettings)
+	e.Router.PUT("/api/admin/sso/oidc2", ssoAdminSettings)
+	e.Router.POST("/api/me/sso/link-intent", createSsoLinkIntent)
+	e.Router.GET("/api/auth/policy", func(event *core.RequestEvent) error {
+		return event.JSON(http.StatusOK, map[string]any{"registrationEnabled": config.RegistrationMode != RegistrationDisabled, "requireVerifiedEmail": config.RequireVerifiedEmail, "ssoOnly": config.SSOOnly})
+	})
 	e.Router.GET("/api/auth/registration-policy", func(event *core.RequestEvent) error {
 		return event.JSON(http.StatusOK, map[string]string{"mode": string(config.RegistrationMode)})
 	})

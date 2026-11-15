@@ -13,16 +13,18 @@ const (
 )
 
 type Config struct {
-	HTTPAddress      string
-	PublicURL        string
-	RegistrationMode RegistrationMode
-	LogLevel         string
-	StoragePath      string
-	Development      bool
-	BackupEnabled    bool
-	BackupCron       string
-	BackupMaxKeep    int
-	BackupS3         BackupS3Config
+	HTTPAddress          string
+	PublicURL            string
+	RegistrationMode     RegistrationMode
+	SSOOnly              bool
+	RequireVerifiedEmail bool
+	LogLevel             string
+	StoragePath          string
+	Development          bool
+	BackupEnabled        bool
+	BackupCron           string
+	BackupMaxKeep        int
+	BackupS3             BackupS3Config
 }
 
 type BackupS3Config struct {
@@ -37,15 +39,17 @@ type BackupS3Config struct {
 
 func LoadConfig() Config {
 	return Config{
-		HTTPAddress:      piggybudgetEnv("HTTP_ADDRESS", "0.0.0.0:8090"),
-		PublicURL:        piggybudgetEnv("PUBLIC_URL", "http://localhost:8090"),
-		RegistrationMode: registrationMode(),
-		LogLevel:         piggybudgetEnv("LOG_LEVEL", "info"),
-		StoragePath:      piggybudgetEnv("STORAGE_PATH", "pb_data"),
-		Development:      piggybudgetEnvBool("DEVELOPMENT", false),
-		BackupEnabled:    piggybudgetEnvBool("BACKUP_ENABLED", false),
-		BackupCron:       piggybudgetEnv("BACKUP_CRON", "0 3 * * *"),
-		BackupMaxKeep:    piggybudgetEnvInt("BACKUP_MAX_KEEP", 14),
+		HTTPAddress:          piggybudgetEnv("HTTP_ADDRESS", "0.0.0.0:8090"),
+		PublicURL:            piggybudgetEnv("PUBLIC_URL", "http://localhost:8090"),
+		RegistrationMode:     registrationMode(),
+		SSOOnly:              piggybudgetEnvBool("SSO_ONLY", false),
+		RequireVerifiedEmail: piggybudgetEnvBool("REQUIRE_VERIFIED_EMAIL", false),
+		LogLevel:             piggybudgetEnv("LOG_LEVEL", "info"),
+		StoragePath:          piggybudgetEnv("STORAGE_PATH", "pb_data"),
+		Development:          piggybudgetEnvBool("DEVELOPMENT", false),
+		BackupEnabled:        piggybudgetEnvBool("BACKUP_ENABLED", false),
+		BackupCron:           piggybudgetEnv("BACKUP_CRON", "0 3 * * *"),
+		BackupMaxKeep:        piggybudgetEnvInt("BACKUP_MAX_KEEP", 14),
 		BackupS3: BackupS3Config{
 			Enabled:        piggybudgetEnvBool("BACKUP_S3_ENABLED", false),
 			Bucket:         piggybudgetEnv("BACKUP_S3_BUCKET", ""),

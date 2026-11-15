@@ -35,6 +35,7 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
+import { enabledSsoProviders } from '../../auth-policy';
 import { parseBulkTransactionJson } from './bulk-transaction-import';
 import { TransactionCategoryInput } from './transaction-category-input';
 import {
@@ -7853,7 +7854,45 @@ function ProfileSettingsDialog({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [linkedProviders, setLinkedProviders] = useState<Array<{ provider: string; id: string }>>([]);
+  const [availableProviders, setAvailableProviders] = useState<Array<{ name: string; displayName?: string }>>([]);
+  const [linkPassword, setLinkPassword] = useState('');
+  const [recoverySent, setRecoverySent] = useState(false);
   const requiresCurrentPassword = email.trim() !== profile.email || Boolean(newPassword);
+
+  useEffect(() => {
+    void Promise.all([pb.collection('users').listExternalAuths(userId), pb.collection('users').listAuthMethods()])
+      .then(([linked, methods]) => {
+        setLinkedProviders(linked.map((item) => ({ provider: String(item.provider), id: item.id })));
+        setAvailableProviders(enabledSsoProviders(methods));
+      }).catch(() => setError('Could not load connected sign-in methods.'));
+  }, [userId]);
+
+  async function connectProvider(provider: string) {
+    setError('');
+    try {
+      const result = await pb.send('/api/me/sso/link-intent', { method: 'POST', body: { password: linkPassword } }) as { intent: string };
+      await pb.collection('users').authWithOAuth2({ provider, headers: { 'X-PiggyBudget-Link-Intent': result.intent } });
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not link sign-in method.'); }
+  }
+
+  async function unlinkProvider(provider: string) {
+    if (linkedProviders.length <= 1) return;
+    try {
+      await pb.collection('users').unlinkExternalAuth(userId, provider);
+      const updated = await pb.collection('users').listExternalAuths(userId);
+      setLinkedProviders(updated.map((item) => ({ provider: String(item.provider), id: item.id })));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not unlink sign-in method.'); }
+  }
+
+  async function recoverPassword() {
+    if (!email.trim()) { setError('Add an email address before requesting password recovery.'); return; }
+    try {
+      await pb.collection('users').requestPasswordReset(email.trim());
+      setRecoverySent(true);
+      setError('');
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not request password recovery.'); }
+  }
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -7973,6 +8012,15 @@ function ProfileSettingsDialog({
           </button>
         </div>
       </form>
+      <section className="composer-card" aria-label="Connected sign-in methods">
+        <h3>Connected sign-in methods</h3>
+        {linkedProviders.map((item) => <div key={item.id} className="settings-message"><span>{item.provider}</span><button className="button" type="button" disabled={linkedProviders.length <= 1} onClick={() => void unlinkProvider(item.provider)}>Disconnect</button></div>)}
+        {availableProviders.some((item) => !linkedProviders.some((linked) => linked.provider === item.name)) && <label>Current password<input type="password" autoComplete="current-password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} /></label>}
+        {availableProviders.filter((item) => !linkedProviders.some((linked) => linked.provider === item.name)).map((item) => <button className="button" type="button" key={item.name} onClick={() => void connectProvider(item.name)}>Connect {item.displayName || item.name}</button>)}
+        {availableProviders.some((item) => !linkedProviders.some((linked) => linked.provider === item.name)) && <button className="button" type="button" onClick={() => void recoverPassword()}>Set or reset password by email</button>}
+        {recoverySent && <p role="status">If the address can recover an account, a password reset email will arrive. Set a password, then return to link the provider.</p>}
+        <small>Connecting a provider requires your current password. Keep at least one identity linked.</small>
+      </section>
     </div>
   );
 }
