@@ -50,7 +50,8 @@ var financeFields = map[string]map[string]bool{
 	"recurring_transactions": {
 		"account": true, "amount": true, "type": true, "payee": true, "description": true,
 		"category": true, "budget": true, "tags": true, "receivable": true, "notes": true,
-		"frequency": true, "interval": true, "start_date": true, "end_date": true, "active": true,
+		"frequency": true, "interval": true, "start_date": true, "next_date": true,
+		"end_date": true, "active": true,
 	},
 	"obligations": {
 		"side": true, "party": true, "title": true, "amount": true, "outstanding_amount": true,

@@ -49,6 +49,9 @@ func validateRecurringTransaction(record *core.Record) error {
 	if start.IsZero() || next.IsZero() {
 		return fmt.Errorf("start and next dates are required")
 	}
+	if next.Before(start) {
+		return fmt.Errorf("next date must be on or after start date")
+	}
 	end := record.GetDateTime("end_date").Time()
 	if !end.IsZero() && end.Before(start) {
 		return fmt.Errorf("end date must be on or after start date")

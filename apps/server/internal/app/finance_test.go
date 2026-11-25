@@ -276,6 +276,43 @@ func TestFinanceHTTPAPIRequiresAuthAndScopesRecords(t *testing.T) {
 	assertAuditEvent(t, server.app, owner.Id, "delete", "checkpoints", checkpointID)
 }
 
+func TestEditingRecurringRuleChangesFutureSettingsAndKeepsBookedTransaction(t *testing.T) {
+	server := newHTTPIntegrationServer(t)
+	user := integrationUser(t, server.app, "recurring-edit@example.com")
+	token := authToken(t, server, user.Email())
+	account := financeTestRecord(t, server.app, "accounts", map[string]any{"owner": user.Id, "name": "Checking", "type": "checking", "currency": "USD", "opening_balance": 1000})
+
+	status, _, body := integrationRequest(t, server, http.MethodPost, "/api/finance/recurring_transactions", `{"account":"`+account.Id+`","amount":-50,"type":"expense","payee":"Rent","frequency":"monthly","interval":1,"start_date":"2026-01-01","next_date":"2026-02-01"}`, withContentType(bearerHeaders(token)))
+	if status != http.StatusCreated {
+		t.Fatalf("create recurring rule = %d, %s", status, body)
+	}
+	var rule map[string]any
+	if err := json.Unmarshal([]byte(body), &rule); err != nil {
+		t.Fatal(err)
+	}
+	ruleID := rule["id"].(string)
+	booked := financeTestRecord(t, server.app, "transactions", map[string]any{"owner": user.Id, "account": account.Id, "date": "2026-02-01", "amount": -50, "type": "expense", "payee": "Rent", "recurring_rule": ruleID, "recurring_date": "2026-02-01"})
+
+	status, _, body = integrationRequest(t, server, http.MethodPut, "/api/finance/recurring_transactions/"+ruleID, `{"account":"`+account.Id+`","amount":-65,"type":"expense","payee":"Updated rent","frequency":"weekly","interval":1,"start_date":"2026-03-05","next_date":"2026-03-05"}`, withContentType(bearerHeaders(token)))
+	if status != http.StatusOK {
+		t.Fatalf("edit recurring rule = %d, %s", status, body)
+	}
+	updated, err := server.app.FindRecordById("recurring_transactions", ruleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.GetFloat("amount") != -65 || updated.GetString("payee") != "Updated rent" || updated.GetDateTime("next_date").String()[:10] != "2026-03-05" {
+		t.Fatalf("future rule settings were not updated: %#v", updated.PublicExport())
+	}
+	unchanged, err := server.app.FindRecordById("transactions", booked.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.GetFloat("amount") != -50 || unchanged.GetString("payee") != "Rent" || unchanged.GetDateTime("date").String()[:10] != "2026-02-01" {
+		t.Fatalf("booked transaction changed after rule edit: %#v", unchanged.PublicExport())
+	}
+}
+
 func TestFinanceHumaListUsesOwnerScopedListLogic(t *testing.T) {
 	testApp, err := tests.NewTestApp()
 	if err != nil {

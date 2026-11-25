@@ -2342,6 +2342,7 @@ function TransactionsView({
   onRenameReceivable,
   onDeleteTransactionsBatch,
   onDeleteRecurringRule,
+  onEditRecurringRule,
   onRefresh,
   transactionSearchTerm,
   onTransactionSearchHandled,
@@ -2360,6 +2361,7 @@ function TransactionsView({
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
   onDeleteTransactionsBatch: (transactions: Transaction[]) => void;
   onDeleteRecurringRule: (rule: RecurringTransaction) => void;
+  onEditRecurringRule: (rule: RecurringTransaction) => void;
   onRefresh: () => void;
   transactionSearchTerm: string;
   onTransactionSearchHandled: () => void;
@@ -2982,6 +2984,9 @@ function TransactionsView({
                     </button>
                     {openRecurringMenu === rule.id && (
                       <span className="transaction-row-menu" role="menu">
+                        <button type="button" role="menuitem" onClick={() => { setOpenRecurringMenu(null); onEditRecurringRule(rule); }}>
+                          Edit future transactions
+                        </button>
                         <button
                           type="button"
                           role="menuitem"
@@ -6183,6 +6188,7 @@ export function BudgetingDashboard({
     'account' | 'transaction' | 'checkpoint' | 'asset' | 'budget' | null
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editingRecurringRule, setEditingRecurringRule] = useState<RecurringTransaction | null>(null);
   const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
@@ -6222,6 +6228,7 @@ export function BudgetingDashboard({
   const closeComposer = () => {
     setComposer(null);
     setEditingTransaction(null);
+    setEditingRecurringRule(null);
     setDuplicatingTransaction(null);
     setEditingAsset(null);
     setEditingBudget(null);
@@ -6574,6 +6581,7 @@ export function BudgetingDashboard({
         onRenameReceivable={renameReceivable}
         onDeleteTransactionsBatch={deleteTransactionsBatch}
         onDeleteRecurringRule={(rule) => setRecurringDeletePrompt({ kind: 'schedule', rule })}
+        onEditRecurringRule={(rule) => { setEditingRecurringRule(rule); setComposer('transaction'); }}
         onRefresh={onRefresh}
         transactionSearchTerm={transactionSearchTerm}
         onTransactionSearchHandled={onTransactionSearchHandled}
@@ -6706,6 +6714,7 @@ export function BudgetingDashboard({
           data={data}
           remote={remote}
           transaction={editingTransaction ?? duplicatingTransaction}
+          recurringRule={editingRecurringRule}
           duplicate={Boolean(duplicatingTransaction)}
           asset={editingAsset}
           budgetRecord={editingBudget}
@@ -8355,6 +8364,7 @@ function FinanceComposer({
   data,
   remote,
   transaction,
+  recurringRule,
   duplicate,
   asset,
   budgetRecord,
@@ -8366,6 +8376,7 @@ function FinanceComposer({
   data: BudgetData;
   remote: boolean;
   transaction: Transaction | null;
+  recurringRule: RecurringTransaction | null;
   duplicate: boolean;
   asset: Asset | null;
   budgetRecord: Budget | null;
@@ -8392,7 +8403,7 @@ function FinanceComposer({
   );
   const defaultAccount = availableAccounts.find((item) => item.isDefault) ?? availableAccounts[0];
   const [account, setAccount] = useState(
-    transferSourceId ?? preferredAccountId ?? defaultAccount?.id ?? '',
+    recurringRule?.accountId ?? transferSourceId ?? preferredAccountId ?? defaultAccount?.id ?? '',
   );
   const [destinationAccount, setDestinationAccount] = useState(
     transferDestinationId ??
@@ -8403,7 +8414,7 @@ function FinanceComposer({
   const [accountType, setAccountType] = useState('Checking');
   const [currency, setCurrency] = useState(readPreferences().currency);
   const [date, setDate] = useState(
-    transaction?.date ??
+    recurringRule?.nextDate ?? transaction?.date ??
       asset?.purchaseDate ??
       budgetRecord?.startDate ??
       new Date().toISOString().slice(0, 10),
@@ -8412,7 +8423,9 @@ function FinanceComposer({
     asset?.asOf ?? new Date().toISOString().slice(0, 10),
   );
   const [amount, setAmount] = useState(
-    transaction
+    recurringRule
+      ? String(Math.abs(recurringRule.amount))
+      : transaction
       ? String(transaction.amount)
       : asset
         ? String(asset.value)
@@ -8433,14 +8446,14 @@ function FinanceComposer({
   const [budgetColor, setBudgetColor] = useState(
     budgetRecord?.color ?? budgetColorPalette[0].value,
   );
-  const [payee, setPayee] = useState(transaction?.merchant ?? '');
-  const [type, setType] = useState<TransactionKind>(transaction?.kind ?? 'expense');
+  const [payee, setPayee] = useState(recurringRule?.merchant ?? transaction?.merchant ?? '');
+  const [type, setType] = useState<TransactionKind>(recurringRule?.kind ?? transaction?.kind ?? 'expense');
   const [bulkJsonOpen, setBulkJsonOpen] = useState(false);
   const [bulkJson, setBulkJson] = useState('');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
-    (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
+    (recurringRule?.amount ?? transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
-  const [repeat, setRepeat] = useState(false);
+  const [repeat, setRepeat] = useState(Boolean(recurringRule));
   const [trackAsDebt, setTrackAsDebt] = useState(false);
   const [debtParty, setDebtParty] = useState('');
   const [debtAmount, setDebtAmount] = useState('');
@@ -8460,15 +8473,15 @@ function FinanceComposer({
         ],
   );
   const [repeatFrequency, setRepeatFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>(
-    'monthly',
+    recurringRule?.frequency ?? 'monthly',
   );
-  const [repeatInterval, setRepeatInterval] = useState('1');
-  const [repeatEndDate, setRepeatEndDate] = useState('');
-  const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
-  const [description, setDescription] = useState(transaction?.description ?? '');
-  const [receivable] = useState(transaction?.receivable ?? '');
+  const [repeatInterval, setRepeatInterval] = useState(String(recurringRule?.interval ?? 1));
+  const [repeatEndDate, setRepeatEndDate] = useState(recurringRule?.endDate ?? '');
+  const [note, setNote] = useState(recurringRule?.note ?? transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
+  const [description, setDescription] = useState(recurringRule?.description ?? transaction?.description ?? '');
+  const [receivable] = useState(recurringRule?.receivable ?? transaction?.receivable ?? '');
   const [purchaseTransaction, setPurchaseTransaction] = useState(asset?.purchaseTransaction ?? '');
-  const [category, setCategory] = useState(transaction?.category ?? budgetRecord?.category ?? '');
+  const [category, setCategory] = useState(recurringRule?.category ?? transaction?.category ?? budgetRecord?.category ?? '');
   const categoryOptions = [...new Map(
     [
       ...data.budgets.map((item) => item.category),
@@ -8478,8 +8491,8 @@ function FinanceComposer({
       .filter(Boolean)
       .map((item) => [item.toLocaleLowerCase(), item]),
   ).values()].sort((a, b) => a.localeCompare(b));
-  const [budget, setBudget] = useState(transaction?.budgetId ?? '');
-  const [tags, setTags] = useState(transaction?.tags?.join(', ') ?? '');
+  const [budget, setBudget] = useState(recurringRule?.budgetId ?? transaction?.budgetId ?? '');
+  const [tags, setTags] = useState((recurringRule?.tags ?? transaction?.tags)?.join(', ') ?? '');
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
   const [receiptScanMessage, setReceiptScanMessage] = useState('');
   const [pictureFiles, setPictureFiles] = useState<File[]>([]);
@@ -8764,7 +8777,8 @@ function FinanceComposer({
             frequency: repeatFrequency,
             interval: Number(repeatInterval),
             start_date: date,
-            ...(repeatEndDate ? { end_date: repeatEndDate } : {}),
+            next_date: date,
+            end_date: repeatEndDate || '',
           }
         : body;
     let transactionSaved = false;
@@ -8790,8 +8804,10 @@ function FinanceComposer({
                     : 'transactions';
       const isTransfer = kind === 'transaction' && type === 'transfer';
       const editedId =
-        isSplit || (repeat && kind === 'transaction')
+        isSplit || (repeat && kind === 'transaction' && !recurringRule)
           ? undefined
+          : recurringRule
+            ? recurringRule.id
           : isTransfer
             ? duplicate
               ? undefined
@@ -8940,7 +8956,9 @@ function FinanceComposer({
                     ? `${asset ? 'Edit' : 'Add'} asset`
                     : kind === 'checkpoint'
                       ? 'Record a checkpoint'
-                      : `${duplicate ? 'Duplicate' : transaction ? 'Edit' : 'Add'} transaction`}
+                      : recurringRule
+                        ? 'Edit recurring transaction'
+                        : `${duplicate ? 'Duplicate' : transaction ? 'Edit' : 'Add'} transaction`}
             </h2>
           </div>
           <button
@@ -9438,7 +9456,7 @@ function FinanceComposer({
                 )}
               </>
             )}
-            {(!transaction || duplicate) && type !== 'transfer' && (
+            {(!transaction || duplicate) && !recurringRule && type !== 'transfer' && (
               <label className="transaction-repeat-toggle">
                 <input
                   type="checkbox"
@@ -9629,7 +9647,9 @@ function FinanceComposer({
                   />
                 </label>
                 <p className="page-description">
-                  The first transaction is created on {formatDate(date)}.
+                  {recurringRule
+                    ? `This and future transactions will use the new settings from ${formatDate(date)}. Existing transactions stay as recorded.`
+                    : `The first transaction is created on ${formatDate(date)}.`}
                 </p>
               </>
             )}
