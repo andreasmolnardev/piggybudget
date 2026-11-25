@@ -35,6 +35,7 @@ import type { SidebarTab } from '../sidebar';
 import type { UserProfile } from '../../profile';
 import { apiBaseUrl, apiErrorFromResponse, apiFetch } from '../../api/client';
 import { pb } from '../../api/pocketbase';
+import { enabledSsoProviders } from '../../auth-policy';
 import { parseBulkTransactionJson } from './bulk-transaction-import';
 import { TransactionCategoryInput } from './transaction-category-input';
 import {
@@ -2341,6 +2342,7 @@ function TransactionsView({
   onRenameReceivable,
   onDeleteTransactionsBatch,
   onDeleteRecurringRule,
+  onEditRecurringRule,
   onRefresh,
   transactionSearchTerm,
   onTransactionSearchHandled,
@@ -2359,6 +2361,7 @@ function TransactionsView({
   onRenameReceivable: (person: string, nextName: string) => Promise<boolean>;
   onDeleteTransactionsBatch: (transactions: Transaction[]) => void;
   onDeleteRecurringRule: (rule: RecurringTransaction) => void;
+  onEditRecurringRule: (rule: RecurringTransaction) => void;
   onRefresh: () => void;
   transactionSearchTerm: string;
   onTransactionSearchHandled: () => void;
@@ -2981,6 +2984,9 @@ function TransactionsView({
                     </button>
                     {openRecurringMenu === rule.id && (
                       <span className="transaction-row-menu" role="menu">
+                        <button type="button" role="menuitem" onClick={() => { setOpenRecurringMenu(null); onEditRecurringRule(rule); }}>
+                          Edit future transactions
+                        </button>
                         <button
                           type="button"
                           role="menuitem"
@@ -6182,6 +6188,7 @@ export function BudgetingDashboard({
     'account' | 'transaction' | 'checkpoint' | 'asset' | 'budget' | null
   >(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editingRecurringRule, setEditingRecurringRule] = useState<RecurringTransaction | null>(null);
   const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
@@ -6221,6 +6228,7 @@ export function BudgetingDashboard({
   const closeComposer = () => {
     setComposer(null);
     setEditingTransaction(null);
+    setEditingRecurringRule(null);
     setDuplicatingTransaction(null);
     setEditingAsset(null);
     setEditingBudget(null);
@@ -6573,6 +6581,7 @@ export function BudgetingDashboard({
         onRenameReceivable={renameReceivable}
         onDeleteTransactionsBatch={deleteTransactionsBatch}
         onDeleteRecurringRule={(rule) => setRecurringDeletePrompt({ kind: 'schedule', rule })}
+        onEditRecurringRule={(rule) => { setEditingRecurringRule(rule); setComposer('transaction'); }}
         onRefresh={onRefresh}
         transactionSearchTerm={transactionSearchTerm}
         onTransactionSearchHandled={onTransactionSearchHandled}
@@ -6705,6 +6714,7 @@ export function BudgetingDashboard({
           data={data}
           remote={remote}
           transaction={editingTransaction ?? duplicatingTransaction}
+          recurringRule={editingRecurringRule}
           duplicate={Boolean(duplicatingTransaction)}
           asset={editingAsset}
           budgetRecord={editingBudget}
@@ -7853,7 +7863,45 @@ function ProfileSettingsDialog({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [linkedProviders, setLinkedProviders] = useState<Array<{ provider: string; id: string }>>([]);
+  const [availableProviders, setAvailableProviders] = useState<Array<{ name: string; displayName?: string }>>([]);
+  const [linkPassword, setLinkPassword] = useState('');
+  const [recoverySent, setRecoverySent] = useState(false);
   const requiresCurrentPassword = email.trim() !== profile.email || Boolean(newPassword);
+
+  useEffect(() => {
+    void Promise.all([pb.collection('users').listExternalAuths(userId), pb.collection('users').listAuthMethods()])
+      .then(([linked, methods]) => {
+        setLinkedProviders(linked.map((item) => ({ provider: String(item.provider), id: item.id })));
+        setAvailableProviders(enabledSsoProviders(methods));
+      }).catch(() => setError('Could not load connected sign-in methods.'));
+  }, [userId]);
+
+  async function connectProvider(provider: string) {
+    setError('');
+    try {
+      const result = await pb.send('/api/me/sso/link-intent', { method: 'POST', body: { password: linkPassword } }) as { intent: string };
+      await pb.collection('users').authWithOAuth2({ provider, headers: { 'X-PiggyBudget-Link-Intent': result.intent } });
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not link sign-in method.'); }
+  }
+
+  async function unlinkProvider(provider: string) {
+    if (linkedProviders.length <= 1) return;
+    try {
+      await pb.collection('users').unlinkExternalAuth(userId, provider);
+      const updated = await pb.collection('users').listExternalAuths(userId);
+      setLinkedProviders(updated.map((item) => ({ provider: String(item.provider), id: item.id })));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not unlink sign-in method.'); }
+  }
+
+  async function recoverPassword() {
+    if (!email.trim()) { setError('Add an email address before requesting password recovery.'); return; }
+    try {
+      await pb.collection('users').requestPasswordReset(email.trim());
+      setRecoverySent(true);
+      setError('');
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not request password recovery.'); }
+  }
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -7973,6 +8021,15 @@ function ProfileSettingsDialog({
           </button>
         </div>
       </form>
+      <section className="composer-card" aria-label="Connected sign-in methods">
+        <h3>Connected sign-in methods</h3>
+        {linkedProviders.map((item) => <div key={item.id} className="settings-message"><span>{item.provider}</span><button className="button" type="button" disabled={linkedProviders.length <= 1} onClick={() => void unlinkProvider(item.provider)}>Disconnect</button></div>)}
+        {availableProviders.some((item) => !linkedProviders.some((linked) => linked.provider === item.name)) && <label>Current password<input type="password" autoComplete="current-password" value={linkPassword} onChange={(event) => setLinkPassword(event.target.value)} /></label>}
+        {availableProviders.filter((item) => !linkedProviders.some((linked) => linked.provider === item.name)).map((item) => <button className="button" type="button" key={item.name} onClick={() => void connectProvider(item.name)}>Connect {item.displayName || item.name}</button>)}
+        {availableProviders.some((item) => !linkedProviders.some((linked) => linked.provider === item.name)) && <button className="button" type="button" onClick={() => void recoverPassword()}>Set or reset password by email</button>}
+        {recoverySent && <p role="status">If the address can recover an account, a password reset email will arrive. Set a password, then return to link the provider.</p>}
+        <small>Connecting a provider requires your current password. Keep at least one identity linked.</small>
+      </section>
     </div>
   );
 }
@@ -8307,6 +8364,7 @@ function FinanceComposer({
   data,
   remote,
   transaction,
+  recurringRule,
   duplicate,
   asset,
   budgetRecord,
@@ -8318,6 +8376,7 @@ function FinanceComposer({
   data: BudgetData;
   remote: boolean;
   transaction: Transaction | null;
+  recurringRule: RecurringTransaction | null;
   duplicate: boolean;
   asset: Asset | null;
   budgetRecord: Budget | null;
@@ -8344,7 +8403,7 @@ function FinanceComposer({
   );
   const defaultAccount = availableAccounts.find((item) => item.isDefault) ?? availableAccounts[0];
   const [account, setAccount] = useState(
-    transferSourceId ?? preferredAccountId ?? defaultAccount?.id ?? '',
+    recurringRule?.accountId ?? transferSourceId ?? preferredAccountId ?? defaultAccount?.id ?? '',
   );
   const [destinationAccount, setDestinationAccount] = useState(
     transferDestinationId ??
@@ -8355,7 +8414,7 @@ function FinanceComposer({
   const [accountType, setAccountType] = useState('Checking');
   const [currency, setCurrency] = useState(readPreferences().currency);
   const [date, setDate] = useState(
-    transaction?.date ??
+    recurringRule?.nextDate ?? transaction?.date ??
       asset?.purchaseDate ??
       budgetRecord?.startDate ??
       new Date().toISOString().slice(0, 10),
@@ -8364,7 +8423,9 @@ function FinanceComposer({
     asset?.asOf ?? new Date().toISOString().slice(0, 10),
   );
   const [amount, setAmount] = useState(
-    transaction
+    recurringRule
+      ? String(Math.abs(recurringRule.amount))
+      : transaction
       ? String(transaction.amount)
       : asset
         ? String(asset.value)
@@ -8385,14 +8446,14 @@ function FinanceComposer({
   const [budgetColor, setBudgetColor] = useState(
     budgetRecord?.color ?? budgetColorPalette[0].value,
   );
-  const [payee, setPayee] = useState(transaction?.merchant ?? '');
-  const [type, setType] = useState<TransactionKind>(transaction?.kind ?? 'expense');
+  const [payee, setPayee] = useState(recurringRule?.merchant ?? transaction?.merchant ?? '');
+  const [type, setType] = useState<TransactionKind>(recurringRule?.kind ?? transaction?.kind ?? 'expense');
   const [bulkJsonOpen, setBulkJsonOpen] = useState(false);
   const [bulkJson, setBulkJson] = useState('');
   const [adjustmentDirection, setAdjustmentDirection] = useState<'increase' | 'decrease'>(
-    (transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
+    (recurringRule?.amount ?? transaction?.signedAmount ?? 1) < 0 ? 'decrease' : 'increase',
   );
-  const [repeat, setRepeat] = useState(false);
+  const [repeat, setRepeat] = useState(Boolean(recurringRule));
   const [trackAsDebt, setTrackAsDebt] = useState(false);
   const [debtParty, setDebtParty] = useState('');
   const [debtAmount, setDebtAmount] = useState('');
@@ -8412,15 +8473,15 @@ function FinanceComposer({
         ],
   );
   const [repeatFrequency, setRepeatFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>(
-    'monthly',
+    recurringRule?.frequency ?? 'monthly',
   );
-  const [repeatInterval, setRepeatInterval] = useState('1');
-  const [repeatEndDate, setRepeatEndDate] = useState('');
-  const [note, setNote] = useState(transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
-  const [description, setDescription] = useState(transaction?.description ?? '');
-  const [receivable] = useState(transaction?.receivable ?? '');
+  const [repeatInterval, setRepeatInterval] = useState(String(recurringRule?.interval ?? 1));
+  const [repeatEndDate, setRepeatEndDate] = useState(recurringRule?.endDate ?? '');
+  const [note, setNote] = useState(recurringRule?.note ?? transaction?.note ?? asset?.notes ?? budgetRecord?.notes ?? '');
+  const [description, setDescription] = useState(recurringRule?.description ?? transaction?.description ?? '');
+  const [receivable] = useState(recurringRule?.receivable ?? transaction?.receivable ?? '');
   const [purchaseTransaction, setPurchaseTransaction] = useState(asset?.purchaseTransaction ?? '');
-  const [category, setCategory] = useState(transaction?.category ?? budgetRecord?.category ?? '');
+  const [category, setCategory] = useState(recurringRule?.category ?? transaction?.category ?? budgetRecord?.category ?? '');
   const categoryOptions = [...new Map(
     [
       ...data.budgets.map((item) => item.category),
@@ -8430,8 +8491,8 @@ function FinanceComposer({
       .filter(Boolean)
       .map((item) => [item.toLocaleLowerCase(), item]),
   ).values()].sort((a, b) => a.localeCompare(b));
-  const [budget, setBudget] = useState(transaction?.budgetId ?? '');
-  const [tags, setTags] = useState(transaction?.tags?.join(', ') ?? '');
+  const [budget, setBudget] = useState(recurringRule?.budgetId ?? transaction?.budgetId ?? '');
+  const [tags, setTags] = useState((recurringRule?.tags ?? transaction?.tags)?.join(', ') ?? '');
   const [receipt, setReceipt] = useState(transaction?.receipt ?? '');
   const [receiptScanMessage, setReceiptScanMessage] = useState('');
   const [pictureFiles, setPictureFiles] = useState<File[]>([]);
@@ -8716,7 +8777,8 @@ function FinanceComposer({
             frequency: repeatFrequency,
             interval: Number(repeatInterval),
             start_date: date,
-            ...(repeatEndDate ? { end_date: repeatEndDate } : {}),
+            next_date: date,
+            end_date: repeatEndDate || '',
           }
         : body;
     let transactionSaved = false;
@@ -8742,8 +8804,10 @@ function FinanceComposer({
                     : 'transactions';
       const isTransfer = kind === 'transaction' && type === 'transfer';
       const editedId =
-        isSplit || (repeat && kind === 'transaction')
+        isSplit || (repeat && kind === 'transaction' && !recurringRule)
           ? undefined
+          : recurringRule
+            ? recurringRule.id
           : isTransfer
             ? duplicate
               ? undefined
@@ -8892,7 +8956,9 @@ function FinanceComposer({
                     ? `${asset ? 'Edit' : 'Add'} asset`
                     : kind === 'checkpoint'
                       ? 'Record a checkpoint'
-                      : `${duplicate ? 'Duplicate' : transaction ? 'Edit' : 'Add'} transaction`}
+                      : recurringRule
+                        ? 'Edit recurring transaction'
+                        : `${duplicate ? 'Duplicate' : transaction ? 'Edit' : 'Add'} transaction`}
             </h2>
           </div>
           <button
@@ -9390,7 +9456,7 @@ function FinanceComposer({
                 )}
               </>
             )}
-            {(!transaction || duplicate) && type !== 'transfer' && (
+            {(!transaction || duplicate) && !recurringRule && type !== 'transfer' && (
               <label className="transaction-repeat-toggle">
                 <input
                   type="checkbox"
@@ -9581,7 +9647,9 @@ function FinanceComposer({
                   />
                 </label>
                 <p className="page-description">
-                  The first transaction is created on {formatDate(date)}.
+                  {recurringRule
+                    ? `This and future transactions will use the new settings from ${formatDate(date)}. Existing transactions stay as recorded.`
+                    : `The first transaction is created on ${formatDate(date)}.`}
                 </p>
               </>
             )}

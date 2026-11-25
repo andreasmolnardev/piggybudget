@@ -78,6 +78,12 @@ export type RecurringTransaction = {
   startDate?: string;
   nextDate: string;
   endDate?: string;
+  description?: string;
+  category?: string;
+  budgetId?: string;
+  tags?: string[];
+  receivable?: string;
+  note?: string;
   active: boolean;
 };
 
@@ -505,6 +511,12 @@ export async function loadBudgetData(): Promise<{ data: BudgetData; remote: bool
       startDate: optionalDateValue(record, 'start_date') || undefined,
       nextDate: optionalDateValue(record, 'next_date') ?? '',
       endDate: optionalDateValue(record, 'end_date') || undefined,
+      description: textValue(record, 'description'),
+      category: textValue(record, 'category'),
+      budgetId: textValue(record, 'budget') || undefined,
+      tags: Array.isArray(record.tags) ? record.tags.map(String) : [],
+      receivable: textValue(record, 'receivable'),
+      note: textValue(record, 'notes'),
       active: Boolean(record.active),
     })),
     obligations: obligations.map((record) => ({

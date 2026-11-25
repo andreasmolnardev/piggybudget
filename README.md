@@ -4,6 +4,10 @@ Piggybudget is a personal finance app for seeing accounts, transactions, budgets
 
 The current implementation has a working first finance slice: finance collections, protected CRUD routes, account summaries, a finance workspace, and tests. Some web views still use sample fallback data, and the money rules are not yet a separate domain package.
 
+## Categories and budgets
+
+A category labels what a transaction is for, such as Groceries or Rent. A budget sets a spending limit for a category over a date range, such as $500 for Groceries this month. Transactions can have a category without being assigned to a budget; the category describes the spending, while the budget tracks it against a plan.
+
 ## Implemented phases
 
 ### Phase 0: platform foundation
